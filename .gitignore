@@ -20,11 +20,8 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 
-# Markdown files
+# Markdown files (allow plan.md and task.md)
 *.md
-
-# Skills
-skills/
 
 # OS generated files
 .DS_Store
