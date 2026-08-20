@@ -1,0 +1,24 @@
+{
+  "name": "minecraft-ai-civilization",
+  "version": "1.0.0",
+  "description": "Minecraft AI Civilization simulation",
+  "main": "agent/index.js",
+  "scripts": {
+    "start": "node agent/index.js",
+    "dev": "node --watch agent/index.js"
+  },
+  "keywords": [
+    "minecraft",
+    "mineflayer",
+    "ai",
+    "bot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mineflayer": "^4.20.1",
+    "mineflayer-pathfinder": "^2.4.5",
+    "vec3": "^0.1.10"
+  }
+}
