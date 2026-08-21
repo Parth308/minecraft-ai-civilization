@@ -31,7 +31,51 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('AgentUnhandled', 'Unhandled Rejection:', reason);
 });
 
-logger.info('Agent', `Initializing cognitive agent instance '${config.username}' (${config.personalitySeed})...`);
+// ── Live agent state exposed on /status (read by dashboard) ────────────────
+let currentBot = null;
+const agentState = {
+  username: config.username,
+  online: false,
+  position: null,
+  stats: {},
+  lastDecision: null,
+  activeGoal: null,
+  persona: null,
+  inventory: [],
+  equipment: {},
+  biome: 'unknown',
+  timeOfDay: 'day',
+  isNight: false,
+  isRaining: false,
+  isInWater: false,
+  isOnFire: false,
+  recentChat: [],
+  uptime: 0,
+  startedAt: new Date().toISOString()
+};
+
+// Lightweight zero-dep status server (runs continuously for container lifetime)
+const statusServer = http.createServer((req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  if (req.url === '/status') {
+    agentState.uptime = process.uptime();
+    agentState.online = currentBot && currentBot.entity != null;
+    agentState.position = (currentBot && currentBot.entity)
+      ? { x: Math.round(currentBot.entity.position.x), y: Math.round(currentBot.entity.position.y), z: Math.round(currentBot.entity.position.z) }
+      : null;
+    res.writeHead(200);
+    res.end(JSON.stringify(agentState));
+  } else if (req.url === '/health') {
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: 'ok', username: config.username, online: agentState.online }));
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+statusServer.listen(config.statusPort, () => {
+  logger.info('AgentStatus', `${config.username} permanent status server on :${config.statusPort}`);
+});
 
 function createAgent() {
   const bot = mineflayer.createBot({
@@ -41,6 +85,7 @@ function createAgent() {
     version: config.version,
     hideErrors: false
   });
+  currentBot = bot;
 
   bot.loadPlugin(pathfinder);
 
@@ -67,51 +112,6 @@ function createAgent() {
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient);
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
-  });
-
-  // ── Live agent state exposed on /status (read by dashboard) ────────────────
-  const agentState = {
-    username: config.username,
-    online: false,
-    position: null,
-    stats: {},
-    lastDecision: null,
-    activeGoal: null,
-    persona: null,
-    inventory: [],
-    equipment: {},
-    biome: 'unknown',
-    timeOfDay: 'day',
-    isNight: false,
-    isRaining: false,
-    isInWater: false,
-    isOnFire: false,
-    recentChat: [],
-    uptime: 0,
-    startedAt: new Date().toISOString()
-  };
-
-  // Lightweight zero-dep status server (no Express needed)
-  const statusServer = http.createServer((req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    if (req.url === '/status') {
-      agentState.uptime = process.uptime();
-      agentState.online = !!bot.entity;
-      agentState.position = bot.entity
-        ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) }
-        : null;
-      res.writeHead(200);
-      res.end(JSON.stringify(agentState));
-    } else if (req.url === '/health') {
-      res.writeHead(200);
-      res.end(JSON.stringify({ status: 'ok', username: config.username, online: agentState.online }));
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
-  });
-  statusServer.listen(config.statusPort, () => {
-    logger.info('AgentStatus', `${config.username} status server on :${config.statusPort}`);
   });
 
   let tickInterval = null;
