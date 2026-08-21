@@ -5,14 +5,15 @@ This document serves as the complete technical specification, architectural refe
 ---
 
 ## 1. Tech Stack Summary
-- **Runtime**: Node.js (CommonJS modules)
+- **Runtime**: Node.js 20 (Alpine Linux container images)
+- **Orchestration**: Docker Compose with strict per-container resource constraints (`cpus`, `memory`)
 - **Game Engine Bot Client**: `mineflayer` (^4.20.1)
 - **Pathfinding Engine**: `mineflayer-pathfinder` (^2.4.5) with 3D A* navigation
 - **Vector Utilities**: `vec3` (^0.1.10)
-- **Minecraft Server**: Paper Minecraft Server 1.20.4 (`itzg/minecraft-server` in Docker, `online-mode=false`)
+- **Minecraft Server**: Paper Minecraft Server 1.20.4 (`itzg/minecraft-server` in Docker, `online-mode=false`, capped at 2.5GB RAM)
 - **HTTP Microservices**:
-  - **Brain Broker Service**: Express.js on port `3001` (`broker/index.js`)
-  - **Central Memory Service**: Express.js on port `3002` (`memory-service/index.js`)
+  - **Brain Broker Service**: Express.js on port `3001` (`broker/index.js`, 256MB RAM cap)
+  - **Central Memory Service**: Express.js on port `3002` (`memory-service/index.js`, 256MB RAM cap)
 - **LLM Provider Pool (Free Tiers)**:
   - **Gemini Flash (`gemini-2.5-flash`)**: Primary workhorse for complex reasoning, emotions, and Tier 2 memory consolidation.
   - **Groq (`llama-3.1-8b-instant`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
@@ -33,14 +34,15 @@ This document serves as the complete technical specification, architectural refe
 
 ### Core Agent (`agent/`)
 
-#### 1. Configuration & Entrypoint
+#### 1. Configuration, Dockerfile & Entrypoint
+- **[`agent/Dockerfile`](file:///e:/Projects/minecraft-community/agent/Dockerfile)**: Multi-stage Node 20 Alpine build for lean, resource-capped agent containers (~80MB RAM live).
 - **[`agent/config.js`](file:///e:/Projects/minecraft-community/agent/config.js)**
-  - `host`: Minecraft server host (default: `localhost`).
+  - `host`: Minecraft server host (default: `localhost` / `minecraft-server`).
   - `port`: Minecraft server port (default: `25565`).
-  - `username`: Agent player name (default: `Agent_Alpha`).
+  - `username`: Agent player name (e.g. `Agent_Alpha`, `Agent_Beta`).
   - `version`: Minecraft version target (`1.20.4`).
   - `prefix`: In-game chat command prefix (`!`).
-  - `personalitySeed`: Personality profile identifier (`friendly-explorer`).
+  - `personalitySeed`: Personality profile identifier (`friendly-explorer`, `cautious-builder`).
   - `confidenceThreshold`: Escalation threshold score (`0.6`).
 - **[`agent/index.js`](file:///e:/Projects/minecraft-community/agent/index.js)**
   - `createAgent()`: Instantiates Mineflayer client, loads pathfinder, initializes perception, actuators, stats, event buffer, memory client, and launches the 1-second main tick loop.
@@ -164,6 +166,7 @@ This document serves as the complete technical specification, architectural refe
 ---
 
 ### Central Brain Broker Service (`broker/`)
+- **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build for Brain Broker microservice.
 - **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**:
   - Express REST server running on port `3001` (`/health`, `/api/escalate`).
 - **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**:
@@ -182,6 +185,7 @@ This document serves as the complete technical specification, architectural refe
 ---
 
 ### Central Memory Service (`memory-service/`)
+- **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build with volume mount for persistent section markdown stores.
 - **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**:
   - Express REST server on port `3002` (`/api/memory/compact`, `/api/memory/consolidate`, `/api/memory/query`, `/health`).
 - **[`memory-service/config.js`](file:///e:/Projects/minecraft-community/memory-service/config.js)**:
@@ -199,6 +203,13 @@ This document serves as the complete technical specification, architectural refe
   - Tier 1 fast compaction (Groq) & Tier 2 smart section consolidation (Gemini Flash).
 - **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)** — `MemoryScheduler` class:
   - Periodic background sweep monitoring file sizes and triggering Tier 2 passes.
+
+---
+
+### Ops & Orchestration Scripts (`scripts/`)
+- **[`docker-compose.yml`](file:///e:/Projects/minecraft-community/docker-compose.yml)**: Orchestrates Paper Server (2.5GB limit), Memory Service (256MB limit), Brain Broker (256MB limit), Agent Alpha (256MB limit), Agent Beta (256MB limit).
+- **[`scripts/spawn-agent.sh`](file:///e:/Projects/minecraft-community/scripts/spawn-agent.sh)**: Spawns new dynamic agent containers with custom names and personalities.
+- **[`scripts/benchmark-resources.sh`](file:///e:/Projects/minecraft-community/scripts/benchmark-resources.sh)**: Measures live container footprints and projects max agent scaling capacity on a 16GB RAM VPS.
 
 ---
 
