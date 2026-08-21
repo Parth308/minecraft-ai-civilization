@@ -92,11 +92,28 @@ class InventoryActuator {
     }
 
     try {
+      // Navigate within reach (4 blocks) before digging
+      const pos = block.position;
+      const botPos = this.bot.entity?.position;
+      if (botPos) {
+        const dist = botPos.distanceTo(pos);
+        if (dist > 4.0) {
+          await new Promise((resolve, reject) => {
+            const { goals } = require('mineflayer-pathfinder');
+            this.bot.pathfinder.setGoal(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
+            this.bot.once('goal_reached', resolve);
+            setTimeout(() => reject(new Error('pathfind timeout')), 15000);
+          });
+        }
+      }
+
       await this.equipOptimalTool(block);
+      // Look at the block face before digging
+      await this.bot.lookAt(pos.offset(0.5, 0.5, 0.5), true);
       logger.info('Actuation:Inventory', `Excavating block: ${block.name}...`);
-      detailedLogger.logInventory(this.agentId, `Excavating block: ${block.name}`, { position: block.position });
+      detailedLogger.logInventory(this.agentId, `Excavating block: ${block.name}`, { position: pos });
       await this.bot.dig(block);
-      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${block.name}`, { position: block.position });
+      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${block.name}`, { position: pos });
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Mining block failed: ${err.message}`);
@@ -116,9 +133,29 @@ class InventoryActuator {
     }
 
     try {
+      // Navigate within reach before placing
+      const pos = referenceBlock.position;
+      const botPos = this.bot.entity?.position;
+      if (botPos && botPos.distanceTo(pos) > 4.0) {
+        await new Promise((resolve, reject) => {
+          const { goals } = require('mineflayer-pathfinder');
+          this.bot.pathfinder.setGoal(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
+          this.bot.once('goal_reached', resolve);
+          setTimeout(() => reject(new Error('pathfind timeout')), 15000);
+        });
+      }
+
+      // Look at the reference block face before placing
+      const lookTarget = pos.offset(
+        faceVector.x * 0.5 + 0.5,
+        faceVector.y * 0.5 + 0.5,
+        faceVector.z * 0.5 + 0.5
+      );
+      await this.bot.lookAt(lookTarget, true);
+
       await this.bot.equip(blockItem, 'hand');
       await this.bot.placeBlock(referenceBlock, faceVector);
-      detailedLogger.logInventory(this.agentId, `Placed block: ${blockName}`, { against: referenceBlock.name, pos: referenceBlock.position, face: faceVector });
+      detailedLogger.logInventory(this.agentId, `Placed block: ${blockName}`, { against: referenceBlock.name, pos, face: faceVector });
       logger.info('Actuation:Inventory', `Placed ${blockName} against ${referenceBlock.name}`);
       return true;
     } catch (err) {
