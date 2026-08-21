@@ -11,6 +11,24 @@ class InventoryActuator {
     return this.bot.username || 'UnknownAgent';
   }
 
+  // --- Proximity Navigation Helper ---
+
+  async _navigateWithin(pos, range = 3, timeoutMs = 15000) {
+    const botPos = this.bot.entity?.position;
+    if (!botPos || botPos.distanceTo(pos) <= range) return true;
+    return new Promise((resolve, reject) => {
+      const { goals } = require('mineflayer-pathfinder');
+      this.bot.pathfinder.setGoal(new goals.GoalNear(pos.x, pos.y, pos.z, range));
+      const onReach = () => { clearTimeout(timer); resolve(true); };
+      const timer = setTimeout(() => {
+        this.bot.pathfinder.setGoal(null);
+        this.bot.removeListener('goal_reached', onReach);
+        reject(new Error(`Navigation timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.bot.once('goal_reached', onReach);
+    });
+  }
+
   // --- Food & Consumption ---
 
   getFoodCategories() {
@@ -79,7 +97,7 @@ class InventoryActuator {
           await this.bot.equip(matchingTool, 'hand');
           detailedLogger.logInventory(this.agentId, `Equipped tool: ${matchingTool.name} for ${blockName}`);
         } catch (err) {
-          // Ignore
+          // Ignore equip failures silently
         }
       }
     }
@@ -93,27 +111,15 @@ class InventoryActuator {
 
     try {
       // Navigate within reach (4 blocks) before digging
-      const pos = block.position;
-      const botPos = this.bot.entity?.position;
-      if (botPos) {
-        const dist = botPos.distanceTo(pos);
-        if (dist > 4.0) {
-          await new Promise((resolve, reject) => {
-            const { goals } = require('mineflayer-pathfinder');
-            this.bot.pathfinder.setGoal(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
-            this.bot.once('goal_reached', resolve);
-            setTimeout(() => reject(new Error('pathfind timeout')), 15000);
-          });
-        }
-      }
+      await this._navigateWithin(block.position, 3);
 
       await this.equipOptimalTool(block);
-      // Look at the block face before digging
-      await this.bot.lookAt(pos.offset(0.5, 0.5, 0.5), true);
+      // Look at the block center before swinging
+      await this.bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
       logger.info('Actuation:Inventory', `Excavating block: ${block.name}...`);
-      detailedLogger.logInventory(this.agentId, `Excavating block: ${block.name}`, { position: pos });
+      detailedLogger.logInventory(this.agentId, `Excavating block: ${block.name}`, { position: block.position });
       await this.bot.dig(block);
-      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${block.name}`, { position: pos });
+      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${block.name}`, { position: block.position });
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Mining block failed: ${err.message}`);
@@ -134,19 +140,10 @@ class InventoryActuator {
 
     try {
       // Navigate within reach before placing
-      const pos = referenceBlock.position;
-      const botPos = this.bot.entity?.position;
-      if (botPos && botPos.distanceTo(pos) > 4.0) {
-        await new Promise((resolve, reject) => {
-          const { goals } = require('mineflayer-pathfinder');
-          this.bot.pathfinder.setGoal(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
-          this.bot.once('goal_reached', resolve);
-          setTimeout(() => reject(new Error('pathfind timeout')), 15000);
-        });
-      }
+      await this._navigateWithin(referenceBlock.position, 3);
 
-      // Look at the reference block face before placing
-      const lookTarget = pos.offset(
+      // Look at the exact face center before placing
+      const lookTarget = referenceBlock.position.offset(
         faceVector.x * 0.5 + 0.5,
         faceVector.y * 0.5 + 0.5,
         faceVector.z * 0.5 + 0.5
@@ -155,7 +152,7 @@ class InventoryActuator {
 
       await this.bot.equip(blockItem, 'hand');
       await this.bot.placeBlock(referenceBlock, faceVector);
-      detailedLogger.logInventory(this.agentId, `Placed block: ${blockName}`, { against: referenceBlock.name, pos, face: faceVector });
+      detailedLogger.logInventory(this.agentId, `Placed block: ${blockName}`, { against: referenceBlock.name, pos: referenceBlock.position, face: faceVector });
       logger.info('Actuation:Inventory', `Placed ${blockName} against ${referenceBlock.name}`);
       return true;
     } catch (err) {
@@ -172,9 +169,10 @@ class InventoryActuator {
     if (!item) return false;
 
     try {
-      await this.bot.toss(item.type, null, count);
-      detailedLogger.logInventory(this.agentId, `Dropped item: ${count}x ${itemName}`);
-      logger.info('Actuation:Inventory', `Dropped ${count}x ${itemName}`);
+      const actualCount = Math.min(count, item.count);
+      await this.bot.toss(item.type, null, actualCount);
+      detailedLogger.logInventory(this.agentId, `Dropped item: ${actualCount}x ${itemName}`);
+      logger.info('Actuation:Inventory', `Dropped ${actualCount}x ${itemName}`);
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Drop item failed: ${err.message}`);
@@ -182,10 +180,16 @@ class InventoryActuator {
     }
   }
 
+  // Look at player and drop item toward them (item drops at bot feet, player walks to pick it up)
   async tossItemToPlayer(itemName, playerEntity, count = 1) {
     if (!playerEntity || !playerEntity.position) return false;
-    await this.bot.lookAt(playerEntity.position.offset(0, playerEntity.height || 1.6, 0), true);
-    detailedLogger.logInventory(this.agentId, `Tossed ${count}x ${itemName} to player: ${playerEntity.username || playerEntity.name}`);
+    try {
+      // Face the player before tossing for realism
+      await this.bot.lookAt(playerEntity.position.offset(0, playerEntity.height || 1.6, 0), true);
+      detailedLogger.logInventory(this.agentId, `Tossed ${count}x ${itemName} to player: ${playerEntity.username || playerEntity.name}`);
+    } catch (err) {
+      // Continue even if look fails
+    }
     return this.dropItem(itemName, count);
   }
 
@@ -194,13 +198,18 @@ class InventoryActuator {
   async openChestAndDeposit(chestBlock, itemNames = []) {
     if (!chestBlock) return false;
     try {
+      // Navigate close to chest before opening
+      await this._navigateWithin(chestBlock.position, 3);
+      await this.bot.lookAt(chestBlock.position.offset(0.5, 0.5, 0.5), true);
+
       const chest = await this.bot.openChest(chestBlock);
       for (const itemName of itemNames) {
         const item = this.bot.inventory.items().find(i => i.name === itemName);
         if (item) {
-          await chest.deposit(item.type, null, item.count);
-          detailedLogger.logInventory(this.agentId, `Deposited ${item.count}x ${itemName} into chest at ${chestBlock.position}`);
-          logger.info('Actuation:Inventory', `Deposited ${item.count}x ${itemName} into chest.`);
+          const amount = item.count;
+          await chest.deposit(item.type, null, amount);
+          detailedLogger.logInventory(this.agentId, `Deposited ${amount}x ${itemName} into chest`, { pos: chestBlock.position });
+          logger.info('Actuation:Inventory', `Deposited ${amount}x ${itemName} into chest.`);
         }
       }
       chest.close();
@@ -214,12 +223,16 @@ class InventoryActuator {
   async openChestAndWithdraw(chestBlock, itemNames = []) {
     if (!chestBlock) return false;
     try {
+      // Navigate close to chest before opening
+      await this._navigateWithin(chestBlock.position, 3);
+      await this.bot.lookAt(chestBlock.position.offset(0.5, 0.5, 0.5), true);
+
       const chest = await this.bot.openChest(chestBlock);
       for (const itemName of itemNames) {
         const item = chest.containerItems().find(i => i.name === itemName);
         if (item) {
           await chest.withdraw(item.type, null, item.count);
-          detailedLogger.logInventory(this.agentId, `Withdrew ${item.count}x ${itemName} from chest at ${chestBlock.position}`);
+          detailedLogger.logInventory(this.agentId, `Withdrew ${item.count}x ${itemName} from chest`, { pos: chestBlock.position });
           logger.info('Actuation:Inventory', `Withdrew ${item.count}x ${itemName} from chest.`);
         }
       }
@@ -235,15 +248,40 @@ class InventoryActuator {
 
   async craftItem(itemName, count = 1) {
     const item = this.bot.registry.itemsByName[itemName];
-    if (!item) return false;
+    if (!item) {
+      logger.warn('Actuation:Inventory', `Unknown item to craft: ${itemName}`);
+      return false;
+    }
 
-    const recipes = this.bot.recipesFor(item.id, null, count, null);
-    if (recipes.length === 0) return false;
+    // Try to find a nearby crafting table for 3×3 recipes
+    let craftingTable = null;
+    const tableBlock = this.bot.findBlock({
+      matching: this.bot.registry.blocksByName['crafting_table']?.id,
+      maxDistance: 8
+    });
+
+    if (tableBlock) {
+      // Navigate to the crafting table before using it
+      try {
+        await this._navigateWithin(tableBlock.position, 3);
+        await this.bot.lookAt(tableBlock.position.offset(0.5, 0.5, 0.5), true);
+        craftingTable = tableBlock;
+      } catch (err) {
+        logger.debug('Actuation:Inventory', `Could not reach crafting table: ${err.message}`);
+      }
+    }
+
+    // Get recipes (with table if available, for 3×3 recipes)
+    const recipes = this.bot.recipesFor(item.id, null, count, craftingTable);
+    if (!recipes || recipes.length === 0) {
+      logger.warn('Actuation:Inventory', `No recipe available for: ${itemName}`);
+      return false;
+    }
 
     try {
-      logger.info('Actuation:Inventory', `Crafting ${count}x ${itemName}...`);
-      await this.bot.craft(recipes[0], count, null);
-      detailedLogger.logInventory(this.agentId, `Crafted item: ${count}x ${itemName}`);
+      logger.info('Actuation:Inventory', `Crafting ${count}x ${itemName}${craftingTable ? ' at crafting table' : ' (2x2)'}...`);
+      await this.bot.craft(recipes[0], count, craftingTable);
+      detailedLogger.logInventory(this.agentId, `Crafted item: ${count}x ${itemName}`, { usedTable: !!craftingTable });
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Crafting failed: ${err.message}`);

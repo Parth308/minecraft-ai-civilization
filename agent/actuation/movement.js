@@ -37,7 +37,7 @@ class MovementActuator {
   }
 
   fleeFrom(entity, distance = 16) {
-    if (!entity || !entity.position) return;
+    if (!entity || !entity.position || !this.bot.entity) return;
     const current = this.bot.entity.position;
     const diff = current.minus(entity.position).normalize().scale(distance);
     const target = current.plus(diff);
