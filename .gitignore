@@ -23,8 +23,9 @@ pip-delete-this-directory.txt
 # Simulation Logs
 logs/
 
-# Markdown files (except agent knowledge base)
+# Markdown files (allow README and agent knowledge base)
 *.md
+!README.md
 !.agent/*.md
 
 # OS generated files
