@@ -326,13 +326,18 @@ async function sendChat() {
 
 window.spectateAgent = function(agentId) {
   wsSend('spectate_agent', { agentId });
+  activateViewer();
 };
 
 function activateViewer() {
   const overlay = document.getElementById('viewerOverlay');
   const frame = document.getElementById('worldFrame');
   if (overlay) overlay.classList.add('hidden');
-  if (frame && !frame.src) frame.src = '/viewer/';
+  if (frame) {
+    if (!frame.src || frame.src === 'about:blank' || frame.src === location.href) {
+      frame.src = '/viewer/';
+    }
+  }
   state.viewerActive = true;
 }
 

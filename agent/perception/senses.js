@@ -17,16 +17,26 @@ class Senses {
   }
 
   getNearbyHostileMobs(maxDistance = 16) {
+    // Naturally aggressive hostiles that attack on sight
     const hostileTypes = [
-      'zombie', 'skeleton', 'creeper', 'spider', 'cave_spider', 'enderman',
-      'witch', 'drowned', 'husk', 'stray', 'phantom', 'warden', 'pillager',
-      'ravager', 'vindicator', 'evoker', 'blaze', 'ghast', 'magma_cube',
-      'slime', 'silverfish', 'elder_guardian', 'guardian', 'shulker',
-      'zombified_piglin', 'piglin_brute', 'hoglin', 'zoglin', 'endermite'
+      'zombie', 'skeleton', 'creeper', 'witch', 'drowned', 'husk',
+      'stray', 'phantom', 'warden', 'pillager', 'ravager', 'vindicator',
+      'evoker', 'blaze', 'ghast', 'magma_cube', 'slime', 'silverfish',
+      'elder_guardian', 'guardian', 'shulker', 'piglin_brute', 'hoglin',
+      'zoglin', 'endermite', 'cave_spider'
     ];
     return this.getNearbyMobs(maxDistance).filter(entity => {
       const name = entity.name ? entity.name.toLowerCase() : '';
       return hostileTypes.some(h => name.includes(h));
+    });
+  }
+
+  // Neutral mobs that only attack if provoked (Enderman, Zombified Piglin, Iron Golem, Wolf, Spider in daylight)
+  getNearbyNeutralMobs(maxDistance = 16) {
+    const neutralTypes = ['enderman', 'zombified_piglin', 'spider', 'iron_golem', 'piglin', 'llama', 'polar_bear', 'bee', 'dolphin'];
+    return this.getNearbyMobs(maxDistance).filter(entity => {
+      const name = entity.name ? entity.name.toLowerCase() : '';
+      return neutralTypes.some(n => name.includes(n));
     });
   }
 

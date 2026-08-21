@@ -229,9 +229,12 @@ function createAgent() {
 
       case ACTIONS.MINE:
         if (decision.meta && decision.meta.targetBlock) {
-          logger.info('AgentLoop', 'Executing MINE action');
-          movement.gotoBlock(decision.meta.targetBlock.position.x, decision.meta.targetBlock.position.y, decision.meta.targetBlock.position.z);
-          eventBuffer.addEvent('mineBlock', { block: decision.meta.targetBlock.name });
+          const block = decision.meta.targetBlock;
+          logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
+          const success = await inventory.digBlock(block);
+          if (success) {
+            eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
+          }
         }
         break;
 
@@ -239,7 +242,7 @@ function createAgent() {
       case ACTIONS.WANDER:
         if (!movement.isMoving()) {
           logger.info('AgentLoop', `Executing ${decision.action} action`);
-          movement.wander();
+          movement.wander(16);
         }
         break;
 

@@ -1,13 +1,17 @@
-/**
- * Dashboard server — Express + WebSocket + spectator bot
- * Port 3003
- */
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const logger = require('../../shared/logger');
+
+// Process Crash Protection
+process.on('uncaughtException', (err) => {
+  logger.error('DashboardUncaught', 'Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error('DashboardUnhandled', 'Unhandled Rejection:', reason);
+});
 
 const Aggregator = require('./aggregator');
 const SpectatorManager = require('./spectator');

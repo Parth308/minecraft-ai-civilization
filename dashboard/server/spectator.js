@@ -54,8 +54,8 @@ class SpectatorManager {
       logger.info('Spectator', 'SpectatorBot spawned — setting up OP + spectator mode via RCON...');
       await this._setupViaRcon();
 
-      // Start the 3D viewer after a short delay to let gamemode apply
-      setTimeout(() => this._startViewer(), 1500);
+      // Start the 3D viewer after a delay to allow gamemode to settle
+      setTimeout(() => this._startViewer(), 2000);
     });
 
     this.bot.on('error', (err) => {
@@ -64,13 +64,26 @@ class SpectatorManager {
 
     this.bot.on('end', () => {
       logger.warn('Spectator', 'SpectatorBot disconnected — reconnecting in 10s...');
+      this._cleanupViewer();
       this.viewerStarted = false;
       setTimeout(() => this._connect(), 10000);
     });
 
     this.bot.on('kicked', (reason) => {
       logger.error('Spectator', `SpectatorBot kicked: ${reason}`);
+      this._cleanupViewer();
     });
+  }
+
+  _cleanupViewer() {
+    if (this.bot && this.bot.viewer) {
+      try {
+        this.bot.viewer.close();
+        logger.info('Spectator', 'Closed previous world viewer instance');
+      } catch (err) {
+        // ignore close error
+      }
+    }
   }
 
   async _setupViaRcon() {
@@ -79,11 +92,11 @@ class SpectatorManager {
       return;
     }
     try {
-      // Grant OP first, then switch to spectator (spectator needs no OP, but OP allows /tp self)
+      // Grant OP first, then switch to spectator
       await this.rcon.send(`op ${SPECTATOR_NAME}`);
       logger.info('Spectator', `Granted OP to ${SPECTATOR_NAME}`);
 
-      await new Promise(r => setTimeout(r, 500)); // brief pause
+      await new Promise(r => setTimeout(r, 600));
 
       await this.rcon.send(`gamemode spectator ${SPECTATOR_NAME}`);
       logger.info('Spectator', `Set ${SPECTATOR_NAME} to spectator mode`);
@@ -101,6 +114,7 @@ class SpectatorManager {
   _startViewer() {
     if (this.viewerStarted || !prismarineViewer || !this.bot) return;
     try {
+      this._cleanupViewer();
       prismarineViewer(this.bot, { port: VIEWER_PORT, firstPerson: false });
       this.viewerStarted = true;
       logger.info('Spectator', `World viewer started on internal port ${VIEWER_PORT}`);
