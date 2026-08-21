@@ -194,7 +194,7 @@ This document serves as the complete technical specification, architectural refe
 
 ### Central Memory Service (`memory-service/`)
 - **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build with `/health` check.
-- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002`.
+- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002`. Exposes `GET /health`, `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`, `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`, `GET /api/ledger`.
 - **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
   - Supports **Ollama (`nomic-embed-text`)**, **Gemini (`text-embedding-004`)**, and **Local N-Gram Fallback** with L2 vector normalization.
 - **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)**: Memory vector store and semantic search.
@@ -209,8 +209,27 @@ This document serves as the complete technical specification, architectural refe
 
 ---
 
+### Civilization Control Dashboard (`dashboard/`)
+- **[`dashboard/Dockerfile`](file:///e:/Projects/minecraft-community/dashboard/Dockerfile)**: Docker container build (Node 20 Alpine, 512MB RAM cap) with `/health` check.
+- **[`dashboard/package.json`](file:///e:/Projects/minecraft-community/dashboard/package.json)**: `express`, `ws`, `mineflayer`, `prismarine-viewer`, `http-proxy-middleware`.
+- **[`dashboard/server/index.js`](file:///e:/Projects/minecraft-community/dashboard/server/index.js)**: Express REST server on port `3003` + WebSocket server on `/ws` + reverse proxy for `prismarine-viewer` on `/viewer`.
+- **[`dashboard/server/aggregator.js`](file:///e:/Projects/minecraft-community/dashboard/server/aggregator.js)**: Polls Brain Broker (5s), Memory Service (5s), Agent status endpoints (2s), diffs chat, and broadcasts WebSocket snapshots.
+- **[`dashboard/server/spectator.js`](file:///e:/Projects/minecraft-community/dashboard/server/spectator.js)**: Embedded `SpectatorBot` mineflayer client. On spawn, automatically configures OP + spectator mode via RCON, runs `prismarine-viewer` on internal port 3004, and enables instantaneous noclip teleporting (`/tp SpectatorBot <AgentName>`) when switching camera between agents.
+- **[`dashboard/server/rcon.js`](file:///e:/Projects/minecraft-community/dashboard/server/rcon.js)**: Zero-dependency Minecraft RCON client implementation.
+- **[`dashboard/server/routes/`](file:///e:/Projects/minecraft-community/dashboard/server/routes/)**:
+  - `health.js`: Health metrics and response times for all microservices.
+  - `agents.js`: Snapshot and details for all active agents.
+  - `chat.js`: Relays chat history and enables browser-based operator chat messages via `/tellraw` with `[Operator]` prefix.
+  - `memory.js`: Memory query and raw section retrieval proxies.
+  - `ledger.js`: Civilization ledger proxy.
+- **[`dashboard/client/`](file:///e:/Projects/minecraft-community/dashboard/client/)**:
+  - `index.html`: Responsive 3-column cyberpunk observation UI (Service health, Agent cards with dynamic confidence rings & stat meters, World view iframe with spectate switcher, Live world chat & operator input, Decision tree rule ranking, Markdown memory viewer, Civilization ledger).
+  - `app.js`: Zero-build ES module frontend with auto-reconnecting WebSocket telemetry.
+
+---
+
 ### Ops & Orchestration Scripts (`scripts/`)
-- **[`docker-compose.yml`](file:///e:/Projects/minecraft-community/docker-compose.yml)**: Orchestrates Paper Server (2.5GB limit), Ollama (`nomic-embed-text`), Memory Service (256MB limit), Brain Broker (256MB limit), Agent Alpha (256MB limit), Agent Beta (256MB limit) with health check dependencies.
+- **[`docker-compose.yml`](file:///e:/Projects/minecraft-community/docker-compose.yml)**: Orchestrates Paper Server (2.5GB limit + RCON enabled on port 25575), Ollama (`nomic-embed-text`, 1.5GB limit), Memory Service (256MB limit), Brain Broker (256MB limit), Dashboard (512MB limit, port 3003), Agent Alpha (256MB limit, status port 3010), Agent Beta (256MB limit, status port 3011).
 - **[`scripts/spawn-agent.sh`](file:///e:/Projects/minecraft-community/scripts/spawn-agent.sh)**: Spawns new dynamic agent containers with custom names and personalities.
 - **[`scripts/benchmark-resources.sh`](file:///e:/Projects/minecraft-community/scripts/benchmark-resources.sh)**: Measures live container footprints and projects max agent scaling capacity on a 16GB RAM VPS.
 
