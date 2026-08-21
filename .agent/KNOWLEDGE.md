@@ -27,6 +27,11 @@ This document serves as the complete technical specification, architectural refe
   - **Layer 1**: SHA-256 exact-match state hash cache with 300s TTL (`broker/cache/exactCache.js`).
   - **Layer 2**: Cosine similarity semantic vector cache with $\ge 0.88$ threshold (`broker/cache/semanticCache.js`).
 - **Memory Architecture**: Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with vector indexing (`vectorStore.js`) and two-tier compaction.
+- **Emergent Social & Civilization Layer**:
+  - **Cognition & Persona**: Dynamic evolving persona and autonomous goal generation (`persona.js`, `goals.js`).
+  - **Social Dialogue**: Open-ended conversational social agent with free-will disposition (`dialogue.js`, `factions.js`).
+  - **Generative Reflection**: Periodic LLM reflection synthesizing societal insights and worldviews (`reflection/engine.js`).
+  - **Civilization Ledger**: Shared cultural state tracking emergent currencies, settlements, and treaties (`civilization/ledger.js`).
 
 ---
 
@@ -45,12 +50,34 @@ This document serves as the complete technical specification, architectural refe
   - `personalitySeed`: Personality profile identifier (`friendly-explorer`, `cautious-builder`).
   - `confidenceThreshold`: Escalation threshold score (`0.6`).
 - **[`agent/index.js`](file:///e:/Projects/minecraft-community/agent/index.js)**
-  - `createAgent()`: Instantiates Mineflayer client, loads pathfinder, initializes perception, actuators, stats, event buffer, memory client, and launches the 1-second main tick loop.
+  - `createAgent()`: Instantiates Mineflayer client, loads pathfinder, initializes perception, actuators, stats, persona, goals, social dialogue, event buffer, memory client, and launches the 1-second main tick loop.
   - `executeDecision(decision)`: Translates decision tree output into physical actions (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `EXPLORE`, `WANDER`).
 
 ---
 
-#### 2. Perception Layer (`agent/perception/`)
+#### 2. Cognitive & Goal Architecture (`agent/cognition/`)
+- **[`agent/cognition/persona.js`](file:///e:/Projects/minecraft-community/agent/cognition/persona.js)** — `DynamicPersona` class:
+  - `initializeTraits(seed)`: Initializes traits (`curiosity`, `sociability`, `greed`, `loyalty`, `caution`, `ambition`) based on cognitive seed.
+  - `evolveFromExperience(eventType, impact)`: Mutes or amplifies traits in response to trauma (betrayals, scams, near-death) or triumph (cooperation, gifts).
+  - `getPersonaPromptContext()`: Formats dynamic persona, traits, and free-will directives for LLM prompts.
+- **[`agent/cognition/goals.js`](file:///e:/Projects/minecraft-community/agent/cognition/goals.js)** — `GoalManager` class:
+  - `setGoal(description, details)`: Formulates an emergent short-term objective.
+  - `setAspiration(aspiration)`: Establishes a life dream / long-term goal.
+  - `markGoalCompleted(outcome)`: Logs goal completion.
+  - `getGoalContext()`: Returns active goal snapshot.
+
+---
+
+#### 3. Social & Diplomatic Architecture (`agent/social/`)
+- **[`agent/social/dialogue.js`](file:///e:/Projects/minecraft-community/agent/social/dialogue.js)** — `SocialDialogueEngine` class:
+  - `processIncomingChat(sender, message, civContext)`: Parses natural chat messages from other bots or players, passes persona, goals, and history to Brain Broker (`SOCIAL_CHAT` task), updates dynamic relationship metrics, and returns natural spoken dialogue.
+- **[`agent/social/factions.js`](file:///e:/Projects/minecraft-community/agent/social/factions.js)** — `FactionAffiliationManager` class:
+  - `evaluateTreatyOffer(proposer, treatyType, terms)`: Evaluates whether to accept or reject treaties based on loyalty, caution, and free-will rebellion disposition.
+  - `recognizeCurrency(currencyName)`: Tracks custom player-invented currencies the bot accepts.
+
+---
+
+#### 4. Perception Layer (`agent/perception/`)
 - **[`agent/perception/senses.js`](file:///e:/Projects/minecraft-community/agent/perception/senses.js)** — `Senses` class:
   - `getNearbyMobs(maxDistance=16)`: Scans world entities and filters for living non-player mobs.
   - `getNearbyHostileMobs(maxDistance=16)`: Filters for dangerous hostiles (zombies, skeletons, creepers, phantoms, wardens, etc.).
@@ -89,7 +116,7 @@ This document serves as the complete technical specification, architectural refe
 
 ---
 
-#### 3. Actuation Layer (`agent/actuation/`)
+#### 5. Actuation Layer (`agent/actuation/`)
 - **[`agent/actuation/movement.js`](file:///e:/Projects/minecraft-community/agent/actuation/movement.js)** — `MovementActuator` class:
   - `goto(x, y, z, range=1)`: Navigates using `GoalNear` pathfinding.
   - `gotoBlock(x, y, z)`: Navigates directly on top of specific block using `GoalBlock`.
@@ -108,17 +135,14 @@ This document serves as the complete technical specification, architectural refe
 
 - **[`agent/actuation/inventory.js`](file:///e:/Projects/minecraft-community/agent/actuation/inventory.js)** — `InventoryActuator` class:
   - `getFoodCategories()`: Returns multi-tier categorization (`comfort`, `emergency`, `desperation`).
-  - `findBestFood(health, hunger)`: Selects optimal item based on physical state:
-    - *Comfort*: Cooked steak, bread, baked potato (Normal operation).
-    - *Emergency*: Raw pork, raw beef, apples, carrots (Starving or HP < 10).
-    - *Desperation*: Rotten flesh, spider eyes (Fatal starvation at HP <= 4).
+  - `findBestFood(health, hunger)`: Selects optimal food item based on physical state.
   - `eatFood(health, hunger)`: Equips selected food and consumes it.
   - `craftItem(itemName, count)`: Automatically finds matching recipe in bot registry and crafts item.
   - `listInventory()`: Returns formatted array of item names and stack counts.
 
 ---
 
-#### 4. Stats & Social Engine (`agent/stats/`) — Zero LLM
+#### 6. Stats & Social Engine (`agent/stats/`) — Zero LLM
 - **[`agent/stats/stats.js`](file:///e:/Projects/minecraft-community/agent/stats/stats.js)** — `StatsManager` class:
   - Manages numeric values: `health` (0-20), `hunger` (0-100%), `anger` (0-100%), `happiness` (0-100%), `fatigue` (0-100%).
   - `clamp(val)`: Constrains values within min/max bounds.
@@ -127,7 +151,7 @@ This document serves as the complete technical specification, architectural refe
   - `getSummary()`: Returns snapshot object of all current stats.
 
 - **[`agent/stats/decay.js`](file:///e:/Projects/minecraft-community/agent/stats/decay.js)** — `StatsDecayEngine` class:
-  - `tick()`: Updates hunger (faster during movement), fatigue, anger calm-down, and happiness.
+  - `tick()`: Updates hunger, fatigue, anger calm-down, and happiness.
 
 - **[`agent/stats/relationships.js`](file:///e:/Projects/minecraft-community/agent/stats/relationships.js)** — `RelationshipTracker` class:
   - `get(username)`: Retrieves trust (0-100) and affinity (0-100) for a player.
@@ -135,30 +159,24 @@ This document serves as the complete technical specification, architectural refe
 
 ---
 
-#### 5. Decision Engine (`agent/decision/`)
+#### 7. Decision Engine (`agent/decision/`)
 - **[`agent/decision/confidence.js`](file:///e:/Projects/minecraft-community/agent/decision/confidence.js)** — `ConfidenceEvaluator` class:
   - `shouldEscalate(confidence)`: Returns true if rule score < `0.6`.
 - **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class:
-  - `learnRule(situationPayload, decisionData)`: Replicates LLM decisions locally with confidence `0.85`, reinforcing matching rules on repeated hits and writing durable survival tactics into `skills.md`.
+  - `learnRule(situationPayload, decisionData)`: Replicates LLM decisions locally with confidence `0.85` and writes durable survival tactics into `skills.md`.
   - `evaluateDynamicRules(senses, stats)`: Returns candidate actions generated from learned rules.
 - **[`agent/decision/rules/`](file:///e:/Projects/minecraft-community/agent/decision/rules/)**:
-  - `eat.js`: Evaluates multi-tier emergency/comfort feeding needs.
-  - `flee.js`: Evaluates threat avoidance when overwhelmed or critical HP.
-  - `fight.js`: Evaluates counter-attacks on hostiles.
-  - `sleep.js`: Evaluates night-time rest when fatigue is high.
-  - `mine.js`: Evaluates idle resource harvesting.
-  - `explore.js`: Evaluates curiosity wander when stamina is high.
-  - `trade.js`: Evaluates bartering with trusted players.
+  - `eat.js`, `flee.js`, `fight.js`, `sleep.js`, `mine.js`, `explore.js`, `trade.js`.
 - **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class:
-  - `evaluate(senses, statsManager)`: Combines static and dynamic rules, selects top action, and escalates to Brain Broker if confidence < `0.6`. Applies returned `emotionDelta` to stats.
+  - `evaluate(senses, statsManager)`: Combines static and dynamic rules, selects top action, escalates to Brain Broker if confidence < `0.6`.
 - **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class:
   - `escalate(situationContext)`: Dispatches payload to `BrainClient`.
 
 ---
 
-#### 6. Memory Client (`agent/memory/`)
+#### 8. Memory Client (`agent/memory/`)
 - **[`agent/memory/buffer.js`](file:///e:/Projects/minecraft-community/agent/memory/buffer.js)** — `EventBuffer` class:
-  - `addEvent(type, payload)`: Appends event; automatically flushes when capacity (20) is reached.
+  - `addEvent(type, payload)`: Appends event; flushes at capacity (20).
 - **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class:
   - `flushBuffer(events)`: Calls `POST /api/memory/compact`.
   - `queryMemories(query, section, limit)`: Calls `GET /api/memory/query`.
@@ -166,43 +184,31 @@ This document serves as the complete technical specification, architectural refe
 ---
 
 ### Central Brain Broker Service (`broker/`)
-- **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build for Brain Broker microservice.
-- **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**:
-  - Express REST server running on port `3001` (`/health`, `/api/escalate`).
-- **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**:
-  - Loads API keys, port (`3001`), and cache settings.
+- **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build.
+- **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**: Express REST server on port `3001`.
+- **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**: API keys and port configuration.
 - **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
-  - Checks **Exact SHA-256 Cache** $\rightarrow$ Checks **Semantic Vector Cache ($\ge 0.88$)** $\rightarrow$ Calls LLM pool with task-preference order $\rightarrow$ Caches decision in both Exact and Semantic Caches.
-- **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)** — `RateLimiter` class:
-  - Imposes 60s cooldown on rate-limited providers.
-- **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)** — `ExactCache` class:
-  - SHA-256 state hash cache with 300s TTL.
-- **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)** — `SemanticCache` class:
-  - `cosineSimilarity(vecA, vecB)`: Computes normalized vector dot product.
-  - `findSimilar(situation)`: Searches stored situation vectors for matches $\ge 0.88$.
-  - `store(situation, decision)`: Embeds situation text and stores with TTL.
+  - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`.
+  - Injects dynamic persona, active goals, and free-will directives into prompts.
+- **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager.
+- **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)**: SHA-256 state hash cache.
+- **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)**: Cosine similarity vector cache ($\ge 0.88$).
 
 ---
 
 ### Central Memory Service (`memory-service/`)
-- **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build with volume mount for persistent section markdown stores.
-- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**:
-  - Express REST server on port `3002` (`/api/memory/compact`, `/api/memory/consolidate`, `/api/memory/query`, `/health`).
-- **[`memory-service/config.js`](file:///e:/Projects/minecraft-community/memory-service/config.js)**:
-  - Configuration for storage paths, soft caps, and scheduler intervals.
-- **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
-  - `getEmbedding(text)`: Detachable provider generating 768-dimensional normalized vectors via Gemini `text-embedding-004` (hosted) or deterministic token frequency & N-gram hashing (local zero-overhead fallback).
-- **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)** — `VectorMemoryStore` class:
-  - `indexSectionEntries(agentId, section, entries)`: Embeds and indexes memory entries.
-  - `searchSimilar(agentId, queryText, limit)`: Performs semantic cosine similarity search over stored memory vectors.
-- **[`memory-service/sections/schema.js`](file:///e:/Projects/minecraft-community/memory-service/sections/schema.js)**:
-  - Creates and parses sectioned markdown files (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`).
-- **[`memory-service/router.js`](file:///e:/Projects/minecraft-community/memory-service/router.js)** — `EventRouter` class:
-  - Zero-LLM event router categorizing raw events into section files.
-- **[`memory-service/sections/compactor.js`](file:///e:/Projects/minecraft-community/memory-service/sections/compactor.js)** — `MemoryCompactor` class:
-  - Tier 1 fast compaction (Groq) & Tier 2 smart section consolidation (Gemini Flash).
-- **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)** — `MemoryScheduler` class:
-  - Periodic background sweep monitoring file sizes and triggering Tier 2 passes.
+- **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build.
+- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002`.
+- **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)**: Detachable Gemini hosted vs local N-gram vector generator.
+- **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)**: Memory vector store and semantic search.
+- **[`memory-service/sections/schema.js`](file:///e:/Projects/minecraft-community/memory-service/sections/schema.js)**: Sectioned markdown manager (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`).
+- **[`memory-service/router.js`](file:///e:/Projects/minecraft-community/memory-service/router.js)**: Zero-LLM event router.
+- **[`memory-service/sections/compactor.js`](file:///e:/Projects/minecraft-community/memory-service/sections/compactor.js)**: Two-tier compaction engine.
+- **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)**: Background compaction sweep scheduler.
+- **[`memory-service/reflection/engine.js`](file:///e:/Projects/minecraft-community/memory-service/reflection/engine.js)** — `GenerativeReflectionEngine` class:
+  - `runReflection(agentId)`: Synthesizes high-level reflections, worldviews, and social insights into `profile.md`.
+- **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class:
+  - Records emergent currencies, settlements, and factions.
 
 ---
 
