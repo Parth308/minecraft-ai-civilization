@@ -5,6 +5,7 @@ const evaluateSleep = require('./rules/sleep');
 const evaluateMine = require('./rules/mine');
 const evaluateExplore = require('./rules/explore');
 const evaluateTrade = require('./rules/trade');
+const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
 const EscalationManager = require('./escalate');
 const logger = require('../../shared/logger');
@@ -13,12 +14,13 @@ class DecisionTree {
   constructor(threshold = 0.6) {
     this.confidenceEvaluator = new ConfidenceEvaluator(threshold);
     this.escalator = new EscalationManager();
+    this.dynamicRuleEngine = new DynamicRuleEngine();
   }
 
   async evaluate(senses, statsManager) {
     const stats = statsManager.getSummary();
 
-    const candidates = [
+    const staticCandidates = [
       evaluateFlee(senses, stats),
       evaluateEat(senses, stats),
       evaluateFight(senses, stats),
@@ -28,22 +30,30 @@ class DecisionTree {
       evaluateTrade(senses, stats)
     ];
 
+    // Include dynamically learned rules
+    const dynamicCandidates = this.dynamicRuleEngine.evaluateDynamicRules(senses, stats);
+    const candidates = [...staticCandidates, ...dynamicCandidates];
+
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
     const topCandidate = candidates[0];
 
-    logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason})`);
+    logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
 
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence)) {
       logger.warn('DecisionTree', `Top action confidence (${topCandidate.confidence}) is below threshold (${this.confidenceEvaluator.threshold}). Triggering Escalation.`);
       
-      const taskType = topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING';
-      const escalationResult = await this.escalator.escalate({
-        taskType,
+      const payload = {
+        taskType: topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING',
         topCandidate,
         allCandidates: candidates,
         stats
-      });
+      };
+
+      const escalationResult = await this.escalator.escalate(payload);
+
+      // Replicate learned decision into local dynamic rule engine for future local execution!
+      this.dynamicRuleEngine.learnRule(payload, escalationResult);
 
       // Apply emotion updates if returned by LLM
       if (escalationResult.emotionDelta) {
