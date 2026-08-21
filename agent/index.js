@@ -1,5 +1,5 @@
 const mineflayer = require('mineflayer');
-const { pathfinder, movements } = require('mineflayer-pathfinder');
+const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const config = require('./config');
 const logger = require('../shared/logger');
 const detailedLogger = require('../shared/detailedLogger');
@@ -21,6 +21,14 @@ const GoalManager = require('./cognition/goals');
 const SocialDialogueEngine = require('./social/dialogue');
 const FactionAffiliationManager = require('./social/factions');
 const { ACTIONS } = require('../shared/constants');
+
+// Global Error Protections
+process.on('uncaughtException', (err) => {
+  logger.error('AgentUncaught', 'Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('AgentUnhandled', 'Unhandled Rejection:', reason);
+});
 
 logger.info('Agent', `Initializing cognitive agent instance '${config.username}' (${config.personalitySeed})...`);
 
@@ -64,56 +72,60 @@ function createAgent() {
   let inFlightTick = false;
 
   bot.once('spawn', () => {
-    const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : { x: 0, y: 0, z: 0 };
-    logger.info('Agent', `${bot.username} spawned at X:${pos.x} Y:${pos.y} Z:${pos.z}`);
-    
-    detailedLogger.logCognition(bot.username, 'Agent Spawned in World', { position: pos, biome: senses.getBiome(), timeOfDay: senses.getTimeOfDay() });
+    try {
+      const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : { x: 0, y: 0, z: 0 };
+      logger.info('Agent', `${bot.username} spawned at X:${pos.x} Y:${pos.y} Z:${pos.z}`);
+      
+      detailedLogger.logCognition(bot.username, 'Agent Spawned in World', { position: pos, biome: senses.getBiome(), timeOfDay: senses.getTimeOfDay() });
 
-    const defaultMovements = new movements(bot);
-    bot.pathfinder.setMovements(defaultMovements);
+      const defaultMovements = new Movements(bot);
+      bot.pathfinder.setMovements(defaultMovements);
 
-    chat.say(`Greetings world! ${bot.username} is awake.`);
+      chat.say(`Greetings world! ${bot.username} is awake.`);
 
-    eventBuffer.addEvent('spawn', {
-      position: pos,
-      biome: senses.getBiome(),
-      timeOfDay: senses.getTimeOfDay()
-    });
+      eventBuffer.addEvent('spawn', {
+        position: pos,
+        biome: senses.getBiome(),
+        timeOfDay: senses.getTimeOfDay()
+      });
 
-    // Main Agent Loop (Tick-based)
-    tickInterval = setInterval(async () => {
-      if (inFlightTick) return;
-      inFlightTick = true;
+      // Main Agent Loop (Tick-based)
+      tickInterval = setInterval(async () => {
+        if (inFlightTick) return;
+        inFlightTick = true;
 
-      try {
-        // 1. Sync MC stats
-        stats.updateHealth(bot.health);
-        stats.updateHungerFromMC(bot.food);
+        try {
+          // 1. Sync MC stats
+          stats.updateHealth(bot.health);
+          stats.updateHungerFromMC(bot.food);
 
-        // 2. Run local stats decay tick
-        statsDecay.tick();
+          // 2. Run local stats decay tick
+          statsDecay.tick();
 
-        // 3. Evaluate Decision Tree
-        const decision = await decisionTree.evaluate(senses, stats);
+          // 3. Evaluate Decision Tree
+          const decision = await decisionTree.evaluate(senses, stats);
 
-        detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
-          confidence: decision.confidence,
-          escalated: decision.escalated,
-          stats: stats.getSummary(),
-          activeGoal: goalManager.currentGoal.description
-        });
+          detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
+            confidence: decision.confidence,
+            escalated: decision.escalated,
+            stats: stats.getSummary(),
+            activeGoal: goalManager.currentGoal.description
+          });
 
-        if (decision.chatMessage) {
-          chat.say(decision.chatMessage);
+          if (decision.chatMessage) {
+            chat.say(decision.chatMessage);
+          }
+
+          await executeDecision(decision);
+        } catch (err) {
+          logger.error('AgentLoop', 'Error in agent tick loop:', err);
+        } finally {
+          inFlightTick = false;
         }
-
-        await executeDecision(decision);
-      } catch (err) {
-        logger.error('AgentLoop', 'Error in agent tick loop:', err);
-      } finally {
-        inFlightTick = false;
-      }
-    }, 1000);
+      }, 1000);
+    } catch (spawnErr) {
+      logger.error('AgentSpawn', 'Error during agent spawn initialization:', spawnErr);
+    }
   });
 
   // Action executor based on decision tree output
