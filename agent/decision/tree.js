@@ -3,6 +3,8 @@ const evaluateFlee = require('./rules/flee');
 const evaluateFight = require('./rules/fight');
 const evaluateSleep = require('./rules/sleep');
 const evaluateMine = require('./rules/mine');
+const evaluateExplore = require('./rules/explore');
+const evaluateTrade = require('./rules/trade');
 const ConfidenceEvaluator = require('./confidence');
 const EscalationManager = require('./escalate');
 const logger = require('../../shared/logger');
@@ -21,7 +23,9 @@ class DecisionTree {
       evaluateEat(senses, stats),
       evaluateFight(senses, stats),
       evaluateSleep(senses, stats),
-      evaluateMine(senses, stats)
+      evaluateMine(senses, stats),
+      evaluateExplore(senses, stats),
+      evaluateTrade(senses, stats)
     ];
 
     // Sort by highest confidence
@@ -32,14 +36,20 @@ class DecisionTree {
 
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence)) {
       logger.warn('DecisionTree', `Top action confidence (${topCandidate.confidence}) is below threshold (${this.confidenceEvaluator.threshold}). Triggering Escalation.`);
+      
+      const taskType = topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING';
       const escalationResult = await this.escalator.escalate({
+        taskType,
         topCandidate,
         allCandidates: candidates,
         stats
       });
 
-      if (escalationResult.chatMessage) {
-        logger.info('DecisionTree', `Escalation suggested chat message: "${escalationResult.chatMessage}"`);
+      // Apply emotion updates if returned by LLM
+      if (escalationResult.emotionDelta) {
+        if (escalationResult.emotionDelta.anger) statsManager.addAnger(escalationResult.emotionDelta.anger);
+        if (escalationResult.emotionDelta.happiness) statsManager.addHappiness(escalationResult.emotionDelta.happiness);
+        if (escalationResult.emotionDelta.fatigue) statsManager.addFatigue(escalationResult.emotionDelta.fatigue);
       }
 
       return {

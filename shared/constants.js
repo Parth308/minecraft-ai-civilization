@@ -20,6 +20,10 @@ module.exports = {
     SLEEP: 'SLEEP',
     MINE: 'MINE',
     WANDER: 'WANDER',
-    IDLE: 'IDLE'
+    IDLE: 'IDLE',
+    TRADE: 'TRADE',
+    EXPLORE: 'EXPLORE',
+    BUILD: 'BUILD',
+    TALK: 'TALK'
   }
 };
