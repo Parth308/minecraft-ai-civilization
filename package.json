@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node agent/index.js",
     "broker": "node broker/index.js",
+    "memory": "node memory-service/index.js",
     "dev": "node --watch agent/index.js"
   },
   "keywords": [
