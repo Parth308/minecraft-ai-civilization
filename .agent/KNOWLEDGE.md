@@ -72,7 +72,9 @@ This document serves as the complete technical specification, architectural refe
 - **[`agent/social/dialogue.js`](file:///e:/Projects/minecraft-community/agent/social/dialogue.js)** — `SocialDialogueEngine` class:
   - `processIncomingChat(sender, message, civContext)`: Parses natural chat messages from other bots or players, passes persona, goals, and history to Brain Broker (`SOCIAL_CHAT` task), updates dynamic relationship metrics, and returns natural spoken dialogue.
 - **[`agent/social/factions.js`](file:///e:/Projects/minecraft-community/agent/social/factions.js)** — `FactionAffiliationManager` class:
-  - `evaluateTreatyOffer(proposer, treatyType, terms)`: Evaluates whether to accept or reject treaties based on loyalty, caution, and free-will rebellion disposition.
+  - `recordSecretBase(name, coords, notes)`: Records hidden private bases never published to the global ledger.
+  - `declareWar(targetName, reason)` / `declarePeace(targetName)`: Manages hostile/war and peace states dynamically.
+  - `recordTreaty(proposer, treatyType, honorsStatus)`: Logs treaties and whether the agent intends to honor or betray them.
   - `recognizeCurrency(currencyName)`: Tracks custom player-invented currencies the bot accepts.
 
 ---
@@ -120,25 +122,41 @@ This document serves as the complete technical specification, architectural refe
 - **[`agent/actuation/movement.js`](file:///e:/Projects/minecraft-community/agent/actuation/movement.js)** — `MovementActuator` class:
   - `goto(x, y, z, range=1)`: Navigates using `GoalNear` pathfinding.
   - `gotoBlock(x, y, z)`: Navigates directly on top of specific block using `GoalBlock`.
+  - `follow(entity, distance=2)`: Dynamically follows an entity using `GoalFollow`.
   - `fleeFrom(entity, distance=16)`: Calculates vector away from threat and navigates away.
   - `wander(radius=15)`: Picks random offset coordinate and wanders.
-  - `stop()`: Clears active pathfinder goal.
+  - `stop()`: Clears active pathfinder goal and clears control states.
   - `isMoving()`: Checks if pathfinder is actively traversing a path.
-
-- **[`agent/actuation/chat.js`](file:///e:/Projects/minecraft-community/agent/actuation/chat.js)** — `ChatActuator` class:
-  - `say(message)`: Broadcasts message to public server chat.
-  - `whisper(username, message)`: Sends private direct message to specific player.
+  - `lookAt(x, y, z, force)` / `lookAtEntity(entity)`: Precise head aiming and yaw/pitch rotation.
+  - `sprint(enable)`: Toggles sprinting state.
+  - `sneak(enable)`: Toggles crouching/sneaking (essential for stealth, edge safety, hiding nametags).
+  - `jump()`: Triggers jump.
+  - `swim()` / `stopSwimming()`: Handles water swimming controls.
 
 - **[`agent/actuation/combat.js`](file:///e:/Projects/minecraft-community/agent/actuation/combat.js)** — `CombatActuator` class:
-  - `attack(entity)`: Auto-equips best sword/axe and attacks entity.
-  - `stopCombat()`: Disengages target.
+  - `equipBestArmor()`: Auto-equips highest tier armor (netherite > diamond > iron > golden > leather) across helmet, chestplate, leggings, boots.
+  - `equipBestWeapon()`: Auto-equips best sword or axe into main hand.
+  - `useShield(enable)`: Equips shield in offhand and raises/lowers blocking stance.
+  - `attack(entity)`: Auto-equips armor & weapon, aims head directly at entity, and strikes.
+  - `stopCombat()`: Disengages combat and lowers shield.
 
 - **[`agent/actuation/inventory.js`](file:///e:/Projects/minecraft-community/agent/actuation/inventory.js)** — `InventoryActuator` class:
   - `getFoodCategories()`: Returns multi-tier categorization (`comfort`, `emergency`, `desperation`).
   - `findBestFood(health, hunger)`: Selects optimal food item based on physical state.
   - `eatFood(health, hunger)`: Equips selected food and consumes it.
+  - `equipOptimalTool(block)`: Automatically equips matching tool (pickaxe for stone/ore, axe for wood, shovel for dirt/sand, shears for leaves/wool).
+  - `digBlock(block)`: Equips optimal tool and excavates block.
+  - `placeBlock(blockName, referenceBlock, faceVector)`: Places block against reference block with precise vector.
+  - `dropItem(itemName, count)`: Drops items to ground.
+  - `tossItemToPlayer(itemName, playerEntity, count)`: Aims at player and tosses item directly at them.
+  - `openChestAndDeposit(chestBlock, itemNames)`: Transfers items into chests.
+  - `openChestAndWithdraw(chestBlock, itemNames)`: Retrieves items from chests.
   - `craftItem(itemName, count)`: Automatically finds matching recipe in bot registry and crafts item.
   - `listInventory()`: Returns formatted array of item names and stack counts.
+
+- **[`agent/actuation/chat.js`](file:///e:/Projects/minecraft-community/agent/actuation/chat.js)** — `ChatActuator` class:
+  - `say(message)`: Broadcasts message to public server chat.
+  - `whisper(username, message)`: Sends private direct message to specific player.
 
 ---
 
