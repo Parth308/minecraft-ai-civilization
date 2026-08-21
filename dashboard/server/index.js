@@ -36,22 +36,12 @@ const RCON_PASSWORD = process.env.RCON_PASSWORD || '';
 
 // ─── RCON Setup ──────────────────────────────────────────────────────────────
 
-let rcon = null;
-
-async function initRcon() {
-  if (!RCON_PASSWORD) {
-    logger.warn('Dashboard', 'RCON_PASSWORD not set — operator chat and spectator commands disabled');
-    return null;
-  }
-  const client = new RconClient(RCON_HOST, RCON_PORT, RCON_PASSWORD);
-  try {
-    await client.connect();
-    logger.info('Dashboard', `RCON connected to ${RCON_HOST}:${RCON_PORT}`);
-    return client;
-  } catch (err) {
-    logger.error('Dashboard', `RCON connection failed: ${err.message}`);
-    return null;
-  }
+const rcon = RCON_PASSWORD ? new RconClient(RCON_HOST, RCON_PORT, RCON_PASSWORD) : null;
+if (rcon) {
+  // Non-blocking background connect loop
+  rcon.connect(10, 3000).catch(err => {
+    logger.warn('Dashboard', `RCON background connect: ${err.message}`);
+  });
 }
 
 // ─── App Setup ───────────────────────────────────────────────────────────────
@@ -63,7 +53,6 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../client')));
 
 // Proxy prismarine-viewer (internal port 3004) under /viewer/*
-// Handles both HTTP and WebSocket upgrade
 app.use('/viewer', createProxyMiddleware({
   target: `http://localhost:${VIEWER_PORT}`,
   ws: true,
@@ -71,12 +60,39 @@ app.use('/viewer', createProxyMiddleware({
   pathRewrite: { '^/viewer': '' },
   on: {
     error: (err, req, res) => {
-      if (res?.writeHead) res.writeHead(503).end('World viewer not ready yet');
+      if (res?.writeHead) {
+        res.writeHead(503, { 'Content-Type': 'text/html' });
+        res.end(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta http-equiv="refresh" content="2">
+            <style>
+              body { background: #060a14; color: #00d4ff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; margin: 0; }
+              .spinner { width: 28px; height: 28px; border: 3px solid rgba(0,212,255,0.15); border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.9s linear infinite; margin-bottom: 14px; }
+              @keyframes spin { to { transform: rotate(360deg); } }
+            </style>
+          </head>
+          <body>
+            <div class="spinner"></div>
+            <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#8ba3c7;">Connecting to Spectator Bot 3D stream...</div>
+          </body>
+          </html>
+        `);
+      }
     }
   }
 }));
 
+// Proxy Socket.io for prismarine-viewer world chunk streaming
+app.use('/socket.io', createProxyMiddleware({
+  target: `http://localhost:${VIEWER_PORT}`,
+  ws: true,
+  changeOrigin: true
+}));
+
 const server = http.createServer(app);
+
 
 // ─── WebSocket Server ─────────────────────────────────────────────────────────
 
@@ -144,16 +160,13 @@ let spectator = null;
 // ─── Boot Sequence ────────────────────────────────────────────────────────────
 
 async function boot() {
-  // 1. Connect RCON
-  rcon = await initRcon();
-
-  // 2. Wire chat routes (needs rcon reference)
+  // 1. Wire chat routes
   chatRoutes(app, aggregator, rcon);
 
-  // 3. Start aggregator polling
+  // 2. Start aggregator polling
   aggregator.start();
 
-  // 4. Start spectator bot (non-blocking — MC server may not be ready immediately)
+  // 3. Start spectator bot (non-blocking — connects to MC when ready)
   spectator = new SpectatorManager(MC_HOST, MC_PORT, MC_VERSION, rcon);
   spectator.start();
 

@@ -1,8 +1,9 @@
 /**
- * Minimal RCON client for Minecraft Paper server.
- * RCON packet format: [length:int32LE][requestId:int32LE][type:int32LE][body:cstring][\0]
+ * Minimal resilient RCON client for Minecraft Paper server.
+ * Handles auto-reconnect, queued commands, and connection retries.
  */
 const net = require('net');
+const logger = require('../../shared/logger');
 
 const TYPE = { AUTH: 3, AUTH_RES: 2, COMMAND: 2, COMMAND_RES: 0 };
 const RCON_FAILURE_ID = -1;
@@ -26,20 +27,48 @@ class RconClient {
     this.password = password;
     this.socket = null;
     this.authed = false;
+    this.connecting = false;
     this._nextId = 1;
     this._pending = new Map();
     this._rawBuf = Buffer.alloc(0);
   }
 
-  connect() {
+  async connect(retries = 3, delayMs = 2000) {
+    if (this.authed && this.socket && !this.socket.destroyed) return;
+    if (this.connecting) return;
+    this.connecting = true;
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await this._doConnect();
+        this.connecting = false;
+        logger.info('RCON', `Connected and authenticated with Minecraft RCON on ${this.host}:${this.port}`);
+        return;
+      } catch (err) {
+        this.disconnect();
+        if (attempt === retries) {
+          this.connecting = false;
+          throw err;
+        }
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+    this.connecting = false;
+  }
+
+  _doConnect() {
     return new Promise((resolve, reject) => {
       this.socket = net.createConnection(this.port, this.host);
       this.socket.on('data', (chunk) => this._onData(chunk));
       this.socket.on('error', (err) => {
+        this.disconnect();
         reject(err);
         this._rejectAll(err);
       });
-      this.socket.on('close', () => this._rejectAll(new Error('RCON socket closed')));
+      this.socket.on('close', () => {
+        this.authed = false;
+        this._rejectAll(new Error('RCON socket closed'));
+      });
       this.socket.once('connect', async () => {
         try {
           await this._auth();
@@ -60,8 +89,8 @@ class RconClient {
   }
 
   async send(command) {
-    if (!this.socket || !this.authed) {
-      throw new Error('RCON not connected/authenticated');
+    if (!this.authed || !this.socket || this.socket.destroyed) {
+      await this.connect(5, 2000);
     }
     const id = this._nextId++;
     return new Promise((resolve, reject) => {
@@ -75,16 +104,15 @@ class RconClient {
 
     while (this._rawBuf.length >= 4) {
       const len = this._rawBuf.readInt32LE(0);
-      if (this._rawBuf.length < 4 + len) break; // incomplete packet
+      if (this._rawBuf.length < 4 + len) break;
 
       const id = this._rawBuf.readInt32LE(4);
       const type = this._rawBuf.readInt32LE(8);
-      const body = this._rawBuf.slice(12, 4 + len - 2).toString('utf8'); // strip two trailing nulls
+      const body = this._rawBuf.slice(12, 4 + len - 2).toString('utf8');
 
       this._rawBuf = this._rawBuf.slice(4 + len);
 
       if (!this.authed) {
-        // Auth response
         if (id === RCON_FAILURE_ID) {
           const cb = this._pending.get(this._nextId - 1);
           if (cb) cb.reject(new Error('RCON auth failed — wrong password'));
@@ -110,7 +138,7 @@ class RconClient {
 
   disconnect() {
     if (this.socket) {
-      this.socket.destroy();
+      try { this.socket.destroy(); } catch (e) {}
       this.socket = null;
     }
     this.authed = false;
