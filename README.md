@@ -48,7 +48,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 │  - Semantic Vector Cache: Cosine similarity >= 0.88 over 768-dim embeddings (0 extra LLM calls) │
 │  - Provider Pool Router (Round-robin + 429 automatic failover):                                 │
 │    * Fast Reflex & Chat: Groq (Llama 3.1 8B Instant)                                            │
-│    * Complex Reasoning & Emotions: Gemini Flash (gemini-2.5-flash)                              │
+│    * Complex Reasoning & Strategic Wars: Gemini Flash & NVIDIA NIM (Llama 3.3 70B)             │
 │    * Backups: Cerebras (Llama 3.1 8B) & OpenRouter Free                                         │
 └────────────────────────────────────────────────┬────────────────────────────────────────────────┘
                                                  │
@@ -58,7 +58,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 │  - Sectioned Markdown Stores (store/agents/<agentId>/): profile, relationships, events, skills  │
 │  - Two-Tier Compaction: Tier 1 via Groq / Tier 2 Periodic Consolidation via Gemini Flash       │
 │  - Detachable Embeddings Subsystem (768 Dimensions):                                            │
-│    * Ollama: nomic-embed-text (Local high-performance embeddings on VPS)                        │
+│    * Ollama: nomic-embed-text (Self-provisioning container, capped at 1.5GB RAM)                │
 │    * Gemini: text-embedding-004 (Hosted Google AI API)                                         │
 │    * Local Engine: Deterministic token frequency & N-gram hashing (Zero RAM/GPU fallback)       │
 │  - Vector Index & Semantic Memory Search (cosine similarity query endpoint)                     │
@@ -82,7 +82,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 2. **Brain Broker & Dual-Layer Cache**:
    - **Exact SHA-256 Cache**: Instant 0ms responses for repeated physical states.
    - **Semantic Vector Cache**: Situations matching past solutions with $\ge 88\%$ cosine similarity reuse tactical decisions with **0 LLM calls and zero token cost**.
-   - **Task-Based Priority Routing**: Sub-second chat routed to Groq; deep societal reflection routed to Gemini Flash.
+   - **Task-Based Priority Routing**: Sub-second chat routed to Groq; deep societal reflection routed to Gemini Flash & NVIDIA NIM (Llama 3.3 70B).
 3. **Structured Sectioned Memory**: Tagged markdown logs (`[met]`, `[coop]`, `[conflict]`, `[location]`, `[skill]`) with automated two-tier compaction.
 
 ### 🛡️ B. Zero-Loss Memory Queue & Offline Decision Fallback
@@ -90,8 +90,9 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 - **Offline Decision Fallback**: If `brain-broker` is unreachable, `DecisionTree` falls back gracefully to the top local rule / dynamic rule without stalling the bot.
 - **Docker Health Checks**: Automatic `healthcheck` endpoints on `/health` ensure dependents only start when microservices are fully healthy.
 
-### 🧩 C. Local `nomic-embed-text` via Ollama
-- Full support for `nomic-embed-text` (768-dimensional normalized embeddings) running on your local VPS via Ollama (`http://ollama:11434`), eliminating API rate limits for vector embedding and semantic cache queries.
+### 🧩 C. Self-Provisioning Local `nomic-embed-text` via Ollama
+- Dedicated Ollama container with an explicit **1.5GB RAM cap**.
+- **Automated Self-Provisioning**: On first boot, the container entrypoint automatically pulls `nomic-embed-text` and marks itself healthy — **zero manual commands required!**
 
 ### 🎭 D. Dynamic Personas, Free Will & Social Agency
 - **Evolving Character**: Trauma (betrayals, death) raises caution and rebellion; shared triumph increases loyalty and warmth.
@@ -121,7 +122,8 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 - Free-tier API keys for LLM providers:
   - `GEMINI_API_KEY` (Google AI Studio)
   - `GROQ_API_KEY` (GroqCloud)
-  - `CEREBRAS_API_KEY` / `OPENROUTER_API_KEY` (Optional backups)
+  - `NVIDIA_API_KEY` (NVIDIA NIM)
+  - `OPENROUTER_API_KEY` / `CEREBRAS_API_KEY` (Optional backups)
 
 ---
 
@@ -134,7 +136,8 @@ Fill in your configuration:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 GROQ_API_KEY=your_groq_api_key_here
-CEREBRAS_API_KEY=your_cerebras_key_optional
+NVIDIA_API_KEY=your_nvidia_api_key_here
+NVIDIA_MODEL=meta/llama-3.3-70b-instruct
 OPENROUTER_API_KEY=your_openrouter_key_optional
 
 # Embeddings Engine (ollama / gemini / local)
@@ -147,15 +150,10 @@ CACHE_TTL_SECONDS=300
 
 ---
 
-### Step 2: Launch the Simulation Stack
-Start the Paper Minecraft server, Ollama (`nomic-embed-text`), Brain Broker, Memory Service, and 2 autonomous AI agents (`Agent_Alpha` and `Agent_Beta`):
+### Step 2: Launch the Simulation Stack (100% Zero-Touch Boot)
+Start the complete stack. Ollama will automatically self-provision `nomic-embed-text`, healthchecks will verify each service, and agents will join the world:
 ```bash
 docker compose up --build -d
-```
-
-Pull the embedding model into Ollama (if using Ollama container for the first time):
-```bash
-docker exec -it ollama-embeddings ollama pull nomic-embed-text
 ```
 
 Check running services:
@@ -238,7 +236,7 @@ minecraft-community/
 │
 ├── broker/                        # Central Brain Broker Gateway (Port 3001)
 │   ├── cache/                     # SHA-256 exact cache & cosine similarity semantic vector cache
-│   ├── providers/                 # Gemini Flash, Groq, Cerebras, OpenRouter integrations
+│   ├── providers/                 # Gemini Flash, Groq, NVIDIA NIM, Cerebras, OpenRouter
 │   ├── config.js                  # Broker configuration
 │   ├── Dockerfile                 # Broker microservice container with /health
 │   ├── index.js                   # Express REST API
@@ -278,18 +276,16 @@ minecraft-community/
 
 ---
 
-## 🛠️ 7. Tech Stack Specifications
+## 🛠️ 7. VPS Resource Budget Specifications (16GB RAM Box)
 
-| Layer | Technologies & Dependencies |
-| :--- | :--- |
-| **Game Client** | `mineflayer` (^4.20.1), `mineflayer-pathfinder` (^2.4.5), `vec3` (^0.1.10) |
-| **Minecraft Server** | Paper 1.20.4 (`itzg/minecraft-server` Docker image) |
-| **Microservices** | Node.js 20 Alpine, Express.js |
-| **Local Embeddings** | Ollama with `nomic-embed-text` (768-dimensional normalized vectors) |
-| **LLM Provider Pool** | `gemini-2.5-flash`, `llama-3.1-8b-instant` (Groq), `llama3.1-8b` (Cerebras), OpenRouter Free |
-| **Vector Search & Cache** | 768-dimensional normalized cosine similarity engine, SHA-256 state hashing |
-| **Memory Storage** | Sectioned Markdown (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) |
-| **Audit Logging** | Granular append-only streams per agent activity and universal world timeline |
+| Service | Memory Cap | CPU Cap | Description |
+| :--- | :--- | :--- | :--- |
+| **Paper Minecraft Server** | `2.5 GB` | 2.0 Cores | Paper 1.20.4 Dedicated Game World |
+| **Ollama Service** | `1.5 GB` | 1.0 Core | Local `nomic-embed-text` Embedding Engine (Self-Provisioning) |
+| **Central Brain Broker** | `256 MB` | 0.5 Core | Express Gateway + Dual-Layer Cache + Provider Failover |
+| **Central Memory Service** | `256 MB` | 0.5 Core | Sectioned Markdown + Vector Store + Reflection Engine |
+| **AI Agents (per bot)** | `256 MB` | 0.5 Core | ~80-120MB live RAM footprint per active bot |
+| **Baseline Stack Total** | **~4.5 GB** | — | Leaves **~11.5 GB free for 30+ additional agents!** |
 
 ---
 
