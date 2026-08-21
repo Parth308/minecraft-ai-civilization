@@ -5,6 +5,7 @@
   "main": "agent/index.js",
   "scripts": {
     "start": "node agent/index.js",
+    "broker": "node broker/index.js",
     "dev": "node --watch agent/index.js"
   },
   "keywords": [
@@ -17,6 +18,7 @@
   "license": "MIT",
   "dependencies": {
     "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "mineflayer": "^4.20.1",
     "mineflayer-pathfinder": "^2.4.5",
     "vec3": "^0.1.10"
