@@ -1,5 +1,6 @@
 const queryGemini = require('./providers/gemini');
 const queryGroq = require('./providers/groq');
+const queryNvidia = require('./providers/nvidia');
 const queryCerebras = require('./providers/cerebras');
 const queryOpenRouter = require('./providers/openrouter');
 const ExactCache = require('./cache/exactCache');
@@ -20,18 +21,19 @@ class ProviderRouter {
     this.providerMap = {
       Gemini: { name: 'Gemini', key: config.keys.gemini, fn: queryGemini },
       Groq: { name: 'Groq', key: config.keys.groq, fn: queryGroq },
+      Nvidia: { name: 'Nvidia', key: config.keys.nvidia, fn: queryNvidia },
       Cerebras: { name: 'Cerebras', key: config.keys.cerebras, fn: queryCerebras },
       OpenRouter: { name: 'OpenRouter', key: config.keys.openrouter, fn: queryOpenRouter }
     };
   }
 
   getPreferredProviders(taskType = 'REASONING') {
-    let order = ['Gemini', 'Groq', 'Cerebras', 'OpenRouter'];
+    let order = ['Gemini', 'Nvidia', 'Groq', 'Cerebras', 'OpenRouter'];
 
     if (taskType === 'CHAT' || taskType === 'REFLEX' || taskType === 'SOCIAL_CHAT') {
-      order = ['Groq', 'Gemini', 'Cerebras', 'OpenRouter'];
+      order = ['Groq', 'Nvidia', 'Gemini', 'Cerebras', 'OpenRouter'];
     } else if (taskType === 'REASONING' || taskType === 'EMOTION' || taskType === 'REFLECTION') {
-      order = ['Gemini', 'Groq', 'Cerebras', 'OpenRouter'];
+      order = ['Gemini', 'Nvidia', 'Groq', 'Cerebras', 'OpenRouter'];
     }
 
     return order

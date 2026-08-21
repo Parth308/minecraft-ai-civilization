@@ -17,8 +17,9 @@ This document serves as the complete technical specification, architectural refe
   - **Ollama Embeddings Service**: Port `11434` running `nomic-embed-text` (768-dim normalized vectors)
 - **LLM Provider Pool (Free Tiers)**:
   - **Gemini Flash (`gemini-2.5-flash`)**: Primary workhorse for complex reasoning, emotions, and Tier 2 memory consolidation.
-  - **Groq (`llama-3.1-8b-instant`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
-  - **Cerebras (`llama3.1-8b`)**: Backup provider on rate limits.
+  - **NVIDIA NIM (`meta/llama-3.1-70b-instruct`)**: High-intelligence secondary reasoning & diplomacy engine.
+  - **Groq (`llama-3.1-8b-instant` / `qwen3.6-27b`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
+  - **Cerebras (`llama3.1-8b`)**: Backup provider on rate limits (~1,800 tokens/sec).
   - **OpenRouter Free (`meta-llama/llama-3.1-8b-instruct:free`)**: Universal failover provider.
 - **Detachable Embeddings Engine**:
   - **Ollama**: `nomic-embed-text` (768-dim normalized vectors via `POST /api/embeddings`)
@@ -179,7 +180,8 @@ This document serves as the complete technical specification, architectural refe
 ### Central Brain Broker Service (`broker/`)
 - **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build with `/health` check.
 - **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**: Express REST server on port `3001`.
-- **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**: API keys and port configuration.
+- **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**: API keys and port configuration (`GEMINI_API_KEY`, `GROQ_API_KEY`, `NVIDIA_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`).
+- **[`broker/providers/nvidia.js`](file:///e:/Projects/minecraft-community/broker/providers/nvidia.js)**: NVIDIA NIM API integration (`meta/llama-3.1-70b-instruct`).
 - **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
   - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`.
   - Injects dynamic persona, active goals, and free-will directives into prompts.

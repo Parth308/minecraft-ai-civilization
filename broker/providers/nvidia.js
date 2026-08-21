@@ -1,0 +1,40 @@
+const logger = require('../../shared/logger');
+
+async function queryNvidia(apiKey, prompt) {
+  if (!apiKey) throw new Error('NVIDIA_API_KEY is not configured');
+
+  const model = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+  logger.info('NvidiaProvider', `Querying NVIDIA NIM API with model: ${model}...`);
+
+  const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.6,
+      max_tokens: 1024
+    })
+  });
+
+  if (response.status === 429) {
+    const error = new Error('NVIDIA NIM API Rate Limit Exceeded (429)');
+    error.status = 429;
+    throw error;
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`NVIDIA NIM API Error HTTP ${response.status}: ${response.statusText} | ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error('Invalid response structure from NVIDIA NIM API');
+  return text;
+}
+
+module.exports = queryNvidia;
