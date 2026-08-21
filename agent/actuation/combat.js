@@ -1,10 +1,15 @@
 const logger = require('../../shared/logger');
+const detailedLogger = require('../../shared/detailedLogger');
 
 class CombatActuator {
   constructor(bot) {
     this.bot = bot;
     this.target = null;
     this.blocking = false;
+  }
+
+  get agentId() {
+    return this.bot.username || 'UnknownAgent';
   }
 
   // Auto-equips highest tier armor
@@ -25,9 +30,10 @@ class CombatActuator {
         if (piece) {
           try {
             await this.bot.equip(piece, slot);
+            detailedLogger.logCombat(this.agentId, `Equipped armor: ${piece.name} into ${slot}`);
             break;
           } catch (err) {
-            // Ignore if already equipped or slot busy
+            // Ignore
           }
         }
       }
@@ -47,6 +53,7 @@ class CombatActuator {
       if (weapon) {
         try {
           await this.bot.equip(weapon, 'hand');
+          detailedLogger.logCombat(this.agentId, `Equipped weapon: ${weapon.name}`);
           return;
         } catch (err) {
           logger.debug('Combat', `Equip weapon failed: ${err.message}`);
@@ -63,8 +70,9 @@ class CombatActuator {
     if (enable && !this.blocking) {
       try {
         await this.bot.equip(shield, 'off-hand');
-        this.bot.activateItem(true); // Right click hold
+        this.bot.activateItem(true);
         this.blocking = true;
+        detailedLogger.logCombat(this.agentId, 'Shield raised into blocking stance');
         logger.info('Combat', 'Shield raised to block attack.');
       } catch (err) {
         logger.debug('Combat', `Shield block failed: ${err.message}`);
@@ -72,6 +80,7 @@ class CombatActuator {
     } else if (!enable && this.blocking) {
       this.bot.deactivateItem();
       this.blocking = false;
+      detailedLogger.logCombat(this.agentId, 'Shield lowered');
       logger.info('Combat', 'Shield lowered.');
     }
   }
@@ -79,12 +88,17 @@ class CombatActuator {
   async attack(entity) {
     if (!entity) return;
     this.target = entity;
-    logger.info('Actuation:Combat', `Engaging target ${entity.name || entity.username || 'hostile'}`);
+    const targetName = entity.name || entity.username || 'hostile';
+    logger.info('Actuation:Combat', `Engaging target ${targetName}`);
+    detailedLogger.logCombat(this.agentId, `Initiated attack against target: ${targetName}`, {
+      targetId: entity.id,
+      position: entity.position,
+      botHealth: this.bot.health
+    });
 
     await this.equipBestArmor();
     await this.equipBestWeapon();
 
-    // Look at target & strike
     if (this.bot.entity) {
       await this.bot.lookAt(entity.position.offset(0, entity.height || 1.6, 0), true);
     }
@@ -92,6 +106,9 @@ class CombatActuator {
   }
 
   stopCombat() {
+    if (this.target) {
+      detailedLogger.logCombat(this.agentId, `Disengaged from combat target: ${this.target.name || this.target.username}`);
+    }
     this.target = null;
     this.useShield(false);
   }

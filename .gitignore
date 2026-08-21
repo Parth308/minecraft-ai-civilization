@@ -20,6 +20,9 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 
+# Simulation Logs
+logs/
+
 # Markdown files (except agent knowledge base)
 *.md
 !.agent/*.md

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const logger = require('../../../shared/logger');
+const detailedLogger = require('../../../shared/detailedLogger');
 
 const LEDGER_PATH = path.join(__dirname, 'ledger.json');
 
@@ -14,10 +15,10 @@ class CivilizationLedger {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (!fs.existsSync(LEDGER_PATH)) {
       const initial = {
-        currencies: [], // [{ name: 'Iron Nugget', establishedBy: 'Agent_Alpha', description: 'Used for food trading' }]
-        settlements: [], // [{ name: 'Sun Valley', claimedBy: 'Agent_Beta', center: { x: 0, z: 0 }, radius: 50 }]
-        factions: [], // [{ name: 'The Forest Guild', members: ['Agent_Alpha'], pacts: [] }]
-        laws: [], // [{ title: 'No stealing from chests', proposedBy: 'Agent_Beta', status: 'informal' }]
+        currencies: [],
+        settlements: [],
+        factions: [],
+        laws: [],
         updatedAt: new Date().toISOString()
       };
       fs.writeFileSync(LEDGER_PATH, JSON.stringify(initial, null, 2), 'utf-8');
@@ -46,6 +47,7 @@ class CivilizationLedger {
       data.currencies.push({ name, establishedBy, description, date: new Date().toISOString() });
       this.saveLedger(data);
       logger.info('CivLedger', `[EMERGENT CURRENCY] '${name}' registered by ${establishedBy}`);
+      detailedLogger.logCivilizationMilestone('currency', `Currency '${name}' established by ${establishedBy}`, { description });
     }
   }
 
@@ -56,6 +58,7 @@ class CivilizationLedger {
       data.settlements.push({ name, claimedBy, center, radius, date: new Date().toISOString() });
       this.saveLedger(data);
       logger.info('CivLedger', `[EMERGENT SETTLEMENT] '${name}' claimed by ${claimedBy}`);
+      detailedLogger.logCivilizationMilestone('settlement', `Settlement '${name}' claimed by ${claimedBy}`, { center, radius });
     }
   }
 
@@ -66,6 +69,7 @@ class CivilizationLedger {
       data.factions.push({ name, founder, members: [founder], date: new Date().toISOString() });
       this.saveLedger(data);
       logger.info('CivLedger', `[EMERGENT FACTION] '${name}' founded by ${founder}`);
+      detailedLogger.logCivilizationMilestone('faction', `Faction '${name}' founded by ${founder}`);
     }
   }
 }

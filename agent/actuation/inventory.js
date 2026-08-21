@@ -1,9 +1,14 @@
 const Vec3 = require('vec3');
 const logger = require('../../shared/logger');
+const detailedLogger = require('../../shared/detailedLogger');
 
 class InventoryActuator {
   constructor(bot) {
     this.bot = bot;
+  }
+
+  get agentId() {
+    return this.bot.username || 'UnknownAgent';
   }
 
   // --- Food & Consumption ---
@@ -44,6 +49,7 @@ class InventoryActuator {
 
     try {
       logger.info('Actuation:Inventory', `[${selected.tier.toUpperCase()} EAT] Consuming ${selected.item.name}...`);
+      detailedLogger.logInventory(this.agentId, `Consumed food: ${selected.item.name}`, { tier: selected.tier, health, hunger });
       await this.bot.equip(selected.item, 'hand');
       await this.bot.consume();
       return true;
@@ -71,7 +77,7 @@ class InventoryActuator {
       if (matchingTool) {
         try {
           await this.bot.equip(matchingTool, 'hand');
-          logger.debug('Actuation:Inventory', `Equipped optimal tool: ${matchingTool.name} for ${blockName}`);
+          detailedLogger.logInventory(this.agentId, `Equipped tool: ${matchingTool.name} for ${blockName}`);
         } catch (err) {
           // Ignore
         }
@@ -88,8 +94,9 @@ class InventoryActuator {
     try {
       await this.equipOptimalTool(block);
       logger.info('Actuation:Inventory', `Excavating block: ${block.name}...`);
+      detailedLogger.logInventory(this.agentId, `Excavating block: ${block.name}`, { position: block.position });
       await this.bot.dig(block);
-      logger.info('Actuation:Inventory', `Successfully mined ${block.name}.`);
+      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${block.name}`, { position: block.position });
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Mining block failed: ${err.message}`);
@@ -111,6 +118,7 @@ class InventoryActuator {
     try {
       await this.bot.equip(blockItem, 'hand');
       await this.bot.placeBlock(referenceBlock, faceVector);
+      detailedLogger.logInventory(this.agentId, `Placed block: ${blockName}`, { against: referenceBlock.name, pos: referenceBlock.position, face: faceVector });
       logger.info('Actuation:Inventory', `Placed ${blockName} against ${referenceBlock.name}`);
       return true;
     } catch (err) {
@@ -128,6 +136,7 @@ class InventoryActuator {
 
     try {
       await this.bot.toss(item.type, null, count);
+      detailedLogger.logInventory(this.agentId, `Dropped item: ${count}x ${itemName}`);
       logger.info('Actuation:Inventory', `Dropped ${count}x ${itemName}`);
       return true;
     } catch (err) {
@@ -139,6 +148,7 @@ class InventoryActuator {
   async tossItemToPlayer(itemName, playerEntity, count = 1) {
     if (!playerEntity || !playerEntity.position) return false;
     await this.bot.lookAt(playerEntity.position.offset(0, playerEntity.height || 1.6, 0), true);
+    detailedLogger.logInventory(this.agentId, `Tossed ${count}x ${itemName} to player: ${playerEntity.username || playerEntity.name}`);
     return this.dropItem(itemName, count);
   }
 
@@ -152,6 +162,7 @@ class InventoryActuator {
         const item = this.bot.inventory.items().find(i => i.name === itemName);
         if (item) {
           await chest.deposit(item.type, null, item.count);
+          detailedLogger.logInventory(this.agentId, `Deposited ${item.count}x ${itemName} into chest at ${chestBlock.position}`);
           logger.info('Actuation:Inventory', `Deposited ${item.count}x ${itemName} into chest.`);
         }
       }
@@ -171,6 +182,7 @@ class InventoryActuator {
         const item = chest.containerItems().find(i => i.name === itemName);
         if (item) {
           await chest.withdraw(item.type, null, item.count);
+          detailedLogger.logInventory(this.agentId, `Withdrew ${item.count}x ${itemName} from chest at ${chestBlock.position}`);
           logger.info('Actuation:Inventory', `Withdrew ${item.count}x ${itemName} from chest.`);
         }
       }
@@ -194,6 +206,7 @@ class InventoryActuator {
     try {
       logger.info('Actuation:Inventory', `Crafting ${count}x ${itemName}...`);
       await this.bot.craft(recipes[0], count, null);
+      detailedLogger.logInventory(this.agentId, `Crafted item: ${count}x ${itemName}`);
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Crafting failed: ${err.message}`);

@@ -27,11 +27,9 @@ This document serves as the complete technical specification, architectural refe
   - **Layer 1**: SHA-256 exact-match state hash cache with 300s TTL (`broker/cache/exactCache.js`).
   - **Layer 2**: Cosine similarity semantic vector cache with $\ge 0.88$ threshold (`broker/cache/semanticCache.js`).
 - **Memory Architecture**: Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with vector indexing (`vectorStore.js`) and two-tier compaction.
-- **Emergent Social & Civilization Layer**:
-  - **Cognition & Persona**: Dynamic evolving persona and autonomous goal generation (`persona.js`, `goals.js`).
-  - **Social Dialogue**: Open-ended conversational social agent with free-will disposition (`dialogue.js`, `factions.js`).
-  - **Generative Reflection**: Periodic LLM reflection synthesizing societal insights and worldviews (`reflection/engine.js`).
-  - **Civilization Ledger**: Shared cultural state tracking emergent currencies, settlements, and treaties (`civilization/ledger.js`).
+- **Detailed Audit & Simulation Logger**:
+  - **Per-Agent Activity Logs**: `logs/agents/<agentId>/` (`movement.log`, `combat.log`, `inventory.log`, `chat_and_social.log`, `cognition_and_decisions.log`, `senses_and_environment.log`).
+  - **Universal World Timeline**: `logs/world/` (`global_timeline.log`, `civilization_events.log`).
 
 ---
 
@@ -105,31 +103,16 @@ This document serves as the complete technical specification, architectural refe
   - `canSeeEntity(entity)`: Raycasts line-of-sight to check if target is obscured by blocks.
 
 - **[`agent/perception/events.js`](file:///e:/Projects/minecraft-community/agent/perception/events.js)** — `EventObserver` class (EventEmitter):
-  - Emits `agentHurt`: Triggered when bot entity loses health.
-  - Emits `agentDeath`: Triggered when bot dies.
-  - Emits `agentRespawn`: Triggered when bot respawns in world.
-  - Emits `underAttack`: Triggered when attacker targets and hits bot.
-  - Emits `playerChat`: Normalizes public in-game chat messages.
-  - Emits `playerWhisper`: Normalizes direct private messages.
-  - Emits `itemCollected`: Triggered when bot picks up ground items.
-  - Emits `blockBroken`: Triggered upon completing block excavation.
-  - Emits `weatherChanged`: Triggered on rain/clear weather transitions.
-  - Emits `timeTransition`: Triggered when transitioning between day phases.
+  - Emits `agentHurt`, `agentDeath`, `agentRespawn`, `underAttack`, `playerChat`, `playerWhisper`, `itemCollected`, `blockBroken`, `weatherChanged`, `timeTransition`.
 
 ---
 
 #### 5. Actuation Layer (`agent/actuation/`)
 - **[`agent/actuation/movement.js`](file:///e:/Projects/minecraft-community/agent/actuation/movement.js)** — `MovementActuator` class:
-  - `goto(x, y, z, range=1)`: Navigates using `GoalNear` pathfinding.
-  - `gotoBlock(x, y, z)`: Navigates directly on top of specific block using `GoalBlock`.
-  - `follow(entity, distance=2)`: Dynamically follows an entity using `GoalFollow`.
-  - `fleeFrom(entity, distance=16)`: Calculates vector away from threat and navigates away.
-  - `wander(radius=15)`: Picks random offset coordinate and wanders.
-  - `stop()`: Clears active pathfinder goal and clears control states.
-  - `isMoving()`: Checks if pathfinder is actively traversing a path.
+  - `goto(x, y, z, range=1)`, `gotoBlock(x, y, z)`, `follow(entity, distance=2)`, `fleeFrom(entity, distance=16)`, `wander(radius=15)`, `stop()`, `isMoving()`.
   - `lookAt(x, y, z, force)` / `lookAtEntity(entity)`: Precise head aiming and yaw/pitch rotation.
   - `sprint(enable)`: Toggles sprinting state.
-  - `sneak(enable)`: Toggles crouching/sneaking (essential for stealth, edge safety, hiding nametags).
+  - `sneak(enable)`: Toggles crouching/sneaking (for stealth, edge safety, hiding nametags).
   - `jump()`: Triggers jump.
   - `swim()` / `stopSwimming()`: Handles water swimming controls.
 
@@ -141,9 +124,7 @@ This document serves as the complete technical specification, architectural refe
   - `stopCombat()`: Disengages combat and lowers shield.
 
 - **[`agent/actuation/inventory.js`](file:///e:/Projects/minecraft-community/agent/actuation/inventory.js)** — `InventoryActuator` class:
-  - `getFoodCategories()`: Returns multi-tier categorization (`comfort`, `emergency`, `desperation`).
-  - `findBestFood(health, hunger)`: Selects optimal food item based on physical state.
-  - `eatFood(health, hunger)`: Equips selected food and consumes it.
+  - `getFoodCategories()`, `findBestFood(health, hunger)`, `eatFood(health, hunger)`.
   - `equipOptimalTool(block)`: Automatically equips matching tool (pickaxe for stone/ore, axe for wood, shovel for dirt/sand, shears for leaves/wool).
   - `digBlock(block)`: Equips optimal tool and excavates block.
   - `placeBlock(blockName, referenceBlock, faceVector)`: Places block against reference block with precise vector.
@@ -163,41 +144,24 @@ This document serves as the complete technical specification, architectural refe
 #### 6. Stats & Social Engine (`agent/stats/`) — Zero LLM
 - **[`agent/stats/stats.js`](file:///e:/Projects/minecraft-community/agent/stats/stats.js)** — `StatsManager` class:
   - Manages numeric values: `health` (0-20), `hunger` (0-100%), `anger` (0-100%), `happiness` (0-100%), `fatigue` (0-100%).
-  - `clamp(val)`: Constrains values within min/max bounds.
-  - `updateHealth(mcHealth)` / `updateHungerFromMC(mcFood)`: Synchronizes with Minecraft engine.
-  - `addAnger(amt)` / `addHappiness(amt)` / `addFatigue(amt)`: Modifies dynamic emotional states.
-  - `getSummary()`: Returns snapshot object of all current stats.
-
-- **[`agent/stats/decay.js`](file:///e:/Projects/minecraft-community/agent/stats/decay.js)** — `StatsDecayEngine` class:
-  - `tick()`: Updates hunger, fatigue, anger calm-down, and happiness.
-
-- **[`agent/stats/relationships.js`](file:///e:/Projects/minecraft-community/agent/stats/relationships.js)** — `RelationshipTracker` class:
-  - `get(username)`: Retrieves trust (0-100) and affinity (0-100) for a player.
-  - `updateTrust(username, delta)` / `updateAffinity(username, delta)`: Modifies player metrics.
+- **[`agent/stats/decay.js`](file:///e:/Projects/minecraft-community/agent/stats/decay.js)** — `StatsDecayEngine` class.
+- **[`agent/stats/relationships.js`](file:///e:/Projects/minecraft-community/agent/stats/relationships.js)** — `RelationshipTracker` class.
 
 ---
 
 #### 7. Decision Engine (`agent/decision/`)
-- **[`agent/decision/confidence.js`](file:///e:/Projects/minecraft-community/agent/decision/confidence.js)** — `ConfidenceEvaluator` class:
-  - `shouldEscalate(confidence)`: Returns true if rule score < `0.6`.
-- **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class:
-  - `learnRule(situationPayload, decisionData)`: Replicates LLM decisions locally with confidence `0.85` and writes durable survival tactics into `skills.md`.
-  - `evaluateDynamicRules(senses, stats)`: Returns candidate actions generated from learned rules.
+- **[`agent/decision/confidence.js`](file:///e:/Projects/minecraft-community/agent/decision/confidence.js)** — `ConfidenceEvaluator` class.
+- **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class.
 - **[`agent/decision/rules/`](file:///e:/Projects/minecraft-community/agent/decision/rules/)**:
   - `eat.js`, `flee.js`, `fight.js`, `sleep.js`, `mine.js`, `explore.js`, `trade.js`.
-- **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class:
-  - `evaluate(senses, statsManager)`: Combines static and dynamic rules, selects top action, escalates to Brain Broker if confidence < `0.6`.
-- **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class:
-  - `escalate(situationContext)`: Dispatches payload to `BrainClient`.
+- **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class.
+- **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class.
 
 ---
 
 #### 8. Memory Client (`agent/memory/`)
-- **[`agent/memory/buffer.js`](file:///e:/Projects/minecraft-community/agent/memory/buffer.js)** — `EventBuffer` class:
-  - `addEvent(type, payload)`: Appends event; flushes at capacity (20).
-- **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class:
-  - `flushBuffer(events)`: Calls `POST /api/memory/compact`.
-  - `queryMemories(query, section, limit)`: Calls `GET /api/memory/query`.
+- **[`agent/memory/buffer.js`](file:///e:/Projects/minecraft-community/agent/memory/buffer.js)** — `EventBuffer` class.
+- **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class.
 
 ---
 
@@ -205,9 +169,7 @@ This document serves as the complete technical specification, architectural refe
 - **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build.
 - **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**: Express REST server on port `3001`.
 - **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**: API keys and port configuration.
-- **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
-  - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`.
-  - Injects dynamic persona, active goals, and free-will directives into prompts.
+- **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class.
 - **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager.
 - **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)**: SHA-256 state hash cache.
 - **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)**: Cosine similarity vector cache ($\ge 0.88$).
@@ -223,20 +185,20 @@ This document serves as the complete technical specification, architectural refe
 - **[`memory-service/router.js`](file:///e:/Projects/minecraft-community/memory-service/router.js)**: Zero-LLM event router.
 - **[`memory-service/sections/compactor.js`](file:///e:/Projects/minecraft-community/memory-service/sections/compactor.js)**: Two-tier compaction engine.
 - **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)**: Background compaction sweep scheduler.
-- **[`memory-service/reflection/engine.js`](file:///e:/Projects/minecraft-community/memory-service/reflection/engine.js)** — `GenerativeReflectionEngine` class:
-  - `runReflection(agentId)`: Synthesizes high-level reflections, worldviews, and social insights into `profile.md`.
-- **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class:
-  - Records emergent currencies, settlements, and factions.
-
----
-
-### Ops & Orchestration Scripts (`scripts/`)
-- **[`docker-compose.yml`](file:///e:/Projects/minecraft-community/docker-compose.yml)**: Orchestrates Paper Server (2.5GB limit), Memory Service (256MB limit), Brain Broker (256MB limit), Agent Alpha (256MB limit), Agent Beta (256MB limit).
-- **[`scripts/spawn-agent.sh`](file:///e:/Projects/minecraft-community/scripts/spawn-agent.sh)**: Spawns new dynamic agent containers with custom names and personalities.
-- **[`scripts/benchmark-resources.sh`](file:///e:/Projects/minecraft-community/scripts/benchmark-resources.sh)**: Measures live container footprints and projects max agent scaling capacity on a 16GB RAM VPS.
+- **[`memory-service/reflection/engine.js`](file:///e:/Projects/minecraft-community/memory-service/reflection/engine.js)** — `GenerativeReflectionEngine` class.
+- **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class.
 
 ---
 
 ### Shared Utilities (`shared/`)
+- **[`shared/detailedLogger.js`](file:///e:/Projects/minecraft-community/shared/detailedLogger.js)** — `DetailedAuditLogger` class:
+  - `logMovement(agentId, action, details)`: Appends to `logs/agents/<agentId>/movement.log`.
+  - `logCombat(agentId, action, details)`: Appends to `logs/agents/<agentId>/combat.log`.
+  - `logInventory(agentId, action, details)`: Appends to `logs/agents/<agentId>/inventory.log`.
+  - `logChat(agentId, action, details)`: Appends to `logs/agents/<agentId>/chat_and_social.log`.
+  - `logCognition(agentId, action, details)`: Appends to `logs/agents/<agentId>/cognition_and_decisions.log`.
+  - `logSenses(agentId, action, details)`: Appends to `logs/agents/<agentId>/senses_and_environment.log`.
+  - `logUniversalWorldEvent(agentId, category, action, details)`: Appends to `logs/world/global_timeline.log`.
+  - `logCivilizationMilestone(category, title, details)`: Appends to `logs/world/civilization_events.log`.
 - **[`shared/logger.js`](file:///e:/Projects/minecraft-community/shared/logger.js)**: Standardized formatted console logging.
 - **[`shared/constants.js`](file:///e:/Projects/minecraft-community/shared/constants.js)**: Action enum (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `WANDER`, `IDLE`, `TRADE`, `EXPLORE`, `BUILD`, `TALK`) and stat ranges.

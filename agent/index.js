@@ -2,6 +2,7 @@ const mineflayer = require('mineflayer');
 const { pathfinder, movements } = require('mineflayer-pathfinder');
 const config = require('./config');
 const logger = require('../shared/logger');
+const detailedLogger = require('../shared/detailedLogger');
 const Senses = require('./perception/senses');
 const EventObserver = require('./perception/events');
 const MovementActuator = require('./actuation/movement');
@@ -49,8 +50,8 @@ function createAgent() {
   const persona = new DynamicPersona(config.username, config.personalitySeed);
   const goalManager = new GoalManager(config.username, persona);
   const brainClient = new BrainClient(config.brokerUrl);
-  const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships);
   const factionManager = new FactionAffiliationManager(config.username, persona);
+  const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships, factionManager);
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
@@ -63,15 +64,18 @@ function createAgent() {
   let inFlightTick = false;
 
   bot.once('spawn', () => {
-    logger.info('Agent', `${bot.username} spawned at X:${Math.round(bot.entity.position.x)} Y:${Math.round(bot.entity.position.y)} Z:${Math.round(bot.entity.position.z)}`);
+    const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : { x: 0, y: 0, z: 0 };
+    logger.info('Agent', `${bot.username} spawned at X:${pos.x} Y:${pos.y} Z:${pos.z}`);
     
+    detailedLogger.logCognition(bot.username, 'Agent Spawned in World', { position: pos, biome: senses.getBiome(), timeOfDay: senses.getTimeOfDay() });
+
     const defaultMovements = new movements(bot);
     bot.pathfinder.setMovements(defaultMovements);
 
     chat.say(`Greetings world! ${bot.username} is awake.`);
 
     eventBuffer.addEvent('spawn', {
-      position: { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) },
+      position: pos,
       biome: senses.getBiome(),
       timeOfDay: senses.getTimeOfDay()
     });
@@ -91,6 +95,13 @@ function createAgent() {
 
         // 3. Evaluate Decision Tree
         const decision = await decisionTree.evaluate(senses, stats);
+
+        detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
+          confidence: decision.confidence,
+          escalated: decision.escalated,
+          stats: stats.getSummary(),
+          activeGoal: goalManager.currentGoal.description
+        });
 
         if (decision.chatMessage) {
           chat.say(decision.chatMessage);
@@ -133,6 +144,7 @@ function createAgent() {
       case ACTIONS.SLEEP:
         if (decision.meta && decision.meta.bed) {
           logger.info('AgentLoop', 'Executing SLEEP action');
+          detailedLogger.logCognition(bot.username, 'Entering bed to sleep', { bedPos: decision.meta.bed.position });
           bot.sleep(decision.meta.bed).catch(err => logger.error('AgentLoop', 'Sleep failed', err));
           eventBuffer.addEvent('sleep', { bedPos: decision.meta.bed.position });
         }
@@ -165,12 +177,14 @@ function createAgent() {
   events.on('agentHurt', ({ health }) => {
     stats.addAnger(25);
     stats.addHappiness(-15);
+    detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
     eventBuffer.addEvent('agentHurt', { health });
   });
 
   events.on('agentDeath', ({ position }) => {
     stats.addHappiness(-50);
     stats.addAnger(30);
+    detailedLogger.logCombat(bot.username, 'AGENT DIED', { deathPosition: position });
     persona.evolveFromExperience('near_death', 1.0);
     eventBuffer.addEvent('death', { position });
   });
@@ -178,26 +192,33 @@ function createAgent() {
   events.on('agentRespawn', () => {
     stats.health = 20;
     stats.hunger = 100;
+    detailedLogger.logCognition(bot.username, 'Agent Respawned');
     eventBuffer.addEvent('respawn', {});
   });
 
   events.on('underAttack', ({ attacker }) => {
-    eventBuffer.addEvent('underAttack', { attacker: attacker.username || attacker.name || 'unknown' });
+    const attackerName = attacker.username || attacker.name || 'unknown';
+    detailedLogger.logCombat(bot.username, `Under attack by entity: ${attackerName}`);
+    eventBuffer.addEvent('underAttack', { attacker: attackerName });
   });
 
   events.on('itemCollected', ({ item }) => {
+    detailedLogger.logInventory(bot.username, `Item Collected from ground: ${item?.name || 'item'}`);
     eventBuffer.addEvent('itemCollected', { item: item?.name || 'item' });
   });
 
   events.on('blockBroken', ({ blockName, position }) => {
+    detailedLogger.logInventory(bot.username, `Block Excavation Completed: ${blockName}`, { position });
     eventBuffer.addEvent('blockBroken', { blockName, position });
   });
 
   events.on('weatherChanged', ({ isRaining }) => {
+    detailedLogger.logSenses(bot.username, `Weather changed: isRaining=${isRaining}`);
     eventBuffer.addEvent('weatherChanged', { isRaining });
   });
 
   events.on('timeTransition', ({ phase, timeOfDay }) => {
+    detailedLogger.logSenses(bot.username, `Time of day phase entered: ${phase}`, { timeOfDay });
     eventBuffer.addEvent('timeTransition', { phase, timeOfDay });
   });
 
