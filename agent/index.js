@@ -116,6 +116,11 @@ function createAgent() {
             chat.say(decision.chatMessage);
           }
 
+          // Cancel combat loop if no longer fighting
+          if (decision.action !== 'FIGHT' && combat.target) {
+            combat.stopCombat();
+          }
+
           await executeDecision(decision);
         } catch (err) {
           logger.error('AgentLoop', 'Error in agent tick loop:', err);
@@ -191,6 +196,40 @@ function createAgent() {
     stats.addHappiness(-15);
     detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
     eventBuffer.addEvent('agentHurt', { health });
+  });
+
+  events.on('agentOnFire', () => {
+    stats.addAnger(30);
+    stats.addHappiness(-20);
+    detailedLogger.logCombat(bot.username, 'AGENT IS ON FIRE — seeking water');
+    eventBuffer.addEvent('onFire', {});
+    // Try to run to nearest water to extinguish
+    const water = senses.getNearbyWater(24);
+    if (water) {
+      movement.goto(water.position.x, water.position.y, water.position.z, 1);
+    } else {
+      movement.wander(8); // move erratically
+    }
+  });
+
+  events.on('incomingProjectile', ({ name, distance }) => {
+    detailedLogger.logCombat(bot.username, `Incoming projectile: ${name} at ${distance}m — dodging`);
+    eventBuffer.addEvent('incomingProjectile', { name, distance });
+    stats.addAnger(10);
+    // Dodge by strafing randomly
+    const dodge = Math.random() > 0.5 ? 'left' : 'right';
+    bot.setControlState(dodge, true);
+    setTimeout(() => bot.setControlState(dodge, false), 400);
+  });
+
+  events.on('playerJoined', ({ username }) => {
+    detailedLogger.logSenses(bot.username, `Player joined server: ${username}`);
+    eventBuffer.addEvent('playerJoined', { username });
+  });
+
+  events.on('playerLeft', ({ username }) => {
+    detailedLogger.logSenses(bot.username, `Player left server: ${username}`);
+    eventBuffer.addEvent('playerLeft', { username });
   });
 
   events.on('agentDeath', ({ position }) => {
