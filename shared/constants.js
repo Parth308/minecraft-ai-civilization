@@ -10,8 +10,8 @@ module.exports = {
     HAPPINESS_DECAY_RATE: 0.05
   },
   CONFIDENCE: {
-    ESCALATION_THRESHOLD: 0.6,    // Below this, escalate to LLM/Broker
-    ALWAYS_EXECUTE_THRESHOLD: 0.8
+    ESCALATION_THRESHOLD: 0.75,   // Below this, escalate to LLM/Broker + Web Knowledge
+    ALWAYS_EXECUTE_THRESHOLD: 0.85
   },
   ACTIONS: {
     EAT: 'EAT',

@@ -74,6 +74,7 @@ class DecisionTree {
         reason: escalationResult.reason || 'Escalated to LLM for autonomous reasoning',
         tacticLearned: escalationResult.tacticLearned || null,
         chatMessage: escalationResult.chatMessage || null,
+        newGoal: escalationResult.newGoal || null,
         meta: {
           ...topCandidate,
           itemToCraft: escalationResult.itemToCraft || topCandidate.itemToCraft

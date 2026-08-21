@@ -172,6 +172,11 @@ function createAgent() {
             activeGoal: goalManager.currentGoal.description
           });
 
+          if (decision.newGoal && typeof goalManager.setGoal === 'function') {
+            goalManager.setGoal(decision.newGoal);
+            agentState.activeGoal = decision.newGoal;
+          }
+
           if (decision.chatMessage) {
             chat.say(decision.chatMessage);
           }

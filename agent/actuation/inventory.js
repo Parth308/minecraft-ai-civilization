@@ -245,10 +245,22 @@ class InventoryActuator {
       await this.equipOptimalTool(target);
       // Look at the block center before swinging
       await this.bot.lookAt(target.position.offset(0.5, 0.5, 0.5), true);
-      logger.info('Actuation:Inventory', `Excavating block: ${target.name} at ${target.position}...`);
-      detailedLogger.logInventory(this.agentId, `Excavating block: ${target.name}`, { position: target.position });
       await this.bot.dig(target);
       detailedLogger.logInventory(this.agentId, `Mined block successfully: ${target.name}`, { position: target.position });
+
+      // Vacuum pickup: Step directly onto the mined block / nearby dropped item
+      try {
+        await this._navigateWithin(target.position, 1);
+        const nearbyDropped = Object.values(this.bot.entities).find(e => 
+          e && e.name === 'item' && e.position && e.position.distanceTo(this.bot.entity.position) < 4
+        );
+        if (nearbyDropped) {
+          await this._navigateWithin(nearbyDropped.position, 1);
+        }
+      } catch (pickupErr) {
+        // Non-blocking navigation
+      }
+
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Mining block failed: ${err.message}`);
