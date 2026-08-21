@@ -24,6 +24,22 @@ services:
       - minecraft-network
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-embeddings
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
   memory-service:
     build:
       context: .
@@ -35,9 +51,19 @@ services:
       MEMORY_PORT: 3002
       BROKER_URL: "http://brain-broker:3001"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
-      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-auto}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-ollama}"
+      OLLAMA_HOST: "http://ollama:11434"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-nomic-embed-text}"
     volumes:
       - ./memory-service/store/agents:/app/memory-service/store/agents
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      - ollama
     deploy:
       resources:
         limits:
@@ -62,9 +88,18 @@ services:
       CEREBRAS_API_KEY: "${CEREBRAS_API_KEY}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-300}"
-      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-auto}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-ollama}"
+      OLLAMA_HOST: "http://ollama:11434"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-nomic-embed-text}"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     depends_on:
-      - memory-service
+      memory-service:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -90,9 +125,12 @@ services:
       BROKER_URL: "http://brain-broker:3001"
       MEMORY_SERVICE_URL: "http://memory-service:3002"
     depends_on:
-      - minecraft-server
-      - brain-broker
-      - memory-service
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -118,9 +156,12 @@ services:
       BROKER_URL: "http://brain-broker:3001"
       MEMORY_SERVICE_URL: "http://memory-service:3002"
     depends_on:
-      - minecraft-server
-      - brain-broker
-      - memory-service
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -129,6 +170,9 @@ services:
     networks:
       - minecraft-network
     restart: unless-stopped
+
+volumes:
+  ollama_data:
 
 networks:
   minecraft-network:

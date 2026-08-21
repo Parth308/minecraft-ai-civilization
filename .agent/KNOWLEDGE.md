@@ -6,27 +6,32 @@ This document serves as the complete technical specification, architectural refe
 
 ## 1. Tech Stack Summary
 - **Runtime**: Node.js 20 (Alpine Linux container images)
-- **Orchestration**: Docker Compose with strict per-container resource constraints (`cpus`, `memory`)
+- **Orchestration**: Docker Compose with strict per-container resource constraints (`cpus`, `memory`) and microservice health checks (`condition: service_healthy`)
 - **Game Engine Bot Client**: `mineflayer` (^4.20.1)
 - **Pathfinding Engine**: `mineflayer-pathfinder` (^2.4.5) with 3D A* navigation
 - **Vector Utilities**: `vec3` (^0.1.10)
 - **Minecraft Server**: Paper Minecraft Server 1.20.4 (`itzg/minecraft-server` in Docker, `online-mode=false`, capped at 2.5GB RAM)
 - **HTTP Microservices**:
-  - **Brain Broker Service**: Express.js on port `3001` (`broker/index.js`, 256MB RAM cap)
-  - **Central Memory Service**: Express.js on port `3002` (`memory-service/index.js`, 256MB RAM cap)
+  - **Brain Broker Service**: Express.js on port `3001` (`broker/index.js`, 256MB RAM cap, `/health` endpoint)
+  - **Central Memory Service**: Express.js on port `3002` (`memory-service/index.js`, 256MB RAM cap, `/health` endpoint)
+  - **Ollama Embeddings Service**: Port `11434` running `nomic-embed-text` (768-dim normalized vectors)
 - **LLM Provider Pool (Free Tiers)**:
   - **Gemini Flash (`gemini-2.5-flash`)**: Primary workhorse for complex reasoning, emotions, and Tier 2 memory consolidation.
   - **Groq (`llama-3.1-8b-instant`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
   - **Cerebras (`llama3.1-8b`)**: Backup provider on rate limits.
   - **OpenRouter Free (`meta-llama/llama-3.1-8b-instruct:free`)**: Universal failover provider.
 - **Detachable Embeddings Engine**:
+  - **Ollama**: `nomic-embed-text` (768-dim normalized vectors via `POST /api/embeddings`)
   - **Hosted**: Gemini `text-embedding-004` (768 dimensions)
   - **Local**: Fast deterministic token frequency & N-gram hashing into unit hypersphere (zero GPU/RAM overhead).
-  - Switchable via `EMBEDDING_PROVIDER='local' | 'gemini' | 'auto'`.
+  - Switchable via `EMBEDDING_PROVIDER='ollama' | 'gemini' | 'local' | 'auto'`.
 - **Dual-Layer Caching Architecture**:
   - **Layer 1**: SHA-256 exact-match state hash cache with 300s TTL (`broker/cache/exactCache.js`).
   - **Layer 2**: Cosine similarity semantic vector cache with $\ge 0.88$ threshold (`broker/cache/semanticCache.js`).
-- **Memory Architecture**: Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with vector indexing (`vectorStore.js`) and two-tier compaction.
+- **Memory Architecture & Resiliency**:
+  - Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with vector indexing (`vectorStore.js`) and two-tier compaction.
+  - **Zero-Loss Retry Queue**: `agent/memory/client.js` buffers memory events in an in-memory queue and automatically drains when `memory-service` comes online.
+  - **Offline Fallback**: `agent/brain-client/client.js` & `agent/decision/tree.js` gracefully fall back to local rule engine and dynamic rule cache when `brain-broker` is unreachable.
 - **Detailed Audit & Simulation Logger**:
   - **Per-Agent Activity Logs**: `logs/agents/<agentId>/` (`movement.log`, `combat.log`, `inventory.log`, `chat_and_social.log`, `cognition_and_decisions.log`, `senses_and_environment.log`).
   - **Universal World Timeline**: `logs/world/` (`global_timeline.log`, `civilization_events.log`).
@@ -48,7 +53,7 @@ This document serves as the complete technical specification, architectural refe
   - `personalitySeed`: Personality profile identifier (`friendly-explorer`, `cautious-builder`).
   - `confidenceThreshold`: Escalation threshold score (`0.6`).
 - **[`agent/index.js`](file:///e:/Projects/minecraft-community/agent/index.js)**
-  - `createAgent()`: Instantiates Mineflayer client, loads pathfinder, initializes perception, actuators, stats, persona, goals, social dialogue, event buffer, memory client, and launches the 1-second main tick loop.
+  - `createAgent()`: Instantiates Mineflayer client, loads pathfinder, initializes perception, actuators, stats, persona, goals, social dialogue, event buffer, memory client with retry queue, and launches the 1-second main tick loop.
   - `executeDecision(decision)`: Translates decision tree output into physical actions (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `EXPLORE`, `WANDER`).
 
 ---
@@ -154,22 +159,30 @@ This document serves as the complete technical specification, architectural refe
 - **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class.
 - **[`agent/decision/rules/`](file:///e:/Projects/minecraft-community/agent/decision/rules/)**:
   - `eat.js`, `flee.js`, `fight.js`, `sleep.js`, `mine.js`, `explore.js`, `trade.js`.
-- **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class.
-- **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class.
+- **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class:
+  - Evaluates static & dynamic rules, escalates to Brain Broker if confidence < 0.6, and gracefully falls back to local rules if Broker is offline.
+- **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class:
+  - `escalate(situationContext)`: Dispatches payload to `BrainClient`.
 
 ---
 
-#### 8. Memory Client (`agent/memory/`)
-- **[`agent/memory/buffer.js`](file:///e:/Projects/minecraft-community/agent/memory/buffer.js)** — `EventBuffer` class.
-- **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class.
+#### 8. Memory Client & Resilient Queue (`agent/memory/`)
+- **[`agent/memory/buffer.js`](file:///e:/Projects/minecraft-community/agent/memory/buffer.js)** — `EventBuffer` class:
+  - Rolling 20-event buffer triggering callback on overflow.
+- **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class:
+  - `flushBuffer(events)`: Pushes events to local `pendingQueue` and attempts flush.
+  - `drainQueue()`: Automatically retries queued memory flushes every 15s when `memory-service` recovers.
+  - `queryMemories(query, section, limit)`: Queries `GET /api/memory/query`.
 
 ---
 
 ### Central Brain Broker Service (`broker/`)
-- **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build.
+- **[`broker/Dockerfile`](file:///e:/Projects/minecraft-community/broker/Dockerfile)**: Docker container build with `/health` check.
 - **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**: Express REST server on port `3001`.
 - **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**: API keys and port configuration.
-- **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class.
+- **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
+  - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`.
+  - Injects dynamic persona, active goals, and free-will directives into prompts.
 - **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager.
 - **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)**: SHA-256 state hash cache.
 - **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)**: Cosine similarity vector cache ($\ge 0.88$).
@@ -177,28 +190,31 @@ This document serves as the complete technical specification, architectural refe
 ---
 
 ### Central Memory Service (`memory-service/`)
-- **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build.
+- **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build with `/health` check.
 - **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002`.
-- **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)**: Detachable Gemini hosted vs local N-gram vector generator.
+- **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
+  - Supports **Ollama (`nomic-embed-text`)**, **Gemini (`text-embedding-004`)**, and **Local N-Gram Fallback** with L2 vector normalization.
 - **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)**: Memory vector store and semantic search.
 - **[`memory-service/sections/schema.js`](file:///e:/Projects/minecraft-community/memory-service/sections/schema.js)**: Sectioned markdown manager (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`).
 - **[`memory-service/router.js`](file:///e:/Projects/minecraft-community/memory-service/router.js)**: Zero-LLM event router.
 - **[`memory-service/sections/compactor.js`](file:///e:/Projects/minecraft-community/memory-service/sections/compactor.js)**: Two-tier compaction engine.
 - **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)**: Background compaction sweep scheduler.
-- **[`memory-service/reflection/engine.js`](file:///e:/Projects/minecraft-community/memory-service/reflection/engine.js)** — `GenerativeReflectionEngine` class.
-- **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class.
+- **[`memory-service/reflection/engine.js`](file:///e:/Projects/minecraft-community/memory-service/reflection/engine.js)** — `GenerativeReflectionEngine` class:
+  - `runReflection(agentId)`: Synthesizes high-level reflections, worldviews, and social insights into `profile.md`.
+- **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class:
+  - Records emergent currencies, settlements, and factions.
+
+---
+
+### Ops & Orchestration Scripts (`scripts/`)
+- **[`docker-compose.yml`](file:///e:/Projects/minecraft-community/docker-compose.yml)**: Orchestrates Paper Server (2.5GB limit), Ollama (`nomic-embed-text`), Memory Service (256MB limit), Brain Broker (256MB limit), Agent Alpha (256MB limit), Agent Beta (256MB limit) with health check dependencies.
+- **[`scripts/spawn-agent.sh`](file:///e:/Projects/minecraft-community/scripts/spawn-agent.sh)**: Spawns new dynamic agent containers with custom names and personalities.
+- **[`scripts/benchmark-resources.sh`](file:///e:/Projects/minecraft-community/scripts/benchmark-resources.sh)**: Measures live container footprints and projects max agent scaling capacity on a 16GB RAM VPS.
 
 ---
 
 ### Shared Utilities (`shared/`)
 - **[`shared/detailedLogger.js`](file:///e:/Projects/minecraft-community/shared/detailedLogger.js)** — `DetailedAuditLogger` class:
-  - `logMovement(agentId, action, details)`: Appends to `logs/agents/<agentId>/movement.log`.
-  - `logCombat(agentId, action, details)`: Appends to `logs/agents/<agentId>/combat.log`.
-  - `logInventory(agentId, action, details)`: Appends to `logs/agents/<agentId>/inventory.log`.
-  - `logChat(agentId, action, details)`: Appends to `logs/agents/<agentId>/chat_and_social.log`.
-  - `logCognition(agentId, action, details)`: Appends to `logs/agents/<agentId>/cognition_and_decisions.log`.
-  - `logSenses(agentId, action, details)`: Appends to `logs/agents/<agentId>/senses_and_environment.log`.
-  - `logUniversalWorldEvent(agentId, category, action, details)`: Appends to `logs/world/global_timeline.log`.
-  - `logCivilizationMilestone(category, title, details)`: Appends to `logs/world/civilization_events.log`.
+  - Logs granular streams to `logs/agents/<agentId>/` and `logs/world/`.
 - **[`shared/logger.js`](file:///e:/Projects/minecraft-community/shared/logger.js)**: Standardized formatted console logging.
 - **[`shared/constants.js`](file:///e:/Projects/minecraft-community/shared/constants.js)**: Action enum (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `WANDER`, `IDLE`, `TRADE`, `EXPLORE`, `BUILD`, `TALK`) and stat ranges.
