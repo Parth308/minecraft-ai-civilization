@@ -85,65 +85,66 @@ This document serves as the complete technical specification, architectural refe
 
 #### 4. Perception Layer (`agent/perception/`)
 - **[`agent/perception/senses.js`](file:///e:/Projects/minecraft-community/agent/perception/senses.js)** — `Senses` class:
-  - `getNearbyMobs(maxDistance=16)`: Scans world entities and filters for living non-player mobs.
-  - `getNearbyHostileMobs(maxDistance=16)`: Filters for dangerous hostiles (zombies, skeletons, creepers, phantoms, wardens, etc.).
-  - `getNearbyPassiveMobs(maxDistance=16)`: Filters for passive animals (cows, pigs, sheep, chickens, horses, villagers).
-  - `getNearbyPlayers(maxDistance=32)`: Scans for other human/bot player entities in visual range.
-  - `getNearbyItems(maxDistance=16)`: Locates dropped item entities on the ground.
-  - `getNearbyBlock(blockName, maxDistance=16)`: Finds single closest block matching substring.
-  - `getNearbyBlocks(blockName, maxDistance=16, count=5)`: Finds up to N matching blocks.
-  - `getNearbyBed(maxDistance=16)`: Locates nearest bed for sleeping.
-  - `getNearbyChests(maxDistance=16)`: Locates nearby chest/storage containers.
-  - `getNearbyFurnaces(maxDistance=16)`: Locates smelting furnaces.
-  - `getNearbyOres(maxDistance=16)`: Locates coal, iron, gold, diamond, copper, redstone ores.
-  - `getNearbyTrees(maxDistance=16)`: Finds log blocks for timber harvesting.
-  - `getNearbyWater(maxDistance=16)` / `getNearbyLava(maxDistance=16)`: Identifies fluid hazards/sources.
-  - `isNight()`: Returns boolean if in-game tick is between 13000 and 23000.
-  - `getTimeOfDay()`: Returns semantic phase (`morning`, `afternoon`, `sunset`, `night`, `sunrise`).
-  - `getLightLevel()`: Calculates block light level at bot position to assess monster spawn danger.
-  - `getBiome()`: Returns biome identifier name (`plains`, `forest`, `desert`, etc.).
-  - `isRaining()`: Detects active precipitation.
-  - `getInventoryFood()`: Scans bot inventory for edible items.
-  - `getInventoryTools()`: Scans bot inventory for weapons/tools.
-  - `getEquipmentSummary()`: Inspects equipped armor and held hand items.
-  - `canSeeEntity(entity)`: Raycasts line-of-sight to check if target is obscured by blocks.
+  - `getNearbyMobs(maxDistance=16)`: Scans world entities for living non-player mobs.
+  - `getNearbyHostileMobs(maxDistance=16)`: 25 hostile types: zombies, skeletons, creepers, phantoms, wardens, blazes, ghasts, piglin_brutes, etc.
+  - `getNearbyPassiveMobs(maxDistance=16)`: 20 passive types: cows, pigs, sheep, villagers, axolotl, frogs, allays, etc.
+  - `getNearbyPlayers(maxDistance=32)`: Scans all online players with spawned entities.
+  - `getNearbyItems(maxDistance=16)`: Finds dropped `Item` object-type entities on the ground (fixed from broken `type='object'` filter).
+  - `getNearbyProjectiles(maxDistance=12)`: **NEW** — Detects incoming arrows, fireballs, tridents, wither skulls within radius.
+  - `getNearbyBlock(blockName, maxDistance=16)` / `getNearbyBlocks(blockName, maxDistance, count)`: Block scanning with null-filtered results.
+  - `getNearbyBed(16)`, `getNearbyChests(16)`, `getNearbyFurnaces(16)`, `getNearbyCraftingTables(8)`: **NEW** — crafting table finder.
+  - `getNearbyOres(16)`: Finds all ore types including `ancient_debris`, `emerald_ore`, `nether_quartz_ore`.
+  - `getNearbyTrees(16)`, `getNearbyWater(16)`, `getNearbyLava(16)`.
+  - `isNight()`, `getTimeOfDay()`, `getLightLevel()`, `getBiome()`, `isRaining()`.
+  - `isInWater()`: **NEW** — checks `bot.entity.isInWater`.
+  - `isOnFire()`: **NEW** — checks `bot.entity.onFire`.
+  - `isUnderground()`: **NEW** — returns true if Y < 60.
+  - `isFalling()`: **NEW** — returns true if `velocity.y < -0.1`.
+  - `getInventoryFood()`, `getInventoryTools()`, `getEquipmentSummary()` (includes offhand slot).
+  - `hasItem(itemName)`: **NEW** — boolean item existence check.
+  - `countItem(itemName)`: **NEW** — total stack count across all inventory slots.
+  - `canSeeEntity(entity)`: Line-of-sight raycast with try/catch protection.
 
 - **[`agent/perception/events.js`](file:///e:/Projects/minecraft-community/agent/perception/events.js)** — `EventObserver` class (EventEmitter):
-  - Emits `agentHurt`, `agentDeath`, `agentRespawn`, `underAttack`, `playerChat`, `playerWhisper`, `itemCollected`, `blockBroken`, `weatherChanged`, `timeTransition`.
+  - Emits: `agentHurt`, `agentDeath`, `agentRespawn`, `underAttack`, `nearbyAttackSwing` (NEW), `incomingProjectile` (NEW — arrow/fireball/trident within 20m), `agentOnFire` / `agentFireOut` (NEW — 500ms polling), `playerChat`, `playerWhisper`, `playerJoined` (NEW), `playerLeft` (NEW), `itemCollected`, `blockBroken`, `blockPlaced` (NEW), `weatherChanged`, `timeTransition`.
+  - Fire detection: 500ms interval polling `bot.entity.onFire` with debounce.
+  - Attacker identification: Uses nearby entity proximity scan as proxy since mineflayer lacks direct hit-source API.
 
 ---
 
 #### 5. Actuation Layer (`agent/actuation/`)
 - **[`agent/actuation/movement.js`](file:///e:/Projects/minecraft-community/agent/actuation/movement.js)** — `MovementActuator` class:
-  - `goto(x, y, z, range=1)`, `gotoBlock(x, y, z)`, `follow(entity, distance=2)`, `fleeFrom(entity, distance=16)`, `wander(radius=15)`, `stop()`, `isMoving()`.
-  - `lookAt(x, y, z, force)` / `lookAtEntity(entity)`: Precise head aiming and yaw/pitch rotation.
-  - `sprint(enable)`: Toggles sprinting state.
-  - `sneak(enable)`: Toggles crouching/sneaking (for stealth, edge safety, hiding nametags).
-  - `jump()`: Triggers jump.
-  - `swim()` / `stopSwimming()`: Handles water swimming controls.
+  - `goto(x, y, z, range=1)`, `gotoBlock(x, y, z)`, `follow(entity, distance=2)`, `fleeFrom(entity, distance=16)` (null-guarded), `wander(radius=15)`, `stop()`, `isMoving()`.
+  - `lookAt(x, y, z, force)` / `lookAtEntity(entity)`: Precise head aiming.
+  - `sprint(enable)`, `sneak(enable)`, `jump()`, `swim()` / `stopSwimming()`.
 
 - **[`agent/actuation/combat.js`](file:///e:/Projects/minecraft-community/agent/actuation/combat.js)** — `CombatActuator` class:
-  - `equipBestArmor()`: Auto-equips highest tier armor (netherite > diamond > iron > golden > leather) across helmet, chestplate, leggings, boots.
+  - `equipBestArmor()`: Auto-equips highest tier armor (netherite > diamond > iron > golden > chainmail > leather) across all 4 slots.
   - `equipBestWeapon()`: Auto-equips best sword or axe into main hand.
+  - `hasBow()` / `hasArrows()`: **NEW** — inventory presence checks.
   - `useShield(enable)`: Equips shield in offhand and raises/lowers blocking stance.
-  - `attack(entity)`: Auto-equips armor & weapon, aims head directly at entity, and strikes.
-  - `stopCombat()`: Disengages combat and lowers shield.
+  - `criticalAttack(entity)`: **NEW** — Jumps, waits for descent, then hits for 1.5× damage (Minecraft crit mechanic).
+  - `bowAttack(entity)`: **NEW** — Equips bow, charges for 1 full second (full power shot), releases. Falls back to melee if no bow/arrows.
+  - `engageMelee(entity)`: **NEW** — Sustained combat loop (200ms tick): chases with `GoalFollow`, respects 630ms attack cooldown, uses crit every 3rd hit, auto-stops when target dies.
+  - `attack(entity)`: **UPDATED** — Orchestrates full combat: equips armor, tries bow if target is >6m away + has bow, then falls back to sustained melee loop. Cancels any existing loop before re-engaging.
+  - `stopCombat()`: Clears combat loop interval, disengages pathfinding, lowers shield.
 
 - **[`agent/actuation/inventory.js`](file:///e:/Projects/minecraft-community/agent/actuation/inventory.js)** — `InventoryActuator` class:
+  - `_navigateWithin(pos, range=3, timeoutMs=15000)`: **NEW** shared helper — pathfinds to within range of a position, used by dig/place/chest/craft.
   - `getFoodCategories()`, `findBestFood(health, hunger)`, `eatFood(health, hunger)`.
   - `equipOptimalTool(block)`: Automatically equips matching tool (pickaxe for stone/ore, axe for wood, shovel for dirt/sand, shears for leaves/wool).
-  - `digBlock(block)`: Equips optimal tool and excavates block.
-  - `placeBlock(blockName, referenceBlock, faceVector)`: Places block against reference block with precise vector.
-  - `dropItem(itemName, count)`: Drops items to ground.
-  - `tossItemToPlayer(itemName, playerEntity, count)`: Aims at player and tosses item directly at them.
-  - `openChestAndDeposit(chestBlock, itemNames)`: Transfers items into chests.
-  - `openChestAndWithdraw(chestBlock, itemNames)`: Retrieves items from chests.
-  - `craftItem(itemName, count)`: Automatically finds matching recipe in bot registry and crafts item.
-  - `listInventory()`: Returns formatted array of item names and stack counts.
+  - `digBlock(block)`: Navigates within 3m, equips tool, looks at block center, excavates. **Fixed** — previously could fail silently if out of reach.
+  - `placeBlock(blockName, referenceBlock, faceVector)`: Navigates within 3m, looks at face center, equips block, places. **Fixed** — previously placed without proximity/aim.
+  - `dropItem(itemName, count)`: Clamps count to available stack size. **Fixed** — was previously unclamped.
+  - `tossItemToPlayer(itemName, playerEntity, count)`: Faces player before tossing.
+  - `openChestAndDeposit(chestBlock, itemNames)`: Navigates to chest first. **Fixed** — was opening at distance.
+  - `openChestAndWithdraw(chestBlock, itemNames)`: Navigates to chest first. **Fixed** — was opening at distance.
+  - `craftItem(itemName, count)`: **Fixed** — Auto-searches for crafting table within 8m, navigates to it, passes it to `bot.recipesFor()` for 3×3 recipes (tools, chests, furnaces). Falls back to 2×2 if no table found.
+  - `listInventory()`: Returns formatted `name x count` strings.
 
 - **[`agent/actuation/chat.js`](file:///e:/Projects/minecraft-community/agent/actuation/chat.js)** — `ChatActuator` class:
-  - `say(message)`: Broadcasts message to public server chat.
-  - `whisper(username, message)`: Sends private direct message to specific player.
+  - `say(message)`: Enqueues to rate-limited FIFO queue (1.2s interval). **Fixed** — was sending all at once causing server kick for chat flood.
+  - `whisper(username, message)`: Rate-limited private whisper. Messages capped at 256 chars.
 
 ---
 
