@@ -1,17 +1,14 @@
 const logger = require('../../shared/logger');
+const BrainClient = require('../brain-client/client');
 
 class EscalationManager {
   constructor(brokerClient = null) {
-    this.brokerClient = brokerClient;
+    this.brokerClient = brokerClient || new BrainClient();
   }
 
-  escalate(situationContext) {
-    logger.warn('Escalate', `[LOW CONFIDENCE ESCALATION] Situation: ${JSON.stringify(situationContext)}`);
-    if (this.brokerClient) {
-      return this.brokerClient.query(situationContext);
-    }
-    logger.info('Escalate', 'Broker client not connected yet (Phase 2 mode). Fallback to safe wander/idle.');
-    return { action: 'WANDER', fallback: true };
+  async escalate(situationContext) {
+    logger.warn('Escalate', `[LOW CONFIDENCE ESCALATION] Situation: ${JSON.stringify(situationContext.topCandidate)}`);
+    return await this.brokerClient.escalateSituation(situationContext);
   }
 }
 

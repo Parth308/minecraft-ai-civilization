@@ -40,6 +40,7 @@ function createAgent() {
   const decisionTree = new DecisionTree(config.confidenceThreshold);
 
   let tickInterval = null;
+  let inFlightTick = false;
 
   bot.once('spawn', () => {
     logger.info('Agent', `${bot.username} spawned at X:${Math.round(bot.entity.position.x)} Y:${Math.round(bot.entity.position.y)} Z:${Math.round(bot.entity.position.z)}`);
@@ -47,20 +48,34 @@ function createAgent() {
     const defaultMovements = new movements(bot);
     bot.pathfinder.setMovements(defaultMovements);
 
-    chat.say(`Hello world! ${bot.username} is online with active local stats & rule engine.`);
+    chat.say(`Hello world! ${bot.username} is online with active Brain Broker escalation support.`);
 
-    // Main Agent Loop (Tick-based, zero LLM)
-    tickInterval = setInterval(() => {
-      // 1. Sync MC stats
-      stats.updateHealth(bot.health);
-      stats.updateHungerFromMC(bot.food);
+    // Main Agent Loop (Tick-based)
+    tickInterval = setInterval(async () => {
+      if (inFlightTick) return; // Prevent concurrent overlapping tick calls
+      inFlightTick = true;
 
-      // 2. Run local stats decay tick
-      statsDecay.tick();
+      try {
+        // 1. Sync MC stats
+        stats.updateHealth(bot.health);
+        stats.updateHungerFromMC(bot.food);
 
-      // 3. Evaluate Decision Tree
-      const decision = decisionTree.evaluate(senses, stats);
-      executeDecision(decision);
+        // 2. Run local stats decay tick
+        statsDecay.tick();
+
+        // 3. Evaluate Decision Tree (with Brain Broker Escalation support)
+        const decision = await decisionTree.evaluate(senses, stats);
+
+        if (decision.chatMessage) {
+          chat.say(decision.chatMessage);
+        }
+
+        await executeDecision(decision);
+      } catch (err) {
+        logger.error('AgentLoop', 'Error in agent tick loop:', err);
+      } finally {
+        inFlightTick = false;
+      }
     }, 1000);
   });
 

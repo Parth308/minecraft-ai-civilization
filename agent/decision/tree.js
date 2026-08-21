@@ -13,7 +13,7 @@ class DecisionTree {
     this.escalator = new EscalationManager();
   }
 
-  evaluate(senses, statsManager) {
+  async evaluate(senses, statsManager) {
     const stats = statsManager.getSummary();
 
     const candidates = [
@@ -32,12 +32,23 @@ class DecisionTree {
 
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence)) {
       logger.warn('DecisionTree', `Top action confidence (${topCandidate.confidence}) is below threshold (${this.confidenceEvaluator.threshold}). Triggering Escalation.`);
-      const escalationResult = this.escalator.escalate({
+      const escalationResult = await this.escalator.escalate({
         topCandidate,
         allCandidates: candidates,
         stats
       });
-      return { action: escalationResult.action || 'WANDER', confidence: topCandidate.confidence, escalated: true, meta: topCandidate };
+
+      if (escalationResult.chatMessage) {
+        logger.info('DecisionTree', `Escalation suggested chat message: "${escalationResult.chatMessage}"`);
+      }
+
+      return {
+        action: escalationResult.action || 'WANDER',
+        confidence: topCandidate.confidence,
+        escalated: true,
+        chatMessage: escalationResult.chatMessage,
+        meta: topCandidate
+      };
     }
 
     return { action: topCandidate.name, confidence: topCandidate.confidence, escalated: false, meta: topCandidate };
