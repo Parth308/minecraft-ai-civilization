@@ -39,10 +39,10 @@ function createAgent() {
   const stats = new StatsManager();
   const statsDecay = new StatsDecayEngine(stats, movement);
   const relationships = new RelationshipTracker();
-  const decisionTree = new DecisionTree(config.confidenceThreshold);
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
+  const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient);
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
   });
@@ -56,7 +56,7 @@ function createAgent() {
     const defaultMovements = new movements(bot);
     bot.pathfinder.setMovements(defaultMovements);
 
-    chat.say(`Hello world! ${bot.username} is online with structured memory support.`);
+    chat.say(`Hello world! ${bot.username} is online with active semantic memory & adaptive survival engine.`);
 
     eventBuffer.addEvent('spawn', {
       position: { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) },
@@ -98,7 +98,7 @@ function createAgent() {
     switch (decision.action) {
       case ACTIONS.EAT:
         logger.info('AgentLoop', 'Executing EAT action');
-        await inventory.eatFood();
+        await inventory.eatFood(stats.health, stats.hunger);
         eventBuffer.addEvent('eatFood', { health: stats.health, hunger: stats.hunger });
         break;
 
@@ -226,11 +226,11 @@ function createAgent() {
         break;
 
       case 'memories':
-        memoryClient.queryMemories('', 'recent', 3).then(memories => {
+        memoryClient.queryMemories('', '', 3).then(memories => {
           if (memories.length > 0) {
-            chat.say(`[Recent Memory] ${memories.join(' | ')}`);
+            chat.say(`[Retrieved Memory] ${memories.join(' | ')}`);
           } else {
-            chat.say('No recent memories recorded yet.');
+            chat.say('No memories recorded yet.');
           }
         });
         break;

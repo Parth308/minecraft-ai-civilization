@@ -11,10 +11,10 @@ const EscalationManager = require('./escalate');
 const logger = require('../../shared/logger');
 
 class DecisionTree {
-  constructor(threshold = 0.6) {
+  constructor(threshold = 0.6, memoryClient = null) {
     this.confidenceEvaluator = new ConfidenceEvaluator(threshold);
     this.escalator = new EscalationManager();
-    this.dynamicRuleEngine = new DynamicRuleEngine();
+    this.dynamicRuleEngine = new DynamicRuleEngine(memoryClient);
   }
 
   async evaluate(senses, statsManager) {
@@ -52,7 +52,7 @@ class DecisionTree {
 
       const escalationResult = await this.escalator.escalate(payload);
 
-      // Replicate learned decision into local dynamic rule engine for future local execution!
+      // Replicate learned decision into local dynamic rule engine and long-term skills.md!
       this.dynamicRuleEngine.learnRule(payload, escalationResult);
 
       // Apply emotion updates if returned by LLM

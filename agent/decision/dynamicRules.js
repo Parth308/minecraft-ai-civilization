@@ -1,8 +1,9 @@
 const logger = require('../../shared/logger');
 
 class DynamicRuleEngine {
-  constructor() {
-    this.learnedRules = []; // Array of { id, pattern, action, confidence, hitCount, reason }
+  constructor(memoryClient = null) {
+    this.learnedRules = [];
+    this.memoryClient = memoryClient;
   }
 
   learnRule(situationPayload, decisionData) {
@@ -12,7 +13,7 @@ class DynamicRuleEngine {
     const situationName = situationPayload.topCandidate?.name || 'GENERIC';
     const ruleId = `learned_${situationName.toLowerCase()}_${this.learnedRules.length + 1}`;
 
-    // Check if we already learned this exact action pattern
+    // Check if rule pattern was already learned
     const existing = this.learnedRules.find(r => r.patternSituation === situationName && r.action === action);
     if (existing) {
       existing.confidence = Math.min(0.95, existing.confidence + 0.05);
@@ -25,14 +26,23 @@ class DynamicRuleEngine {
       id: ruleId,
       patternSituation: situationName,
       action: action,
-      confidence: 0.85, // High local confidence so it won't escalate next time!
+      confidence: 0.85,
       reason: `Learned from Broker LLM: ${decisionData.reason || 'Replicated decision'}`,
       hitCount: 1,
       createdAt: new Date().toISOString()
     };
 
     this.learnedRules.push(newRule);
-    logger.info('DynamicRules', `[RULE REPLICATION] Learned new dynamic rule ${ruleId} -> Action '${action}' (Confidence: 0.85)`);
+    logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: 0.85)`);
+
+    // If tactic statement is returned, record it as a durable skill memory
+    if (decisionData.tacticLearned && this.memoryClient) {
+      this.memoryClient.flushBuffer([{
+        type: 'learnedTactic',
+        payload: { tactic: decisionData.tacticLearned, action },
+        summary: `[skill] Learned survival tactic: ${decisionData.tacticLearned}`
+      }]);
+    }
   }
 
   evaluateDynamicRules(senses, stats) {
