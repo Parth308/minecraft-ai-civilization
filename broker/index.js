@@ -10,12 +10,14 @@ const router = new ProviderRouter();
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
-  const available = router.getAvailableProviders().map(p => p.name);
+  const activeKeys = Object.entries(config.keys)
+    .filter(([_, key]) => !!key)
+    .map(([name]) => name);
+
   res.json({
     status: 'ok',
     uptime: process.uptime(),
-    activeProviders: available,
-    totalProvidersConfigured: router.providers.filter(p => p.key).length
+    configuredProviders: activeKeys
   });
 });
 
