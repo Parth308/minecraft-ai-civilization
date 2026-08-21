@@ -4,6 +4,7 @@ const { initializeAgentMemoryFiles, getSectionFilePath, parseSectionFile } = req
 const EventRouter = require('./router');
 const MemoryCompactor = require('./sections/compactor');
 const MemoryScheduler = require('./scheduler');
+const VectorMemoryStore = require('./store/vectorStore');
 const logger = require('../shared/logger');
 
 const app = express();
@@ -11,6 +12,7 @@ app.use(express.json());
 
 const router = new EventRouter();
 const compactor = new MemoryCompactor();
+const vectorStore = new VectorMemoryStore();
 const scheduler = new MemoryScheduler(compactor);
 scheduler.start();
 
@@ -19,11 +21,18 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'memory-service', uptime: process.uptime() });
 });
 
-// Initialize Agent Storage
-app.post('/api/memory/init', (req, res) => {
+// Initialize Agent Storage & Indexing
+app.post('/api/memory/init', async (req, res) => {
   const { agentId, personality } = req.body;
   if (!agentId) return res.status(400).json({ error: 'agentId required' });
   initializeAgentMemoryFiles(agentId, personality);
+
+  // Index sections into vector store
+  for (const s of ['profile', 'relationships', 'events', 'skills']) {
+    const parsed = parseSectionFile(getSectionFilePath(agentId, s));
+    await vectorStore.indexSectionEntries(agentId, s, parsed.entries);
+  }
+
   return res.json({ status: 'initialized', agentId });
 });
 
@@ -36,6 +45,13 @@ app.post('/api/memory/compact', async (req, res) => {
 
   initializeAgentMemoryFiles(agentId);
   const result = await compactor.compactBufferToSections(agentId, events, router);
+
+  // Update vector store index
+  for (const s of ['relationships', 'events', 'skills']) {
+    const parsed = parseSectionFile(getSectionFilePath(agentId, s));
+    await vectorStore.indexSectionEntries(agentId, s, parsed.entries);
+  }
+
   res.json(result);
 });
 
@@ -47,32 +63,38 @@ app.post('/api/memory/consolidate', async (req, res) => {
   }
 
   const result = await compactor.consolidateSectionFile(agentId, section, process.env.GEMINI_API_KEY || '');
+  
+  // Re-index section into vector store
+  const parsed = parseSectionFile(getSectionFilePath(agentId, section));
+  await vectorStore.indexSectionEntries(agentId, section, parsed.entries);
+
   res.json(result);
 });
 
-// Query Memory (Section-scoped retrieval)
-app.get('/api/memory/query', (req, res) => {
+// Query Memory (Semantic Vector Search with Fallback)
+app.get('/api/memory/query', async (req, res) => {
   const { agentId, query, section, limit } = req.query;
   if (!agentId) return res.status(400).json({ error: 'agentId required' });
 
   initializeAgentMemoryFiles(agentId);
+  const maxLines = parseInt(limit, 10) || 5;
 
-  let targetSections = [];
-  if (section) {
-    targetSections = [section];
-  } else if (query) {
-    // Route query keyword to likely section
-    const q = query.toLowerCase();
-    if (q.includes('player') || q.includes('who') || q.includes('trust')) targetSections.push('relationships');
-    if (q.includes('danger') || q.includes('death') || q.includes('hurt') || q.includes('combat')) targetSections.push('events');
-    if (q.includes('mine') || q.includes('build') || q.includes('wood') || q.includes('iron') || q.includes('where')) targetSections.push('skills');
-    if (targetSections.length === 0) targetSections = ['relationships', 'events', 'skills'];
-  } else {
-    targetSections = ['profile', 'relationships', 'events', 'skills'];
+  // 1. If query text is provided, perform semantic vector similarity search
+  if (query) {
+    const vectorResults = await vectorStore.searchSimilar(agentId, query, maxLines, section || null);
+    if (vectorResults.length > 0) {
+      return res.json({
+        agentId,
+        searchType: 'semantic_vector',
+        count: vectorResults.length,
+        memories: vectorResults
+      });
+    }
   }
 
+  // 2. Keyword/fallback retrieval
+  let targetSections = section ? [section] : ['profile', 'relationships', 'events', 'skills'];
   const results = [];
-  const maxLines = parseInt(limit, 10) || 5;
 
   for (const s of targetSections) {
     const filePath = getSectionFilePath(agentId, s);
@@ -83,13 +105,12 @@ app.get('/api/memory/query', (req, res) => {
       const qLower = query.toLowerCase();
       matching = parsed.entries.filter(e => e.toLowerCase().includes(qLower));
     }
-
     results.push(...matching.slice(-maxLines));
   }
 
   res.json({
     agentId,
-    sectionsQueried: targetSections,
+    searchType: 'keyword_fallback',
     count: results.length,
     memories: results.slice(-maxLines)
   });

@@ -3,6 +3,7 @@ const queryGroq = require('./providers/groq');
 const queryCerebras = require('./providers/cerebras');
 const queryOpenRouter = require('./providers/openrouter');
 const ExactCache = require('./cache/exactCache');
+const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
 const config = require('./config');
 const logger = require('../shared/logger');
@@ -10,6 +11,7 @@ const logger = require('../shared/logger');
 class ProviderRouter {
   constructor() {
     this.cache = new ExactCache(config.cacheTTLSeconds);
+    this.semanticCache = new SemanticCache(0.88, config.cacheTTLSeconds * 2);
     this.rateLimiter = new RateLimiter();
     this.rrIndex = 0;
     this.memoryServiceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
@@ -52,15 +54,21 @@ class ProviderRouter {
 
   async processEscalation(situationPayload) {
     // 1. Check exact-match cache
-    const cachedResult = this.cache.get(situationPayload);
-    if (cachedResult) {
-      return { ...cachedResult, cached: true };
+    const exactMatch = this.cache.get(situationPayload);
+    if (exactMatch) {
+      return { ...exactMatch, cached: true, cacheType: 'exact' };
     }
 
-    // 2. Fetch section-scoped relevant memories from memory-service
+    // 2. Check semantic vector similarity cache (0.88 threshold)
+    const semanticMatch = await this.semanticCache.findSimilar(situationPayload);
+    if (semanticMatch) {
+      return { ...semanticMatch, cached: true, cacheType: 'semantic' };
+    }
+
+    // 3. Fetch relevant memories from memory-service
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
 
-    // 3. Determine task type and preferred provider order
+    // 4. Determine task type and preferred provider order
     const taskType = situationPayload.taskType || 'REASONING';
     const available = this.getPreferredProviders(taskType);
 
@@ -69,7 +77,7 @@ class ProviderRouter {
       return this.fallbackHeuristic(situationPayload);
     }
 
-    // 4. Build prompt with injected structured memories
+    // 5. Build prompt with injected structured memories
     const prompt = this.buildPrompt(situationPayload, taskType, memories);
 
     let lastError = null;
@@ -79,8 +87,9 @@ class ProviderRouter {
         const rawText = await provider.fn(provider.key, prompt);
         const decisionData = this.parseLLMResponse(rawText);
 
-        // Save to exact-match cache
+        // Save to BOTH Exact-Match and Semantic Vector Caches
         this.cache.set(situationPayload, decisionData);
+        await this.semanticCache.store(situationPayload, decisionData);
 
         return { ...decisionData, provider: provider.name, taskType, cached: false };
       } catch (err) {
@@ -98,7 +107,7 @@ class ProviderRouter {
   }
 
   buildPrompt(payload, taskType, memories = []) {
-    return `You are a Minecraft AI agent decision and personality engine.
+    return `You are a Minecraft AI agent decision and survival engine.
 Task Mode: ${taskType}
 Agent Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
 Current Situation: ${JSON.stringify(payload.topCandidate || {})}
@@ -107,15 +116,17 @@ Relevant Retrieved Memory Chunks: ${JSON.stringify(memories)}
 
 Instructions:
 1. Choose the best action to perform.
-2. Provide a short reason.
-3. (Optional) Provide a natural in-game public chat message.
+2. Provide a short reason explaining the survival strategy.
+3. (Optional) Provide an in-game public chat message.
 4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue (-20 to +20).
+5. (Optional) Formulate a learned tactic statement (tacticLearned) to remember for future survival.
 
 Reply ONLY with a valid JSON object (no markdown, no backticks):
 {
-  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD",
+  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD" | "CRAFT",
   "reason": "short explanation",
   "chatMessage": "optional chat output or null",
+  "tacticLearned": "optional durable tactic statement or null",
   "emotionDelta": {
     "anger": 0,
     "happiness": 0,
@@ -134,6 +145,7 @@ Reply ONLY with a valid JSON object (no markdown, no backticks):
         action: 'WANDER',
         reason: rawText.substring(0, 100),
         chatMessage: null,
+        tacticLearned: null,
         emotionDelta: { anger: 0, happiness: 0, fatigue: 0 }
       };
     }
@@ -144,6 +156,7 @@ Reply ONLY with a valid JSON object (no markdown, no backticks):
       action: payload.topCandidate?.name || 'WANDER',
       reason: 'Fallback baseline decision due to provider unavailability',
       chatMessage: null,
+      tacticLearned: null,
       emotionDelta: { anger: 0, happiness: 0, fatigue: 0 },
       fallback: true
     };
