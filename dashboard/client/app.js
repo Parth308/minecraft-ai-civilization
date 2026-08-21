@@ -161,6 +161,69 @@ function updateAgentCard(agent) {
 
   // Goal
   setText(`${key}Goal`, agent.activeGoal || 'No active goal');
+
+  // Inventory & Equipment
+  updateAgentInventory(key, agent);
+}
+
+function getItemIcon(name) {
+  if (!name) return '📦';
+  const n = name.toLowerCase();
+  if (n.includes('pickaxe')) return '⛏️';
+  if (n.includes('axe')) return '🪓';
+  if (n.includes('shovel')) return '🥄';
+  if (n.includes('sword')) return '⚔️';
+  if (n.includes('bow') || n.includes('crossbow')) return '🏹';
+  if (n.includes('shield')) return '🛡️';
+  if (n.includes('helmet') || n.includes('cap')) return '🪖';
+  if (n.includes('chestplate') || n.includes('tunic')) return '🦺';
+  if (n.includes('leggings') || n.includes('pants')) return '👖';
+  if (n.includes('boots')) return '👢';
+  if (n.includes('log') || n.includes('wood') || n.includes('plank')) return '🪵';
+  if (n.includes('coal')) return '🪙';
+  if (n.includes('iron') || n.includes('gold') || n.includes('diamond')) return '💎';
+  if (n.includes('beef') || n.includes('pork') || n.includes('mutton') || n.includes('chicken') || n.includes('bread') || n.includes('apple') || n.includes('stew') || n.includes('potato') || n.includes('carrot')) return '🍖';
+  if (n.includes('torch')) return '🔦';
+  return '📦';
+}
+
+function updateAgentInventory(key, agent) {
+  const inv = agent.inventory || [];
+  const equip = agent.equipment || {};
+
+  // Update item count badge
+  const countEl = document.getElementById(`${key}InvCount`);
+  const totalCount = Array.isArray(inv) ? (typeof inv[0] === 'object' ? inv.reduce((s, i) => s + (i.count || 1), 0) : inv.length) : 0;
+  if (countEl) countEl.textContent = `${totalCount} item${totalCount === 1 ? '' : 's'}`;
+
+  // Update Equipment Row
+  const equipEl = document.getElementById(`${key}Equip`);
+  if (equipEl) {
+    const main = equip.mainHand ? `<span class="equip-chip active" title="Main Hand">⚔️ ${equip.mainHand}</span>` : `<span class="equip-chip">⚔️ empty</span>`;
+    const off = equip.offHand ? `<span class="equip-chip active" title="Off Hand">🛡️ ${equip.offHand}</span>` : '';
+    const armor = [equip.helmet, equip.chestplate, equip.leggings, equip.boots].filter(Boolean);
+    const armorHtml = armor.length > 0 ? `<span class="equip-chip active" title="Armor">🪖 ${armor.join(', ')}</span>` : '';
+    equipEl.innerHTML = main + off + armorHtml;
+  }
+
+  // Update Inventory Grid
+  const invEl = document.getElementById(`${key}Inv`);
+  if (invEl) {
+    if (!inv || inv.length === 0) {
+      invEl.innerHTML = `<div class="inv-empty">Inventory empty</div>`;
+      return;
+    }
+    invEl.innerHTML = inv.map(item => {
+      if (typeof item === 'string') {
+        const parts = item.split(' x');
+        const name = parts[0];
+        const count = parts[1] || '1';
+        return `<span class="inv-item" title="${name}">${getItemIcon(name)} ${name} <span class="count">×${count}</span></span>`;
+      }
+      const name = item.displayName || item.name;
+      return `<span class="inv-item" title="${item.name}">${getItemIcon(item.name)} ${name} <span class="count">×${item.count}</span></span>`;
+    }).join('');
+  }
 }
 
 // ─── Decision Tree ────────────────────────────────────────────────────────────

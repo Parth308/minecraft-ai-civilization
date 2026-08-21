@@ -420,7 +420,12 @@ class InventoryActuator {
 
   listInventory() {
     if (!this.bot.inventory) return [];
-    return this.bot.inventory.items().map(i => `${i.name} x${i.count}`);
+    return this.bot.inventory.items().map(i => ({
+      name: i.name,
+      displayName: i.displayName || i.name.replace(/_/g, ' '),
+      count: i.count,
+      slot: i.slot
+    }));
   }
 }
 

@@ -165,6 +165,17 @@
     .goal-text { font-size: 11px; color: var(--text-mid); margin-top: 8px; padding: 5px 8px; background: rgba(0,180,255,0.04); border-radius: 4px; border-left: 2px solid rgba(0,180,255,0.2); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .offline-overlay { padding: 12px 14px; display: flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 12px; }
 
+    /* Inventory & Equipment */
+    .inv-section { margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; }
+    .inv-header { display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px; }
+    .equip-row { display: flex; gap: 4px; margin-bottom: 5px; flex-wrap: wrap; }
+    .equip-chip { font-size: 10px; font-family: var(--mono); padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text-mid); }
+    .equip-chip.active { background: rgba(0,212,255,0.1); border-color: rgba(0,212,255,0.3); color: var(--cyan); }
+    .inv-grid { display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto; padding-right: 2px; }
+    .inv-item { font-size: 10px; font-family: var(--mono); padding: 2px 6px; border-radius: 4px; background: rgba(0,180,255,0.06); border: 1px solid rgba(0,180,255,0.15); color: var(--text); display: flex; align-items: center; gap: 3px; }
+    .inv-item .count { font-weight: 700; color: var(--cyan); }
+    .inv-empty { font-size: 10px; color: var(--text-dim); font-style: italic; }
+
     /* Decision Tree */
     .dtree-panel { overflow-y: auto; }
     .dtree-agent-tabs { display: flex; border-bottom: 1px solid var(--border); }
@@ -290,6 +301,11 @@
             <div class="stat-row"><span class="stat-icon">💤</span><div class="stat-bar"><div class="stat-fill fatigue" id="alphaFatigue" style="width:0%"></div></div><span class="stat-val" id="alphaFatiguev">—</span></div>
           </div>
           <div class="goal-text" id="alphaGoal">No active goal</div>
+          <div class="inv-section">
+            <div class="inv-header"><span>🎒 Inventory</span><span id="alphaInvCount">0 items</span></div>
+            <div class="equip-row" id="alphaEquip"></div>
+            <div class="inv-grid" id="alphaInv"><div class="inv-empty">Inventory empty</div></div>
+          </div>
         </div>
       </div>
 
@@ -318,6 +334,11 @@
             <div class="stat-row"><span class="stat-icon">💤</span><div class="stat-bar"><div class="stat-fill fatigue" id="betaFatigue" style="width:0%"></div></div><span class="stat-val" id="betaFatiguev">—</span></div>
           </div>
           <div class="goal-text" id="betaGoal">No active goal</div>
+          <div class="inv-section">
+            <div class="inv-header"><span>🎒 Inventory</span><span id="betaInvCount">0 items</span></div>
+            <div class="equip-row" id="betaEquip"></div>
+            <div class="inv-grid" id="betaInv"><div class="inv-empty">Inventory empty</div></div>
+          </div>
         </div>
       </div>
     </aside>
