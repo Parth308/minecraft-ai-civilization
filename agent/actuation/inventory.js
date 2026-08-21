@@ -13,17 +13,21 @@ class InventoryActuator {
 
   // --- Proximity Navigation Helper ---
 
-  async _navigateWithin(pos, range = 3, timeoutMs = 15000) {
+  async _navigateWithin(pos, range = 3, timeoutMs = 12000) {
     const botPos = this.bot.entity?.position;
     if (!botPos || botPos.distanceTo(pos) <= range) return true;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const { goals } = require('mineflayer-pathfinder');
       this.bot.pathfinder.setGoal(new goals.GoalNear(pos.x, pos.y, pos.z, range));
-      const onReach = () => { clearTimeout(timer); resolve(true); };
+      const onReach = () => {
+        clearTimeout(timer);
+        this.bot.removeListener('goal_reached', onReach);
+        resolve(true);
+      };
       const timer = setTimeout(() => {
         this.bot.pathfinder.setGoal(null);
         this.bot.removeListener('goal_reached', onReach);
-        reject(new Error(`Navigation timeout after ${timeoutMs}ms`));
+        resolve(false);
       }, timeoutMs);
       this.bot.once('goal_reached', onReach);
     });
@@ -221,22 +225,30 @@ class InventoryActuator {
   }
 
   async digBlock(block) {
-    if (!block || !this.bot.canDigBlock(block)) {
-      logger.warn('Actuation:Inventory', `Cannot dig block at position: ${block?.position}`);
+    if (!block || !block.position || block.name === 'air' || block.name === 'water' || block.name === 'lava' || block.name === 'bedrock') {
       return false;
     }
 
     try {
-      // Navigate within reach (4 blocks) before digging
+      // 1. Navigate within reach (3 blocks) before attempting to dig
       await this._navigateWithin(block.position, 3);
 
-      await this.equipOptimalTool(block);
+      // Re-fetch latest block state at the position (it might have been mined already or changed)
+      const target = this.bot.blockAt(block.position);
+      if (!target || target.name === 'air') return true; // already mined
+
+      if (!this.bot.canDigBlock(target)) {
+        logger.warn('Actuation:Inventory', `Block is not diggable: ${target.name} at ${target.position}`);
+        return false;
+      }
+
+      await this.equipOptimalTool(target);
       // Look at the block center before swinging
-      await this.bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
-      logger.info('Actuation:Inventory', `Excavating block: ${block.name}...`);
-      detailedLogger.logInventory(this.agentId, `Excavating block: ${block.name}`, { position: block.position });
-      await this.bot.dig(block);
-      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${block.name}`, { position: block.position });
+      await this.bot.lookAt(target.position.offset(0.5, 0.5, 0.5), true);
+      logger.info('Actuation:Inventory', `Excavating block: ${target.name} at ${target.position}...`);
+      detailedLogger.logInventory(this.agentId, `Excavating block: ${target.name}`, { position: target.position });
+      await this.bot.dig(target);
+      detailedLogger.logInventory(this.agentId, `Mined block successfully: ${target.name}`, { position: target.position });
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Mining block failed: ${err.message}`);
