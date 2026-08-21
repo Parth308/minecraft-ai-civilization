@@ -13,6 +13,123 @@ services:
       ONLINE_MODE: "FALSE"
       MEMORY: "2G"
       SPAWN_PROTECTION: "0"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2500M
     volumes:
       - ./minecraft-server:/data
+    networks:
+      - minecraft-network
     restart: unless-stopped
+
+  memory-service:
+    build:
+      context: .
+      dockerfile: memory-service/Dockerfile
+    container_name: memory-service
+    ports:
+      - "3002:3002"
+    environment:
+      MEMORY_PORT: 3002
+      BROKER_URL: "http://brain-broker:3001"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-auto}"
+    volumes:
+      - ./memory-service/store/agents:/app/memory-service/store/agents
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  brain-broker:
+    build:
+      context: .
+      dockerfile: broker/Dockerfile
+    container_name: brain-broker
+    ports:
+      - "3001:3001"
+    environment:
+      BROKER_PORT: 3001
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      GROQ_API_KEY: "${GROQ_API_KEY}"
+      CEREBRAS_API_KEY: "${CEREBRAS_API_KEY}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-300}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-auto}"
+    depends_on:
+      - memory-service
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-alpha:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-alpha
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Alpha"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "friendly-explorer"
+      CONFIDENCE_THRESHOLD: "0.6"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+    depends_on:
+      - minecraft-server
+      - brain-broker
+      - memory-service
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-beta:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-beta
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Beta"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "cautious-builder"
+      CONFIDENCE_THRESHOLD: "0.6"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+    depends_on:
+      - minecraft-server
+      - brain-broker
+      - memory-service
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+networks:
+  minecraft-network:
+    driver: bridge
