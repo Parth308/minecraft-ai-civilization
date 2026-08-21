@@ -382,28 +382,49 @@ class InventoryActuator {
       return false;
     }
 
-    // Try to find a nearby crafting table for 3×3 recipes
-    let craftingTable = null;
-    const tableBlock = this.bot.findBlock({
-      matching: this.bot.registry.blocksByName['crafting_table']?.id,
-      maxDistance: 8
-    });
+    // 1. Check if item can be crafted in 2×2 inventory grid
+    let recipes = this.bot.recipesFor(item.id, null, count, null);
 
-    if (tableBlock) {
-      // Navigate to the crafting table before using it
-      try {
-        await this._navigateWithin(tableBlock.position, 3);
-        await this.bot.lookAt(tableBlock.position.offset(0.5, 0.5, 0.5), true);
-        craftingTable = tableBlock;
-      } catch (err) {
-        logger.debug('Actuation:Inventory', `Could not reach crafting table: ${err.message}`);
+    // 2. If 3×3 recipe is required, find or place a crafting table
+    let craftingTable = null;
+    if (!recipes || recipes.length === 0) {
+      craftingTable = this.bot.findBlock({
+        matching: this.bot.registry.blocksByName['crafting_table']?.id,
+        maxDistance: 8
+      });
+
+      // If no crafting table placed nearby, check if we have one in inventory and place it
+      if (!craftingTable) {
+        const tableInInv = this.bot.inventory?.items().find(i => i.name === 'crafting_table');
+        if (tableInInv && this.bot.entity) {
+          const ground = this.bot.blockAt(this.bot.entity.position.offset(1, -1, 0)) ||
+                         this.bot.blockAt(this.bot.entity.position.offset(0, -1, 0));
+          if (ground && ground.name !== 'air' && ground.name !== 'water') {
+            logger.info('Actuation:Inventory', 'Placing crafting table from inventory for 3×3 craft...');
+            await this.placeBlock('crafting_table', ground, new Vec3(0, 1, 0));
+            craftingTable = this.bot.findBlock({
+              matching: this.bot.registry.blocksByName['crafting_table']?.id,
+              maxDistance: 6
+            });
+          }
+        }
       }
+
+      if (craftingTable) {
+        try {
+          await this._navigateWithin(craftingTable.position, 3);
+          await this.bot.lookAt(craftingTable.position.offset(0.5, 0.5, 0.5), true);
+        } catch (err) {
+          logger.debug('Actuation:Inventory', `Could not reach crafting table: ${err.message}`);
+        }
+      }
+
+      // Re-query recipes with crafting table
+      recipes = this.bot.recipesFor(item.id, null, count, craftingTable);
     }
 
-    // Get recipes (with table if available, for 3×3 recipes)
-    const recipes = this.bot.recipesFor(item.id, null, count, craftingTable);
     if (!recipes || recipes.length === 0) {
-      logger.warn('Actuation:Inventory', `No recipe available for: ${itemName}`);
+      logger.warn('Actuation:Inventory', `No recipe available for: ${itemName} (Table: ${!!craftingTable})`);
       return false;
     }
 

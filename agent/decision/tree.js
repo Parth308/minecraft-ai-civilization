@@ -3,6 +3,7 @@ const evaluateFlee = require('./rules/flee');
 const evaluateFight = require('./rules/fight');
 const evaluateSleep = require('./rules/sleep');
 const evaluateMine = require('./rules/mine');
+const evaluateCraft = require('./rules/craft');
 const evaluateExplore = require('./rules/explore');
 const evaluateTrade = require('./rules/trade');
 const DynamicRuleEngine = require('./dynamicRules');
@@ -25,6 +26,7 @@ class DecisionTree {
       evaluateEat(senses, stats),
       evaluateFight(senses, stats),
       evaluateSleep(senses, stats),
+      evaluateCraft(senses, stats),
       evaluateMine(senses, stats),
       evaluateExplore(senses, stats),
       evaluateTrade(senses, stats)
@@ -66,13 +68,39 @@ class DecisionTree {
         action: escalationResult.action || 'WANDER',
         confidence: topCandidate.confidence,
         escalated: true,
-        chatMessage: escalationResult.chatMessage,
-        meta: topCandidate,
-        allCandidates: candidates.map(c => ({ name: c.name, confidence: c.confidence, reason: c.reason || '' }))
+        source: 'llm',
+        provider: escalationResult.provider || 'Broker',
+        webKnowledgeUsed: !!escalationResult.webKnowledgeUsed,
+        reason: escalationResult.reason || 'Escalated to LLM for autonomous reasoning',
+        tacticLearned: escalationResult.tacticLearned || null,
+        chatMessage: escalationResult.chatMessage || null,
+        meta: {
+          ...topCandidate,
+          itemToCraft: escalationResult.itemToCraft || topCandidate.itemToCraft
+        },
+        allCandidates: candidates.map(c => ({
+          name: c.name,
+          confidence: c.confidence,
+          reason: c.reason || '',
+          isDynamic: !!c.isDynamic
+        }))
       };
     }
 
-    return { action: topCandidate.name, confidence: topCandidate.confidence, escalated: false, meta: topCandidate, allCandidates: candidates.map(c => ({ name: c.name, confidence: c.confidence, reason: c.reason || '' })) };
+    return {
+      action: topCandidate.name,
+      confidence: topCandidate.confidence,
+      escalated: false,
+      source: topCandidate.isDynamic ? 'learned_rule' : 'builtin_rule',
+      reason: topCandidate.reason || '',
+      meta: topCandidate,
+      allCandidates: candidates.map(c => ({
+        name: c.name,
+        confidence: c.confidence,
+        reason: c.reason || '',
+        isDynamic: !!c.isDynamic
+      }))
+    };
   }
 }
 

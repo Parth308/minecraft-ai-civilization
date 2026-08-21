@@ -227,6 +227,18 @@ function createAgent() {
         }
         break;
 
+      case ACTIONS.CRAFT:
+        if (decision.meta && decision.meta.itemToCraft) {
+          const item = decision.meta.itemToCraft;
+          const count = decision.meta.count || 1;
+          logger.info('AgentLoop', `Executing CRAFT action: ${count}x ${item}`);
+          const success = await inventory.craftItem(item, count);
+          if (success) {
+            eventBuffer.addEvent('craftItem', { item, count });
+          }
+        }
+        break;
+
       case ACTIONS.MINE:
         if (decision.meta && decision.meta.targetBlock) {
           const block = decision.meta.targetBlock;

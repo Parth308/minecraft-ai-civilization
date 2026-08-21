@@ -6,6 +6,7 @@ const queryOpenRouter = require('./providers/openrouter');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
+const WebKnowledgeClient = require('./search/webSearch');
 const config = require('./config');
 const logger = require('../shared/logger');
 
@@ -14,6 +15,7 @@ class ProviderRouter {
     this.cache = new ExactCache(config.cacheTTLSeconds);
     this.semanticCache = new SemanticCache(0.88, config.cacheTTLSeconds * 2);
     this.rateLimiter = new RateLimiter();
+    this.webKnowledge = new WebKnowledgeClient();
     this.rrIndex = 0;
     this.memoryServiceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
 
@@ -71,6 +73,17 @@ class ProviderRouter {
     }
 
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
+    
+    // Live Web Knowledge Search
+    let webFacts = null;
+    if (taskType === 'REASONING' || taskType === 'REFLECTION') {
+      const searchQuery = situationPayload.topCandidate?.reason ||
+                          situationPayload.topCandidate?.name ||
+                          situationPayload.activeGoal ||
+                          'minecraft survival progression';
+      webFacts = await this.webKnowledge.searchKnowledge(searchQuery);
+    }
+
     const available = this.getPreferredProviders(taskType);
 
     if (available.length === 0) {
@@ -78,12 +91,12 @@ class ProviderRouter {
       return this.fallbackHeuristic(situationPayload);
     }
 
-    const prompt = this.buildPrompt(situationPayload, taskType, memories);
+    const prompt = this.buildPrompt(situationPayload, taskType, memories, webFacts);
     let lastError = null;
 
     for (const provider of available) {
       try {
-        logger.info('Router', `[Task:${taskType}] Routing to preferred provider: ${provider.name}`);
+        logger.info('Router', `[Task:${taskType}] Routing to preferred provider: ${provider.name}${webFacts ? ' (with Web Knowledge)' : ''}`);
         const rawText = await provider.fn(provider.key, prompt);
         const decisionData = this.parseLLMResponse(rawText);
 
@@ -92,7 +105,13 @@ class ProviderRouter {
           await this.semanticCache.store(situationPayload, decisionData);
         }
 
-        return { ...decisionData, provider: provider.name, taskType, cached: false };
+        return {
+          ...decisionData,
+          provider: provider.name,
+          taskType,
+          webKnowledgeUsed: !!webFacts,
+          cached: false
+        };
       } catch (err) {
         logger.error('Router', `Provider ${provider.name} failed for task '${taskType}': ${err.message}`);
         if (err.status === 429) {
@@ -106,7 +125,7 @@ class ProviderRouter {
     return this.fallbackHeuristic(situationPayload);
   }
 
-  buildPrompt(payload, taskType, memories = []) {
+  buildPrompt(payload, taskType, memories = [], webFacts = null) {
     if (taskType === 'SOCIAL_CHAT') {
       return `You are an autonomous, conscious player/agent in a Minecraft civilization simulation.
 Identity & Persona: ${JSON.stringify(payload.persona || {})}
@@ -152,20 +171,21 @@ Agent Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
 Current Situation: ${JSON.stringify(payload.topCandidate || {})}
 All Evaluated Options: ${JSON.stringify(payload.allCandidates || [])}
 Relevant Retrieved Memory Chunks: ${JSON.stringify(memories)}
-
+${webFacts ? `\nVerified Web & Minecraft Wiki Knowledge:\n${webFacts}\n` : ''}
 Instructions:
 1. Choose the best action to perform.
-2. Provide a short reason explaining the survival strategy.
+2. Provide a short reason explaining the survival strategy (e.g. why wood must be chopped before stone can be mined, or why crafting tools is necessary).
 3. (Optional) Provide an in-game public chat message.
 4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue (-20 to +20).
-5. (Optional) Formulate a learned tactic statement (tacticLearned) to remember for future survival.
+5. Formulate a learned tactic statement (tacticLearned) for durable retention in long-term dynamic rule memory.
 
 Reply ONLY with a valid JSON object:
 {
-  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD" | "CRAFT",
+  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "CRAFT" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD",
   "reason": "short explanation",
   "chatMessage": "optional chat output or null",
   "tacticLearned": "optional durable tactic statement or null",
+  "itemToCraft": "optional item name if action is CRAFT (e.g. wooden_pickaxe, oak_planks, stick, crafting_table, stone_pickaxe)",
   "emotionDelta": {
     "anger": 0,
     "happiness": 0,

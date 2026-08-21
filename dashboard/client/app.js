@@ -246,24 +246,50 @@ function updateDecisionTree() {
     return;
   }
 
-  const { action, confidence, escalated, allCandidates } = agent.lastDecision;
+  const { action, confidence, escalated, allCandidates, source, provider, webKnowledgeUsed, reason } = agent.lastDecision;
   const candidates = allCandidates || [{ name: action, confidence, reason: '' }];
 
-  let html = candidates
+  // Decision Header Badge (LEARNED RULE vs LIVE LLM vs BUILT-IN)
+  let sourceBadge = '';
+  if (escalated || source === 'llm') {
+    const webBadge = webKnowledgeUsed ? '<span style="font-size:9px;background:rgba(0,212,255,0.2);padding:1px 5px;border-radius:4px;color:var(--cyan);margin-left:4px;">🌐 Wiki Knowledge</span>' : '';
+    sourceBadge = `<div class="escalated-badge" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.4);color:var(--purple)">
+      <span>🧠 <strong>LIVE LLM DECISION</strong> (${provider || 'Broker'})</span>
+      ${webBadge}
+      <span style="margin-left:auto;font-family:var(--mono);font-weight:700;">${action}</span>
+    </div>`;
+  } else if (source === 'learned_rule') {
+    sourceBadge = `<div class="escalated-badge" style="background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.35);color:#10b981">
+      <span>🎓 <strong>LEARNED RULE REPLAY</strong> (Self-Taught)</span>
+      <span style="margin-left:auto;font-family:var(--mono);font-weight:700;">${action}</span>
+    </div>`;
+  } else {
+    sourceBadge = `<div class="escalated-badge" style="background:rgba(0,212,255,0.08);border-color:rgba(0,212,255,0.25);color:var(--cyan)">
+      <span>⚡ <strong>BUILT-IN HEURISTIC</strong></span>
+      <span style="margin-left:auto;font-family:var(--mono);font-weight:700;">${action}</span>
+    </div>`;
+  }
+
+  let html = sourceBadge;
+
+  // Render Candidates List
+  html += candidates
     .sort((a, b) => b.confidence - a.confidence)
     .map(c => {
       const isWinner = c.name === action;
       const pct = Math.round(c.confidence * 100);
+      const isDynamic = c.isDynamic;
+      const tag = isDynamic ? '<span style="font-size:8px;color:#10b981;background:rgba(16,185,129,0.15);padding:1px 3px;border-radius:3px;margin-left:4px;">LEARNED</span>' : '';
       return `
         <div class="dtree-row${isWinner ? ' winner' : ''}">
-          <span class="dtree-rule">${c.name}</span>
+          <span class="dtree-rule">${c.name} ${tag}</span>
           <div class="dtree-bar-bg"><div class="dtree-bar-fill${isWinner ? ' winner' : ''}" style="width:${pct}%"></div></div>
           <span class="dtree-conf">${c.confidence.toFixed(2)}</span>
         </div>`;
     }).join('');
 
-  if (escalated) {
-    html += `<div class="escalated-badge">🧠 ESCALATED → LLM<span style="margin-left:auto;font-family:var(--mono)">${action}</span></div>`;
+  if (reason) {
+    html += `<div style="padding:4px 14px;font-size:10px;color:var(--text-dim);font-style:italic;">Reason: ${escHtml(reason)}</div>`;
   }
 
   container.innerHTML = html;

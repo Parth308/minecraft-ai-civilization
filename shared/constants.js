@@ -19,6 +19,7 @@ module.exports = {
     FIGHT: 'FIGHT',
     SLEEP: 'SLEEP',
     MINE: 'MINE',
+    CRAFT: 'CRAFT',
     WANDER: 'WANDER',
     IDLE: 'IDLE',
     TRADE: 'TRADE',
