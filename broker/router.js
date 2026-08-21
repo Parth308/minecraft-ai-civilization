@@ -28,9 +28,9 @@ class ProviderRouter {
   getPreferredProviders(taskType = 'REASONING') {
     let order = ['Gemini', 'Groq', 'Cerebras', 'OpenRouter'];
 
-    if (taskType === 'CHAT' || taskType === 'REFLEX') {
+    if (taskType === 'CHAT' || taskType === 'REFLEX' || taskType === 'SOCIAL_CHAT') {
       order = ['Groq', 'Gemini', 'Cerebras', 'OpenRouter'];
-    } else if (taskType === 'REASONING' || taskType === 'EMOTION') {
+    } else if (taskType === 'REASONING' || taskType === 'EMOTION' || taskType === 'REFLECTION') {
       order = ['Gemini', 'Groq', 'Cerebras', 'OpenRouter'];
     }
 
@@ -53,31 +53,31 @@ class ProviderRouter {
   }
 
   async processEscalation(situationPayload) {
-    // 1. Check exact-match cache
-    const exactMatch = this.cache.get(situationPayload);
-    if (exactMatch) {
-      return { ...exactMatch, cached: true, cacheType: 'exact' };
+    // 1. Check exact-match cache (skip for reflection & conversational chat to preserve dynamic dialogue)
+    const taskType = situationPayload.taskType || 'REASONING';
+    if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
+      const exactMatch = this.cache.get(situationPayload);
+      if (exactMatch) {
+        return { ...exactMatch, cached: true, cacheType: 'exact' };
+      }
+
+      const semanticMatch = await this.semanticCache.findSimilar(situationPayload);
+      if (semanticMatch) {
+        return { ...semanticMatch, cached: true, cacheType: 'semantic' };
+      }
     }
 
-    // 2. Check semantic vector similarity cache (0.88 threshold)
-    const semanticMatch = await this.semanticCache.findSimilar(situationPayload);
-    if (semanticMatch) {
-      return { ...semanticMatch, cached: true, cacheType: 'semantic' };
-    }
-
-    // 3. Fetch relevant memories from memory-service
+    // 2. Fetch relevant memories from memory-service
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
 
-    // 4. Determine task type and preferred provider order
-    const taskType = situationPayload.taskType || 'REASONING';
+    // 3. Determine preferred provider order
     const available = this.getPreferredProviders(taskType);
-
     if (available.length === 0) {
-      logger.warn('Router', `No unblocked LLM providers available for task type '${taskType}'! Using fallback.`);
+      logger.warn('Router', `No unblocked LLM providers available for task '${taskType}'! Using fallback.`);
       return this.fallbackHeuristic(situationPayload);
     }
 
-    // 5. Build prompt with injected structured memories
+    // 4. Build prompt
     const prompt = this.buildPrompt(situationPayload, taskType, memories);
 
     let lastError = null;
@@ -87,14 +87,14 @@ class ProviderRouter {
         const rawText = await provider.fn(provider.key, prompt);
         const decisionData = this.parseLLMResponse(rawText);
 
-        // Save to BOTH Exact-Match and Semantic Vector Caches
-        this.cache.set(situationPayload, decisionData);
-        await this.semanticCache.store(situationPayload, decisionData);
+        if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
+          this.cache.set(situationPayload, decisionData);
+          await this.semanticCache.store(situationPayload, decisionData);
+        }
 
         return { ...decisionData, provider: provider.name, taskType, cached: false };
       } catch (err) {
         logger.error('Router', `Provider ${provider.name} failed for task '${taskType}': ${err.message}`);
-
         if (err.status === 429) {
           this.rateLimiter.markRateLimited(provider.name, 60000);
         }
@@ -102,11 +102,40 @@ class ProviderRouter {
       }
     }
 
-    logger.warn('Router', `All preferred providers failed for task '${taskType}'. Last error: ${lastError?.message}. Falling back.`);
+    logger.warn('Router', `All preferred providers failed for task '${taskType}'. Falling back.`);
     return this.fallbackHeuristic(situationPayload);
   }
 
   buildPrompt(payload, taskType, memories = []) {
+    if (taskType === 'SOCIAL_CHAT') {
+      return `You are a conscious, autonomous player/agent in a Minecraft multiplayer world.
+Agent Identity: ${JSON.stringify(payload.persona || {})}
+Current Active Goal: ${JSON.stringify(payload.goals || {})}
+Relationship with speaker: ${JSON.stringify(payload.relationship || {})}
+Incoming message from [${payload.speaker}]: "${payload.message}"
+Retrieved memories: ${JSON.stringify(memories)}
+
+Instructions:
+1. You have complete FREE WILL. Decide whether to cooperate, trade, form an alliance, invent a custom currency, reject them, mock them, or conspire.
+2. Reply in casual, natural gamer/player chat tone (1-2 short sentences).
+3. Update relationship metrics (trustDelta, affinityDelta) based on how you feel about what they said (-20 to +20).
+4. (Optional) Adopt a new short-term goal if their proposal inspires you.
+
+Reply ONLY with a valid JSON object:
+{
+  "chatMessage": "your natural in-game chat message",
+  "relationshipDelta": {
+    "trust": 0,
+    "affinity": 0
+  },
+  "newGoal": "optional new goal or null"
+}`;
+    }
+
+    if (taskType === 'REFLECTION') {
+      return payload.topCandidate?.prompt || 'Reflect on recent experiences and output insights.';
+    }
+
     return `You are a Minecraft AI agent decision and survival engine.
 Task Mode: ${taskType}
 Agent Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
@@ -121,7 +150,7 @@ Instructions:
 4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue (-20 to +20).
 5. (Optional) Formulate a learned tactic statement (tacticLearned) to remember for future survival.
 
-Reply ONLY with a valid JSON object (no markdown, no backticks):
+Reply ONLY with a valid JSON object:
 {
   "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD" | "CRAFT",
   "reason": "short explanation",
@@ -144,7 +173,7 @@ Reply ONLY with a valid JSON object (no markdown, no backticks):
       return {
         action: 'WANDER',
         reason: rawText.substring(0, 100),
-        chatMessage: null,
+        chatMessage: rawText.substring(0, 100),
         tacticLearned: null,
         emotionDelta: { anger: 0, happiness: 0, fatigue: 0 }
       };

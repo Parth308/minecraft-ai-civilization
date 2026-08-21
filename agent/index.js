@@ -14,9 +14,14 @@ const RelationshipTracker = require('./stats/relationships');
 const DecisionTree = require('./decision/tree');
 const EventBuffer = require('./memory/buffer');
 const MemoryClient = require('./memory/client');
+const BrainClient = require('./brain-client/client');
+const DynamicPersona = require('./cognition/persona');
+const GoalManager = require('./cognition/goals');
+const SocialDialogueEngine = require('./social/dialogue');
+const FactionAffiliationManager = require('./social/factions');
 const { ACTIONS } = require('../shared/constants');
 
-logger.info('Agent', `Initializing agent instance '${config.username}'...`);
+logger.info('Agent', `Initializing cognitive agent instance '${config.username}' (${config.personalitySeed})...`);
 
 function createAgent() {
   const bot = mineflayer.createBot({
@@ -40,6 +45,13 @@ function createAgent() {
   const statsDecay = new StatsDecayEngine(stats, movement);
   const relationships = new RelationshipTracker();
 
+  // Cognitive & Social Architecture
+  const persona = new DynamicPersona(config.username, config.personalitySeed);
+  const goalManager = new GoalManager(config.username, persona);
+  const brainClient = new BrainClient(config.brokerUrl);
+  const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships);
+  const factionManager = new FactionAffiliationManager(config.username, persona);
+
   // Memory components
   const memoryClient = new MemoryClient(config.username);
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient);
@@ -56,7 +68,7 @@ function createAgent() {
     const defaultMovements = new movements(bot);
     bot.pathfinder.setMovements(defaultMovements);
 
-    chat.say(`Hello world! ${bot.username} is online with active semantic memory & adaptive survival engine.`);
+    chat.say(`Greetings world! ${bot.username} is awake.`);
 
     eventBuffer.addEvent('spawn', {
       position: { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) },
@@ -159,6 +171,7 @@ function createAgent() {
   events.on('agentDeath', ({ position }) => {
     stats.addHappiness(-50);
     stats.addAnger(30);
+    persona.evolveFromExperience('near_death', 1.0);
     eventBuffer.addEvent('death', { position });
   });
 
@@ -188,62 +201,61 @@ function createAgent() {
     eventBuffer.addEvent('timeTransition', { phase, timeOfDay });
   });
 
-  events.on('playerChat', ({ username, message }) => {
+  events.on('playerChat', async ({ username, message }) => {
     eventBuffer.addEvent('playerChat', { username, message });
 
-    if (!message.startsWith(config.prefix)) {
-      relationships.updateAffinity(username, 2);
+    // Handle operator/debug commands
+    if (message.startsWith(config.prefix)) {
+      const args = message.slice(config.prefix.length).trim().split(/ +/);
+      const command = args.shift().toLowerCase();
+
+      switch (command) {
+        case 'status':
+          const summary = stats.getSummary();
+          chat.say(`[Status] HP:${summary.health} | Hunger:${summary.hunger}% | Anger:${summary.anger}% | Happy:${summary.happiness}% | Goal: "${goalManager.currentGoal.description}"`);
+          break;
+
+        case 'come':
+          const player = senses.getNearbyPlayers().find(p => p.username === username);
+          if (player && player.entity) {
+            chat.say(`Heading towards you, ${username}.`);
+            movement.goto(player.entity.position.x, player.entity.position.y, player.entity.position.z);
+          } else {
+            chat.say(`I can't locate you, ${username}.`);
+          }
+          break;
+
+        case 'stop':
+          chat.say('Halting.');
+          movement.stop();
+          break;
+
+        case 'memories':
+          memoryClient.queryMemories('', '', 3).then(memories => {
+            if (memories.length > 0) {
+              chat.say(`[Memories] ${memories.join(' | ')}`);
+            } else {
+              chat.say('No memories logged yet.');
+            }
+          });
+          break;
+      }
       return;
     }
 
-    const args = message.slice(config.prefix.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
-
-    switch (command) {
-      case 'status':
-        const summary = stats.getSummary();
-        chat.say(`[Status] HP:${summary.health} | Hunger:${summary.hunger}% | Anger:${summary.anger}% | Happy:${summary.happiness}% | Fatigue:${summary.fatigue}%`);
-        break;
-
-      case 'come':
-        const player = senses.getNearbyPlayers().find(p => p.username === username);
-        if (player && player.entity) {
-          chat.say(`Navigating to ${username}`);
-          movement.goto(player.entity.position.x, player.entity.position.y, player.entity.position.z);
-        } else {
-          chat.say(`I cannot see you, ${username}`);
-        }
-        break;
-
-      case 'wander':
-        chat.say('Wandering...');
-        movement.wander();
-        break;
-
-      case 'stop':
-        chat.say('Stopping movement');
-        movement.stop();
-        break;
-
-      case 'memories':
-        memoryClient.queryMemories('', '', 3).then(memories => {
-          if (memories.length > 0) {
-            chat.say(`[Retrieved Memory] ${memories.join(' | ')}`);
-          } else {
-            chat.say('No memories recorded yet.');
-          }
-        });
-        break;
-
-      default:
-        chat.say(`Unknown command '${command}'. Commands: status, come, wander, stop, memories`);
-        break;
+    // Natural Emergent Social Dialogue
+    const reply = await dialogueEngine.processIncomingChat(username, message);
+    if (reply) {
+      chat.say(reply);
     }
   });
 
-  events.on('playerWhisper', ({ username, message }) => {
+  events.on('playerWhisper', async ({ username, message }) => {
     eventBuffer.addEvent('playerWhisper', { username, message });
-    chat.whisper(username, `Received your message: "${message}"`);
+    const reply = await dialogueEngine.processIncomingChat(username, message);
+    if (reply) {
+      chat.whisper(username, reply);
+    }
   });
 
   bot.on('kicked', (reason) => logger.error('Agent', `Kicked: ${reason}`));
