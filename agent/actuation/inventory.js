@@ -79,27 +79,144 @@ class InventoryActuator {
 
   // --- Mining, Digging & Tool Selection ---
 
-  async equipOptimalTool(block) {
-    if (!this.bot.inventory || !block) return;
+  // Tool tiers in descending order of quality — we always pick the best available
+  // that meets the minimum tier required by the block. Using a lower tier than required
+  // causes the block to break WITHOUT dropping anything (the silent failure).
+  static get TOOL_TIERS() {
+    return ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
+  }
+
+  // Returns the MINIMUM pickaxe tier needed for a block to drop items.
+  // If we can't meet the minimum, we skip equipping to avoid a silent no-drop.
+  _minPickaxeTierFor(blockName) {
+    // Needs diamond+ pickaxe (or no drops at all)
+    if (blockName.includes('obsidian') || blockName.includes('ancient_debris') || blockName.includes('crying_obsidian')) {
+      return 'diamond';
+    }
+    // Needs iron+ pickaxe
+    if (
+      blockName.includes('gold_ore') || blockName.includes('nether_gold_ore') ||
+      blockName.includes('redstone_ore') || blockName.includes('lapis_ore') ||
+      blockName.includes('diamond_ore') || blockName.includes('emerald_ore') ||
+      blockName.includes('nether_quartz_ore')
+    ) {
+      return 'iron';
+    }
+    // Needs stone+ pickaxe
+    if (blockName.includes('iron_ore') || blockName.includes('copper_ore')) {
+      return 'stone';
+    }
+    // Any pickaxe works (coal, basic stone blocks, cobblestone, deepslate)
+    return 'wooden';
+  }
+
+  _pickBestTool(toolType, minTier = 'wooden') {
+    if (!this.bot.inventory) return null;
     const items = this.bot.inventory.items();
+    const tiers = InventoryActuator.TOOL_TIERS;
+    const minIdx = tiers.indexOf(minTier);
+
+    // Find highest-tier tool that is at or above the minimum tier
+    for (const tier of tiers) {
+      if (tiers.indexOf(tier) > minIdx) continue; // below minimum — skip
+      if (toolType === 'shears') {
+        const found = items.find(i => i.name === 'shears');
+        if (found) return found;
+        return null;
+      }
+      const found = items.find(i => i.name === `${tier}_${toolType}`);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  async equipOptimalTool(block) {
+    if (!this.bot.inventory || !block) return false;
     const blockName = block.name.toLowerCase();
 
+    // ── Determine tool type and minimum tier ───────────────────────────────
     let toolType = null;
-    if (blockName.includes('log') || blockName.includes('wood') || blockName.includes('plank')) toolType = 'axe';
-    else if (blockName.includes('stone') || blockName.includes('ore') || blockName.includes('deepslate') || blockName.includes('cobble')) toolType = 'pickaxe';
-    else if (blockName.includes('dirt') || blockName.includes('sand') || blockName.includes('gravel') || blockName.includes('clay')) toolType = 'shovel';
-    else if (blockName.includes('leaves') || blockName.includes('wool')) toolType = 'shears';
+    let minTier = 'wooden';
 
-    if (toolType) {
-      const matchingTool = items.find(i => i.name.includes(toolType));
-      if (matchingTool) {
-        try {
-          await this.bot.equip(matchingTool, 'hand');
-          detailedLogger.logInventory(this.agentId, `Equipped tool: ${matchingTool.name} for ${blockName}`);
-        } catch (err) {
-          // Ignore equip failures silently
-        }
+    if (
+      blockName.includes('log') || blockName.includes('wood') ||
+      blockName.includes('plank') || blockName.includes('bamboo') ||
+      blockName.includes('stem') // mushroom stems, warped/crimson stems
+    ) {
+      toolType = 'axe';
+    } else if (
+      blockName.includes('obsidian') || blockName.includes('ancient_debris')
+    ) {
+      toolType = 'pickaxe';
+      minTier = 'diamond';
+    } else if (
+      blockName.includes('gold_ore') || blockName.includes('nether_gold_ore') ||
+      blockName.includes('redstone_ore') || blockName.includes('lapis_ore') ||
+      blockName.includes('diamond_ore') || blockName.includes('emerald_ore') ||
+      blockName.includes('nether_quartz_ore')
+    ) {
+      toolType = 'pickaxe';
+      minTier = 'iron';
+    } else if (
+      blockName.includes('iron_ore') || blockName.includes('copper_ore')
+    ) {
+      toolType = 'pickaxe';
+      minTier = 'stone';
+    } else if (
+      blockName.includes('stone') || blockName.includes('ore') ||
+      blockName.includes('deepslate') || blockName.includes('cobble') ||
+      blockName.includes('basalt') || blockName.includes('blackstone') ||
+      blockName.includes('netherrack') || blockName.includes('end_stone') ||
+      blockName.includes('terracotta') || blockName.includes('concrete')
+    ) {
+      toolType = 'pickaxe';
+    } else if (
+      blockName.includes('dirt') || blockName.includes('sand') ||
+      blockName.includes('gravel') || blockName.includes('clay') ||
+      blockName.includes('soul_sand') || blockName.includes('soul_soil') ||
+      blockName.includes('snow') || blockName.includes('mycelium') ||
+      blockName.includes('podzol') || blockName.includes('grass_block')
+    ) {
+      toolType = 'shovel';
+    } else if (
+      blockName.includes('leaves') || blockName.includes('wool') ||
+      blockName.includes('cobweb') // shears fastest on cobweb
+    ) {
+      toolType = 'shears';
+    } else if (
+      blockName.includes('farmland') || blockName.includes('dirt_path')
+    ) {
+      toolType = 'hoe'; // hoe is fastest for farmland
+    } else if (
+      blockName.includes('melon') || blockName.includes('pumpkin')
+    ) {
+      toolType = 'axe'; // axe is fastest for these
+    } else if (blockName.includes('cobweb')) {
+      toolType = 'sword'; // sword breaks cobweb instantly
+    }
+
+    if (!toolType) return false; // no special tool — use fist / held item
+
+    // ── Pick best available tool meeting minimum tier ──────────────────────
+    const tool = toolType === 'shears'
+      ? this._pickBestTool('shears')
+      : this._pickBestTool(toolType, minTier);
+
+    if (!tool) {
+      // We don't have a tool of sufficient tier — warn but don't equip wrong one
+      if (minTier !== 'wooden') {
+        logger.warn('Actuation:Inventory', `Cannot mine ${blockName}: need ${minTier}+ ${toolType} but none in inventory. Block will drop nothing.`);
       }
+      return false;
+    }
+
+    try {
+      await this.bot.equip(tool, 'hand');
+      detailedLogger.logInventory(this.agentId, `Equipped ${tool.name} (tier: ${minTier}+) for ${blockName}`);
+      return true;
+    } catch (err) {
+      logger.error('Actuation:Inventory', `Tool equip failed: ${err.message}`);
+      return false;
     }
   }
 
