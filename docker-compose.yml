@@ -4,6 +4,7 @@ services:
     container_name: minecraft-paper-server
     ports:
       - "25565:25565"
+      - "25575:25575"   # RCON — used by dashboard for operator chat + spectator setup
     environment:
       TYPE: "PAPER"
       VERSION: "1.20.4"
@@ -11,6 +12,9 @@ services:
       ONLINE_MODE: "FALSE"
       MEMORY: "2G"
       SPAWN_PROTECTION: "0"
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
+      RCON_PORT: "25575"
     deploy:
       resources:
         limits:
@@ -138,6 +142,8 @@ services:
       context: .
       dockerfile: agent/Dockerfile
     container_name: agent-alpha
+    expose:
+      - "3010"   # /status endpoint for dashboard
     environment:
       MC_HOST: "minecraft-server"
       MC_PORT: 25565
@@ -148,6 +154,7 @@ services:
       CONFIDENCE_THRESHOLD: "0.6"
       BROKER_URL: "http://brain-broker:3001"
       MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_PORT: "3010"
     depends_on:
       minecraft-server:
         condition: service_started
@@ -169,6 +176,8 @@ services:
       context: .
       dockerfile: agent/Dockerfile
     container_name: agent-beta
+    expose:
+      - "3011"   # /status endpoint for dashboard
     environment:
       MC_HOST: "minecraft-server"
       MC_PORT: 25565
@@ -179,6 +188,7 @@ services:
       CONFIDENCE_THRESHOLD: "0.6"
       BROKER_URL: "http://brain-broker:3001"
       MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_PORT: "3011"
     depends_on:
       minecraft-server:
         condition: service_started
@@ -195,9 +205,51 @@ services:
       - minecraft-network
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: civilization-dashboard
+    ports:
+      - "3003:3003"   # Main dashboard UI
+    environment:
+      DASHBOARD_PORT: 3003
+      VIEWER_PORT: 3004
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      AGENT_ALPHA_STATUS_URL: "http://agent-alpha:3010"
+      AGENT_BETA_STATUS_URL: "http://agent-beta:3011"
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_VERSION: "1.20.4"
+      SPECTATOR_USERNAME: "SpectatorBot"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: 25575
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3003/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M   # Larger cap — mineflayer spectator bot + prismarine-viewer live here
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
 volumes:
   ollama_data:
 
 networks:
   minecraft-network:
     driver: bridge
+

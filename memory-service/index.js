@@ -1,6 +1,8 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
-const { initializeAgentMemoryFiles, getSectionFilePath, parseSectionFile } = require('./sections/schema');
+const { initializeAgentMemoryFiles, getSectionFilePath, parseSectionFile, SECTIONS } = require('./sections/schema');
 const EventRouter = require('./router');
 const MemoryCompactor = require('./sections/compactor');
 const MemoryScheduler = require('./scheduler');
@@ -114,6 +116,35 @@ app.get('/api/memory/query', async (req, res) => {
     count: results.length,
     memories: results.slice(-maxLines)
   });
+});
+
+// Raw section markdown content (for dashboard memory viewer)
+app.get('/api/memory/sections/:agentId/:section', (req, res) => {
+  const { agentId, section } = req.params;
+  if (!SECTIONS.includes(section)) {
+    return res.status(400).json({ error: `Invalid section. Valid: ${SECTIONS.join(', ')}` });
+  }
+  initializeAgentMemoryFiles(agentId);
+  const filePath = getSectionFilePath(agentId, section);
+  if (!fs.existsSync(filePath)) {
+    return res.json({ agentId, section, content: '' });
+  }
+  const content = fs.readFileSync(filePath, 'utf8');
+  res.json({ agentId, section, content });
+});
+
+// Civilization ledger (for dashboard ledger panel)
+app.get('/api/ledger', (req, res) => {
+  const ledgerPath = path.join(__dirname, 'store/civilization/ledger.json');
+  if (!fs.existsSync(ledgerPath)) {
+    return res.json({ currencies: [], settlements: [], factions: [], laws: [], updatedAt: null });
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read ledger', detail: err.message });
+  }
 });
 
 app.listen(config.port, () => {

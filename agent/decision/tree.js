@@ -67,11 +67,12 @@ class DecisionTree {
         confidence: topCandidate.confidence,
         escalated: true,
         chatMessage: escalationResult.chatMessage,
-        meta: topCandidate
+        meta: topCandidate,
+        allCandidates: candidates.map(c => ({ name: c.name, confidence: c.confidence, reason: c.reason || '' }))
       };
     }
 
-    return { action: topCandidate.name, confidence: topCandidate.confidence, escalated: false, meta: topCandidate };
+    return { action: topCandidate.name, confidence: topCandidate.confidence, escalated: false, meta: topCandidate, allCandidates: candidates.map(c => ({ name: c.name, confidence: c.confidence, reason: c.reason || '' })) };
   }
 }
 

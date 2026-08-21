@@ -8,5 +8,9 @@ module.exports = {
   version: process.env.MC_VERSION || '1.20.4',
   prefix: process.env.COMMAND_PREFIX || '!',
   personalitySeed: process.env.PERSONALITY_SEED || 'friendly-explorer',
-  confidenceThreshold: parseFloat(process.env.CONFIDENCE_THRESHOLD) || 0.6
+  confidenceThreshold: parseFloat(process.env.CONFIDENCE_THRESHOLD) || 0.6,
+  brokerUrl: process.env.BROKER_URL || 'http://brain-broker:3001',
+  memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://memory-service:3002',
+  statusPort: parseInt(process.env.STATUS_PORT, 10) || 3010
 };
+

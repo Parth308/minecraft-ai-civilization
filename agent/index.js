@@ -1,5 +1,6 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements } = require('mineflayer-pathfinder');
+const http = require('http');
 const config = require('./config');
 const logger = require('../shared/logger');
 const detailedLogger = require('../shared/detailedLogger');
@@ -68,6 +69,51 @@ function createAgent() {
     memoryClient.flushBuffer(bufferSnapshot);
   });
 
+  // ── Live agent state exposed on /status (read by dashboard) ────────────────
+  const agentState = {
+    username: config.username,
+    online: false,
+    position: null,
+    stats: {},
+    lastDecision: null,
+    activeGoal: null,
+    persona: null,
+    inventory: [],
+    equipment: {},
+    biome: 'unknown',
+    timeOfDay: 'day',
+    isNight: false,
+    isRaining: false,
+    isInWater: false,
+    isOnFire: false,
+    recentChat: [],
+    uptime: 0,
+    startedAt: new Date().toISOString()
+  };
+
+  // Lightweight zero-dep status server (no Express needed)
+  const statusServer = http.createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/status') {
+      agentState.uptime = process.uptime();
+      agentState.online = !!bot.entity;
+      agentState.position = bot.entity
+        ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) }
+        : null;
+      res.writeHead(200);
+      res.end(JSON.stringify(agentState));
+    } else if (req.url === '/health') {
+      res.writeHead(200);
+      res.end(JSON.stringify({ status: 'ok', username: config.username, online: agentState.online }));
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  statusServer.listen(config.statusPort, () => {
+    logger.info('AgentStatus', `${config.username} status server on :${config.statusPort}`);
+  });
+
   let tickInterval = null;
   let inFlightTick = false;
 
@@ -105,6 +151,20 @@ function createAgent() {
           // 3. Evaluate Decision Tree
           const decision = await decisionTree.evaluate(senses, stats);
 
+          // ── Update live state for /status endpoint ──────────────────────
+          agentState.stats       = stats.getSummary();
+          agentState.lastDecision = { ...decision, timestamp: new Date().toISOString() };
+          agentState.activeGoal  = goalManager.currentGoal.description;
+          agentState.persona     = persona.getPersonaPromptContext ? undefined : { seed: persona.seed, traits: persona.traits };
+          agentState.inventory   = inventory.listInventory();
+          agentState.equipment   = senses.getEquipmentSummary();
+          agentState.biome       = senses.getBiome();
+          agentState.timeOfDay   = senses.getTimeOfDay();
+          agentState.isNight     = senses.isNight();
+          agentState.isRaining   = senses.isRaining();
+          agentState.isInWater   = senses.isInWater();
+          agentState.isOnFire    = senses.isOnFire();
+          // ───────────────────────────────────────────────────────────────
           detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
             confidence: decision.confidence,
             escalated: decision.escalated,
@@ -274,7 +334,12 @@ function createAgent() {
   });
 
   events.on('playerChat', async ({ username, message }) => {
+    // Capture in recentChat buffer for dashboard
+    agentState.recentChat.push({ username, message, timestamp: new Date().toISOString() });
+    if (agentState.recentChat.length > 50) agentState.recentChat.shift();
+
     eventBuffer.addEvent('playerChat', { username, message });
+
 
     // Handle operator/debug commands
     if (message.startsWith(config.prefix)) {
