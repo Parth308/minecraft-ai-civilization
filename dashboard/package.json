@@ -11,6 +11,7 @@
     "ws": "^8.17.0",
     "mineflayer": "^4.20.1",
     "prismarine-viewer": "^1.28.0",
+    "canvas": "^2.11.2",
     "http-proxy-middleware": "^3.0.0"
   }
 }
