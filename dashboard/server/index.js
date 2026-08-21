@@ -96,7 +96,7 @@ const server = http.createServer(app);
 
 // ─── WebSocket Server ─────────────────────────────────────────────────────────
 
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
 const aggregator = new Aggregator();
 
 wss.on('connection', (ws, req) => {
