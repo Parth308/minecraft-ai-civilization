@@ -59,7 +59,9 @@ function createAgent() {
     chat.say(`Hello world! ${bot.username} is online with structured memory support.`);
 
     eventBuffer.addEvent('spawn', {
-      position: { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) }
+      position: { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) },
+      biome: senses.getBiome(),
+      timeOfDay: senses.getTimeOfDay()
     });
 
     // Main Agent Loop (Tick-based)
@@ -147,15 +149,43 @@ function createAgent() {
     }
   }
 
-  // Handle normalized event triggers
+  // Perception Event Listeners
   events.on('agentHurt', ({ health }) => {
     stats.addAnger(25);
     stats.addHappiness(-15);
     eventBuffer.addEvent('agentHurt', { health });
   });
 
+  events.on('agentDeath', ({ position }) => {
+    stats.addHappiness(-50);
+    stats.addAnger(30);
+    eventBuffer.addEvent('death', { position });
+  });
+
+  events.on('agentRespawn', () => {
+    stats.health = 20;
+    stats.hunger = 100;
+    eventBuffer.addEvent('respawn', {});
+  });
+
   events.on('underAttack', ({ attacker }) => {
     eventBuffer.addEvent('underAttack', { attacker: attacker.username || attacker.name || 'unknown' });
+  });
+
+  events.on('itemCollected', ({ item }) => {
+    eventBuffer.addEvent('itemCollected', { item: item?.name || 'item' });
+  });
+
+  events.on('blockBroken', ({ blockName, position }) => {
+    eventBuffer.addEvent('blockBroken', { blockName, position });
+  });
+
+  events.on('weatherChanged', ({ isRaining }) => {
+    eventBuffer.addEvent('weatherChanged', { isRaining });
+  });
+
+  events.on('timeTransition', ({ phase, timeOfDay }) => {
+    eventBuffer.addEvent('timeTransition', { phase, timeOfDay });
   });
 
   events.on('playerChat', ({ username, message }) => {
@@ -209,6 +239,11 @@ function createAgent() {
         chat.say(`Unknown command '${command}'. Commands: status, come, wander, stop, memories`);
         break;
     }
+  });
+
+  events.on('playerWhisper', ({ username, message }) => {
+    eventBuffer.addEvent('playerWhisper', { username, message });
+    chat.whisper(username, `Received your message: "${message}"`);
   });
 
   bot.on('kicked', (reason) => logger.error('Agent', `Kicked: ${reason}`));
