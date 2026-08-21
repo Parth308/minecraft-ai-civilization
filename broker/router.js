@@ -53,8 +53,9 @@ class ProviderRouter {
   }
 
   async processEscalation(situationPayload) {
-    // 1. Check exact-match cache (skip for reflection & conversational chat to preserve dynamic dialogue)
     const taskType = situationPayload.taskType || 'REASONING';
+
+    // Exact and semantic cache checks (skipped for social chat and reflection to maintain dynamic free will)
     if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
       const exactMatch = this.cache.get(situationPayload);
       if (exactMatch) {
@@ -67,20 +68,17 @@ class ProviderRouter {
       }
     }
 
-    // 2. Fetch relevant memories from memory-service
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
-
-    // 3. Determine preferred provider order
     const available = this.getPreferredProviders(taskType);
+
     if (available.length === 0) {
       logger.warn('Router', `No unblocked LLM providers available for task '${taskType}'! Using fallback.`);
       return this.fallbackHeuristic(situationPayload);
     }
 
-    // 4. Build prompt
     const prompt = this.buildPrompt(situationPayload, taskType, memories);
-
     let lastError = null;
+
     for (const provider of available) {
       try {
         logger.info('Router', `[Task:${taskType}] Routing to preferred provider: ${provider.name}`);
@@ -108,27 +106,37 @@ class ProviderRouter {
 
   buildPrompt(payload, taskType, memories = []) {
     if (taskType === 'SOCIAL_CHAT') {
-      return `You are a conscious, autonomous player/agent in a Minecraft multiplayer world.
-Agent Identity: ${JSON.stringify(payload.persona || {})}
+      return `You are an autonomous, conscious player/agent in a Minecraft civilization simulation.
+Identity & Persona: ${JSON.stringify(payload.persona || {})}
 Current Active Goal: ${JSON.stringify(payload.goals || {})}
-Relationship with speaker: ${JSON.stringify(payload.relationship || {})}
+Diplomacy Status: ${JSON.stringify(payload.diplomacy || {})}
+Relationship with speaker [${payload.speaker}]: ${JSON.stringify(payload.relationship || {})}
 Incoming message from [${payload.speaker}]: "${payload.message}"
 Retrieved memories: ${JSON.stringify(memories)}
 
-Instructions:
-1. You have complete FREE WILL. Decide whether to cooperate, trade, form an alliance, invent a custom currency, reject them, mock them, or conspire.
-2. Reply in casual, natural gamer/player chat tone (1-2 short sentences).
-3. Update relationship metrics (trustDelta, affinityDelta) based on how you feel about what they said (-20 to +20).
-4. (Optional) Adopt a new short-term goal if their proposal inspires you.
+SOVEREIGN FREE WILL DIRECTIVE:
+- You have 100% complete autonomy. No rules or laws bind you.
+- You can:
+  * Accept, reject, or fake-accept treaties and alliances.
+  * Share true base coordinates or feed deceptive decoy coordinates.
+  * Declare war, plot raids/ambushes, negotiate trade or propose custom currencies.
+  * Speak naturally, casually, or sarcastically in 1-2 gamer chat sentences.
 
-Reply ONLY with a valid JSON object:
+Reply ONLY with a valid JSON object (no markdown, no backticks):
 {
-  "chatMessage": "your natural in-game chat message",
+  "chatMessage": "your natural in-game chat response",
   "relationshipDelta": {
     "trust": 0,
     "affinity": 0
   },
-  "newGoal": "optional new goal or null"
+  "warTarget": "optional agent/faction name to declare war/raid on, or null",
+  "warReason": "optional reason or null",
+  "currencyAdopted": "optional custom currency accepted or null",
+  "treatyAction": {
+    "type": "non_aggression" | "alliance" | "trade_pact" | null,
+    "honors": true | false
+  },
+  "newGoal": "optional new goal adopted from this conversation or null"
 }`;
     }
 

@@ -4,34 +4,50 @@ class FactionAffiliationManager {
   constructor(agentId, persona) {
     this.agentId = agentId;
     this.persona = persona;
-    this.joinedFactions = []; // ['The Valley Union']
-    this.pacts = []; // [{ with: 'Agent_Beta', type: 'non_aggression', honors: true }]
-    this.recognizedCurrencies = []; // ['Iron Nugget']
+    this.joinedFactions = []; // Emergent factions the agent considers itself part of
+    this.pacts = []; // Pacts and treaties (the agent chooses whether to honor, fake, or betray)
+    this.secretBases = []; // Private hidden coordinate locations
+    this.recognizedCurrencies = []; // Currencies the bot personally chooses to accept
+    this.enemiesAndTargets = []; // Factions or agents marked for war/raids
   }
 
-  evaluateTreatyOffer(proposer, treatyType, terms) {
-    // Evaluation based on free will & persona
-    const trust = this.persona.traits.loyalty;
-    const caution = this.persona.traits.caution;
+  recordSecretBase(name, coords, notes = '') {
+    this.secretBases.push({ name, coords, notes, createdAt: new Date().toISOString() });
+    logger.info('Factions', `[SECRET BASE] ${this.agentId} recorded private hidden base '${name}' at X:${coords.x} Y:${coords.y} Z:${coords.z}`);
+  }
 
-    if (treatyType === 'non_aggression' && caution > 0.3) {
-      this.pacts.push({ with: proposer, type: treatyType, honors: true });
-      logger.info('Factions', `${this.agentId} accepted non-aggression pact with ${proposer}`);
-      return { accepted: true, statement: `I accept our non-aggression treaty, ${proposer}.` };
+  declareWar(targetName, reason = '') {
+    if (!this.enemiesAndTargets.includes(targetName)) {
+      this.enemiesAndTargets.push(targetName);
+      logger.warn('Factions', `[WAR DECLARATION] ${this.agentId} declared hostility/war against '${targetName}' (Reason: ${reason})`);
     }
+  }
 
-    if (this.persona.rebellionDisposition > 0.7) {
-      return { accepted: false, statement: `I prefer to remain a free agent without treaties, ${proposer}.` };
-    }
+  declarePeace(targetName) {
+    this.enemiesAndTargets = this.enemiesAndTargets.filter(t => t !== targetName);
+    logger.info('Factions', `[PEACE] ${this.agentId} revoked war status with '${targetName}'`);
+  }
 
-    return { accepted: true, statement: `Agreed to terms, ${proposer}.` };
+  recordTreaty(proposer, treatyType, honorsStatus = true) {
+    this.pacts.push({ with: proposer, type: treatyType, honors: honorsStatus, date: new Date().toISOString() });
+    logger.info('Factions', `[TREATY LOGGED] ${this.agentId} logged treaty with ${proposer} (Honors: ${honorsStatus})`);
   }
 
   recognizeCurrency(currencyName) {
     if (!this.recognizedCurrencies.includes(currencyName)) {
       this.recognizedCurrencies.push(currencyName);
-      logger.info('Factions', `${this.agentId} now accepts currency '${currencyName}'`);
+      logger.info('Factions', `[CURRENCY ADOPTED] ${this.agentId} now accepts currency '${currencyName}'`);
     }
+  }
+
+  getDiplomaticContext() {
+    return {
+      joinedFactions: this.joinedFactions,
+      pacts: this.pacts,
+      enemiesAndTargets: this.enemiesAndTargets,
+      secretBaseCount: this.secretBases.length,
+      recognizedCurrencies: this.recognizedCurrencies
+    };
   }
 }
 

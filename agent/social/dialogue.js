@@ -1,11 +1,12 @@
 const logger = require('../../shared/logger');
 
 class SocialDialogueEngine {
-  constructor(brainClient, persona, goalManager, relationshipTracker) {
+  constructor(brainClient, persona, goalManager, relationshipTracker, factionManager = null) {
     this.brainClient = brainClient;
     this.persona = persona;
     this.goalManager = goalManager;
     this.relationships = relationshipTracker;
+    this.factionManager = factionManager;
   }
 
   async processIncomingChat(sender, message, civContext = {}) {
@@ -22,20 +23,35 @@ class SocialDialogueEngine {
       relationship: relationship,
       persona: this.persona.getPersonaPromptContext(),
       goals: this.goalManager.getGoalContext(),
+      diplomacy: this.factionManager ? this.factionManager.getDiplomaticContext() : {},
       civContext: civContext
     };
 
     try {
       const response = await this.brainClient.escalate(payload);
-      
-      // If persona shift or relationship update is returned
+
+      // Apply relationship shifts
       if (response.relationshipDelta) {
         if (response.relationshipDelta.trust) this.relationships.updateTrust(sender, response.relationshipDelta.trust);
         if (response.relationshipDelta.affinity) this.relationships.updateAffinity(sender, response.relationshipDelta.affinity);
       }
 
+      // Dynamic Goal Update
       if (response.newGoal) {
         this.goalManager.setGoal(response.newGoal);
+      }
+
+      // Diplomatic actions (War, Treaties, Currencies)
+      if (this.factionManager) {
+        if (response.warTarget) {
+          this.factionManager.declareWar(response.warTarget, response.warReason || 'Declared via dialogue');
+        }
+        if (response.currencyAdopted) {
+          this.factionManager.recognizeCurrency(response.currencyAdopted);
+        }
+        if (response.treatyAction) {
+          this.factionManager.recordTreaty(sender, response.treatyAction.type, response.treatyAction.honors);
+        }
       }
 
       return response.chatMessage || null;
