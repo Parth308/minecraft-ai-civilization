@@ -1,47 +1,73 @@
 const logger = require('../../shared/logger');
 
 class MemoryClient {
-  constructor(agentId, memoryServiceUrl = 'http://localhost:3002') {
+  constructor(agentId, memoryServiceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002') {
     this.agentId = agentId;
-    this.url = memoryServiceUrl;
+    this.baseUrl = memoryServiceUrl;
+    this.pendingQueue = [];
+    this.isDraining = false;
+
+    // Background auto-drain timer for queued memory events
+    setInterval(() => this.drainQueue(), 15000);
   }
 
-  async flushBuffer(events) {
+  async flushBuffer(eventsList) {
+    if (!eventsList || eventsList.length === 0) return false;
+
+    // Append to local pending queue
+    this.pendingQueue.push(...eventsList);
+    return this.drainQueue();
+  }
+
+  async drainQueue() {
+    if (this.pendingQueue.length === 0 || this.isDraining) return true;
+    this.isDraining = true;
+
+    const batch = [...this.pendingQueue];
+    logger.debug('MemoryClient', `Attempting to flush ${batch.length} queued events to Memory Service for ${this.agentId}...`);
+
     try {
-      logger.info('MemoryClient', `Flushing ${events.length} events to memory-service (${this.url}/api/memory/compact)...`);
-      const response = await fetch(`${this.url}/api/memory/compact`, {
+      const response = await fetch(`${this.baseUrl}/api/memory/compact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: this.agentId, events })
+        body: JSON.stringify({
+          agentId: this.agentId,
+          events: batch
+        })
       });
 
       if (!response.ok) {
-        throw new Error(`Memory service error HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(`Memory Service HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
-      logger.info('MemoryClient', `Flushed ${events.length} events successfully.`);
-      return data;
+      // Successfully flushed -> remove flushed batch from pending queue
+      this.pendingQueue.splice(0, batch.length);
+      logger.info('MemoryClient', `Successfully flushed ${batch.length} memory events. Pending queue: ${this.pendingQueue.length}`);
+      this.isDraining = false;
+      return true;
     } catch (err) {
-      logger.error('MemoryClient', `Failed to flush event buffer: ${err.message}`);
-      return { success: false, error: err.message };
+      logger.warn('MemoryClient', `Memory Service unavailable (${err.message}). Kept ${this.pendingQueue.length} events in local retry queue.`);
+      this.isDraining = false;
+      return false;
     }
   }
 
   async queryMemories(query = '', section = '', limit = 5) {
     try {
-      const params = new URLSearchParams({ agentId: this.agentId });
-      if (query) params.append('query', query);
-      if (section) params.append('section', section);
-      if (limit) params.append('limit', limit.toString());
+      const url = new URL(`${this.baseUrl}/api/memory/query`);
+      url.searchParams.append('agentId', this.agentId);
+      if (query) url.searchParams.append('query', query);
+      if (section) url.searchParams.append('section', section);
+      if (limit) url.searchParams.append('limit', limit);
 
-      const response = await fetch(`${this.url}/api/memory/query?${params.toString()}`);
+      const response = await fetch(url.toString());
       if (!response.ok) return [];
 
       const data = await response.json();
       return data.memories || [];
     } catch (err) {
-      logger.error('MemoryClient', `Failed to query memory: ${err.message}`);
+      logger.debug('MemoryClient', `Memory query failed (Service offline): ${err.message}`);
       return [];
     }
   }

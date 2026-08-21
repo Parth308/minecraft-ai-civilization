@@ -1,8 +1,12 @@
 const logger = require('../../shared/logger');
 
 class BrainClient {
-  constructor(brokerUrl = 'http://localhost:3001') {
+  constructor(brokerUrl = process.env.BROKER_URL || 'http://localhost:3001') {
     this.brokerUrl = brokerUrl;
+  }
+
+  async escalate(situationPayload) {
+    return this.escalateSituation(situationPayload);
   }
 
   async escalateSituation(situationPayload) {
@@ -22,11 +26,13 @@ class BrainClient {
       logger.info('BrainClient', `Recv broker decision: ${JSON.stringify(data)}`);
       return data;
     } catch (err) {
-      logger.error('BrainClient', `Failed to query Brain Broker: ${err.message}`);
+      logger.warn('BrainClient', `Brain Broker unavailable (${err.message}). Gracefully executing local fallback rule.`);
       return {
         action: situationPayload.topCandidate?.name || 'WANDER',
-        reason: 'Broker network connection error',
-        fallback: true
+        reason: `Local rule fallback (Broker offline: ${err.message})`,
+        fallback: true,
+        chatMessage: null,
+        emotionDelta: { anger: 0, happiness: 0, fatigue: 0 }
       };
     }
   }
