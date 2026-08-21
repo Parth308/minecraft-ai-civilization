@@ -25,11 +25,11 @@ app.get('/health', (req, res) => {
 app.post('/api/escalate', async (req, res) => {
   try {
     const payload = req.body;
-    if (!payload || !payload.topCandidate) {
-      return res.status(400).json({ error: 'Invalid payload. Missing situation details.' });
+    if (!payload || (!payload.topCandidate && !payload.taskType)) {
+      return res.status(400).json({ error: 'Invalid payload. Missing situation or taskType.' });
     }
 
-    logger.info('BrainBroker', `Received escalation request for rule: ${payload.topCandidate?.name || 'unknown'}`);
+    logger.info('BrainBroker', `Received escalation request [task:${payload.taskType || 'REASONING'}] for: ${payload.topCandidate?.name || payload.message || 'generic'}`);
     const decision = await router.processEscalation(payload);
     return res.json(decision);
   } catch (err) {
