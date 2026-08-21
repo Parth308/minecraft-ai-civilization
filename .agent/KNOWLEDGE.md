@@ -18,8 +18,14 @@ This document serves as the complete technical specification, architectural refe
   - **Groq (`llama-3.1-8b-instant`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
   - **Cerebras (`llama3.1-8b`)**: Backup provider on rate limits.
   - **OpenRouter Free (`meta-llama/llama-3.1-8b-instruct:free`)**: Universal failover provider.
-- **Caching**: SHA-256 exact-match state hash cache with 300s TTL (`broker/cache/exactCache.js`).
-- **Memory Architecture**: Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with two-tier compaction (Tier 1 buffer compaction via Groq, Tier 2 section consolidation via Gemini Flash).
+- **Detachable Embeddings Engine**:
+  - **Hosted**: Gemini `text-embedding-004` (768 dimensions)
+  - **Local**: Fast deterministic token frequency & N-gram hashing into unit hypersphere (zero GPU/RAM overhead).
+  - Switchable via `EMBEDDING_PROVIDER='local' | 'gemini' | 'auto'`.
+- **Dual-Layer Caching Architecture**:
+  - **Layer 1**: SHA-256 exact-match state hash cache with 300s TTL (`broker/cache/exactCache.js`).
+  - **Layer 2**: Cosine similarity semantic vector cache with $\ge 0.88$ threshold (`broker/cache/semanticCache.js`).
+- **Memory Architecture**: Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with vector indexing (`vectorStore.js`) and two-tier compaction.
 
 ---
 
@@ -62,8 +68,8 @@ This document serves as the complete technical specification, architectural refe
   - `getLightLevel()`: Calculates block light level at bot position to assess monster spawn danger.
   - `getBiome()`: Returns biome identifier name (`plains`, `forest`, `desert`, etc.).
   - `isRaining()`: Detects active precipitation.
-  - `getInventoryFood()`: Scans bot inventory for edible items (`bread`, `cooked_beef`, `apple`, etc.).
-  - `getInventoryTools()`: Scans bot inventory for weapons/tools (`pickaxe`, `axe`, `sword`, `shovel`).
+  - `getInventoryFood()`: Scans bot inventory for edible items.
+  - `getInventoryTools()`: Scans bot inventory for weapons/tools.
   - `getEquipmentSummary()`: Inspects equipped armor and held hand items.
   - `canSeeEntity(entity)`: Raycasts line-of-sight to check if target is obscured by blocks.
 
@@ -99,7 +105,13 @@ This document serves as the complete technical specification, architectural refe
   - `stopCombat()`: Disengages target.
 
 - **[`agent/actuation/inventory.js`](file:///e:/Projects/minecraft-community/agent/actuation/inventory.js)** — `InventoryActuator` class:
-  - `eatFood()`: Equips food item into main hand and consumes it.
+  - `getFoodCategories()`: Returns multi-tier categorization (`comfort`, `emergency`, `desperation`).
+  - `findBestFood(health, hunger)`: Selects optimal item based on physical state:
+    - *Comfort*: Cooked steak, bread, baked potato (Normal operation).
+    - *Emergency*: Raw pork, raw beef, apples, carrots (Starving or HP < 10).
+    - *Desperation*: Rotten flesh, spider eyes (Fatal starvation at HP <= 4).
+  - `eatFood(health, hunger)`: Equips selected food and consumes it.
+  - `craftItem(itemName, count)`: Automatically finds matching recipe in bot registry and crafts item.
   - `listInventory()`: Returns formatted array of item names and stack counts.
 
 ---
@@ -113,35 +125,30 @@ This document serves as the complete technical specification, architectural refe
   - `getSummary()`: Returns snapshot object of all current stats.
 
 - **[`agent/stats/decay.js`](file:///e:/Projects/minecraft-community/agent/stats/decay.js)** — `StatsDecayEngine` class:
-  - `tick()`: Ticks every second:
-    - Natural hunger decay (accelerated 1.5x while moving).
-    - Fatigue accumulation while moving, recovery while resting.
-    - Natural anger decay towards 0.
-    - Happiness decay if starved or severely injured.
+  - `tick()`: Updates hunger (faster during movement), fatigue, anger calm-down, and happiness.
 
 - **[`agent/stats/relationships.js`](file:///e:/Projects/minecraft-community/agent/stats/relationships.js)** — `RelationshipTracker` class:
   - `get(username)`: Retrieves trust (0-100) and affinity (0-100) for a player.
-  - `updateTrust(username, delta)`: Modifies player trust (e.g. decreased on attacks).
-  - `updateAffinity(username, delta)`: Modifies player affinity (e.g. increased on friendly chat/trade).
+  - `updateTrust(username, delta)` / `updateAffinity(username, delta)`: Modifies player metrics.
 
 ---
 
 #### 5. Decision Engine (`agent/decision/`)
 - **[`agent/decision/confidence.js`](file:///e:/Projects/minecraft-community/agent/decision/confidence.js)** — `ConfidenceEvaluator` class:
-  - `shouldEscalate(confidence)`: Returns true if rule score is below escalation threshold (`0.6`).
+  - `shouldEscalate(confidence)`: Returns true if rule score < `0.6`.
 - **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class:
-  - `learnRule(situationPayload, decisionData)`: Replicates LLM escalation decisions locally with confidence `0.85`, allowing the agent to evolve and avoid re-calling the LLM for repeated situations.
+  - `learnRule(situationPayload, decisionData)`: Replicates LLM decisions locally with confidence `0.85`, reinforcing matching rules on repeated hits and writing durable survival tactics into `skills.md`.
   - `evaluateDynamicRules(senses, stats)`: Returns candidate actions generated from learned rules.
 - **[`agent/decision/rules/`](file:///e:/Projects/minecraft-community/agent/decision/rules/)**:
-  - `eat.js`: Priority when hunger <= 50% or injured with available food.
-  - `flee.js`: Priority when health <= 6 or hostiles >= 3.
-  - `fight.js`: Priority when hostiles in melee range and health > 8.
-  - `sleep.js`: Priority at night when fatigue > 60% and bed nearby.
-  - `mine.js`: Priority when idle and wood/ore blocks discovered.
-  - `explore.js`: Priority when stamina is high and happiness needs boosting.
-  - `trade.js`: Priority when high-trust player is nearby.
+  - `eat.js`: Evaluates multi-tier emergency/comfort feeding needs.
+  - `flee.js`: Evaluates threat avoidance when overwhelmed or critical HP.
+  - `fight.js`: Evaluates counter-attacks on hostiles.
+  - `sleep.js`: Evaluates night-time rest when fatigue is high.
+  - `mine.js`: Evaluates idle resource harvesting.
+  - `explore.js`: Evaluates curiosity wander when stamina is high.
+  - `trade.js`: Evaluates bartering with trusted players.
 - **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class:
-  - `evaluate(senses, statsManager)`: Combines static and dynamic rules, selects top confidence action, and triggers escalation to Brain Broker if confidence < `0.6`. Applies returned `emotionDelta` to stats.
+  - `evaluate(senses, statsManager)`: Combines static and dynamic rules, selects top action, and escalates to Brain Broker if confidence < `0.6`. Applies returned `emotionDelta` to stats.
 - **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class:
   - `escalate(situationContext)`: Dispatches payload to `BrainClient`.
 
@@ -149,66 +156,52 @@ This document serves as the complete technical specification, architectural refe
 
 #### 6. Memory Client (`agent/memory/`)
 - **[`agent/memory/buffer.js`](file:///e:/Projects/minecraft-community/agent/memory/buffer.js)** — `EventBuffer` class:
-  - `addEvent(type, payload)`: Appends event; automatically triggers callback when capacity (20) is reached.
-  - `getSnapshot()` / `clear()`: Inspects or resets buffer.
+  - `addEvent(type, payload)`: Appends event; automatically flushes when capacity (20) is reached.
 - **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class:
-  - `flushBuffer(events)`: Calls `POST /api/memory/compact` on Central Memory Service.
-  - `queryMemories(query, section, limit)`: Calls `GET /api/memory/query` to fetch relevant section memory lines.
+  - `flushBuffer(events)`: Calls `POST /api/memory/compact`.
+  - `queryMemories(query, section, limit)`: Calls `GET /api/memory/query`.
 
 ---
 
 ### Central Brain Broker Service (`broker/`)
 - **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**:
-  - Express REST server running on port `3001`.
-  - `GET /health`: Reports server status and active LLM provider count.
-  - `POST /api/escalate`: Primary escalation endpoint routing situations to LLM pool.
+  - Express REST server running on port `3001` (`/health`, `/api/escalate`).
 - **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**:
-  - Loads API keys (`GEMINI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`), `BROKER_PORT`, and `CACHE_TTL_SECONDS`.
+  - Loads API keys, port (`3001`), and cache settings.
 - **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
-  - `getPreferredProviders(taskType)`: Sets priority order:
-    - `CHAT` / `REFLEX` $\rightarrow$ Groq $\rightarrow$ Gemini Flash $\rightarrow$ Cerebras $\rightarrow$ OpenRouter.
-    - `REASONING` / `EMOTION` $\rightarrow$ Gemini Flash $\rightarrow$ Groq $\rightarrow$ Cerebras $\rightarrow$ OpenRouter.
-  - `fetchRelevantMemories(agentId, situation)`: Queries memory-service for context lines.
-  - `processEscalation(situationPayload)`: Checks exact-match cache $\rightarrow$ queries preferred LLM $\rightarrow$ handles 429 failover $\rightarrow$ caches result $\rightarrow$ parses JSON with `emotionDelta`.
-  - `buildPrompt(payload, taskType, memories)`: Injects stats, candidate actions, and retrieved memories into structured prompt.
+  - Checks **Exact SHA-256 Cache** $\rightarrow$ Checks **Semantic Vector Cache ($\ge 0.88$)** $\rightarrow$ Calls LLM pool with task-preference order $\rightarrow$ Caches decision in both Exact and Semantic Caches.
 - **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)** — `RateLimiter` class:
-  - `isBlocked(providerName)`: Checks if provider is in cooldown.
-  - `markRateLimited(providerName, cooldownMs=60000)`: Imposes 60s cooldown on HTTP 429 errors.
+  - Imposes 60s cooldown on rate-limited providers.
 - **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)** — `ExactCache` class:
-  - `hashSituation(situation)`: Produces SHA-256 hash of payload.
-  - `get(situation)` / `set(situation, data)`: Stores decisions with 300s TTL.
-- **[`broker/providers/`](file:///e:/Projects/minecraft-community/broker/providers/)**:
-  - `gemini.js`: Calls Gemini Flash (`gemini-2.5-flash`).
-  - `groq.js`: Calls Groq Llama 3.1 8B Instant.
-  - `cerebras.js`: Calls Cerebras Llama 3.1 8B.
-  - `openrouter.js`: Calls OpenRouter Free Llama 3.1 8B.
+  - SHA-256 state hash cache with 300s TTL.
+- **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)** — `SemanticCache` class:
+  - `cosineSimilarity(vecA, vecB)`: Computes normalized vector dot product.
+  - `findSimilar(situation)`: Searches stored situation vectors for matches $\ge 0.88$.
+  - `store(situation, decision)`: Embeds situation text and stores with TTL.
 
 ---
 
 ### Central Memory Service (`memory-service/`)
 - **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**:
-  - Express REST server running on port `3002`.
-  - `GET /health`: Health check.
-  - `POST /api/memory/init`: Initializes agent memory markdown files.
-  - `POST /api/memory/compact`: Tier 1 buffer compaction endpoint.
-  - `POST /api/memory/consolidate`: Tier 2 section consolidation endpoint.
-  - `GET /api/memory/query`: Section-scoped memory retrieval endpoint.
+  - Express REST server on port `3002` (`/api/memory/compact`, `/api/memory/consolidate`, `/api/memory/query`, `/health`).
 - **[`memory-service/config.js`](file:///e:/Projects/minecraft-community/memory-service/config.js)**:
-  - Memory service port (`3002`), store path (`store/agents/`), soft caps (~3KB / section), and scheduler sweep interval (5 min).
+  - Configuration for storage paths, soft caps, and scheduler intervals.
+- **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
+  - `getEmbedding(text)`: Detachable provider generating 768-dimensional normalized vectors via Gemini `text-embedding-004` (hosted) or deterministic token frequency & N-gram hashing (local zero-overhead fallback).
+- **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)** — `VectorMemoryStore` class:
+  - `indexSectionEntries(agentId, section, entries)`: Embeds and indexes memory entries.
+  - `searchSimilar(agentId, queryText, limit)`: Performs semantic cosine similarity search over stored memory vectors.
 - **[`memory-service/sections/schema.js`](file:///e:/Projects/minecraft-community/memory-service/sections/schema.js)**:
-  - `initializeAgentMemoryFiles(agentId, personality)`: Creates `profile.md`, `relationships.md`, `events.md`, `skills.md`, and `recent.md` with YAML frontmatter.
-  - `parseSectionFile(filePath)`: Parses frontmatter metadata and markdown bullet points.
-  - `writeSectionFile(filePath, frontmatter, entries)`: Writes formatted markdown.
+  - Creates and parses sectioned markdown files (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`).
 - **[`memory-service/router.js`](file:///e:/Projects/minecraft-community/memory-service/router.js)** — `EventRouter` class:
-  - `routeEvent(event)`: Zero-LLM categorizer directing chat to `relationships.md`, combat to `events.md`, and mining/skills to `skills.md`.
+  - Zero-LLM event router categorizing raw events into section files.
 - **[`memory-service/sections/compactor.js`](file:///e:/Projects/minecraft-community/memory-service/sections/compactor.js)** — `MemoryCompactor` class:
-  - `compactBufferToSections(agentId, eventsList, eventRouter)`: Tier 1 fast compaction appending tagged entries to section files.
-  - `consolidateSectionFile(agentId, sectionName, apiKey)`: Tier 2 smart consolidation pass via Gemini Flash deduplicating entries and preserving durable facts.
+  - Tier 1 fast compaction (Groq) & Tier 2 smart section consolidation (Gemini Flash).
 - **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)** — `MemoryScheduler` class:
-  - `runSweep()`: Periodically monitors section sizes across all agent folders and triggers Tier 2 consolidation when soft caps are exceeded.
+  - Periodic background sweep monitoring file sizes and triggering Tier 2 passes.
 
 ---
 
 ### Shared Utilities (`shared/`)
-- **[`shared/logger.js`](file:///e:/Projects/minecraft-community/shared/logger.js)**: Formatted timestamped logging (`info`, `warn`, `error`, `debug`).
+- **[`shared/logger.js`](file:///e:/Projects/minecraft-community/shared/logger.js)**: Standardized formatted console logging.
 - **[`shared/constants.js`](file:///e:/Projects/minecraft-community/shared/constants.js)**: Action enum (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `WANDER`, `IDLE`, `TRADE`, `EXPLORE`, `BUILD`, `TALK`) and stat ranges.
