@@ -12,6 +12,7 @@ class ProviderRouter {
     this.cache = new ExactCache(config.cacheTTLSeconds);
     this.rateLimiter = new RateLimiter();
     this.rrIndex = 0;
+    this.memoryServiceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
 
     // Provider map
     this.providerMap = {
@@ -22,21 +23,31 @@ class ProviderRouter {
     };
   }
 
-  // Model preference order by task type
   getPreferredProviders(taskType = 'REASONING') {
     let order = ['Gemini', 'Groq', 'Cerebras', 'OpenRouter'];
 
     if (taskType === 'CHAT' || taskType === 'REFLEX') {
-      // Groq prioritized for fast dialogue/reflex actions
       order = ['Groq', 'Gemini', 'Cerebras', 'OpenRouter'];
     } else if (taskType === 'REASONING' || taskType === 'EMOTION') {
-      // Gemini Flash prioritized for complex reasoning and emotion updates
       order = ['Gemini', 'Groq', 'Cerebras', 'OpenRouter'];
     }
 
     return order
       .map(name => this.providerMap[name])
       .filter(p => p && p.key && !this.rateLimiter.isBlocked(p.name));
+  }
+
+  async fetchRelevantMemories(agentId, situation) {
+    try {
+      const query = situation.name || '';
+      const response = await fetch(`${this.memoryServiceUrl}/api/memory/query?agentId=${agentId || 'Agent_Alpha'}&query=${encodeURIComponent(query)}&limit=3`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.memories || [];
+    } catch (err) {
+      logger.debug('Router', `Memory query skipped: ${err.message}`);
+      return [];
+    }
   }
 
   async processEscalation(situationPayload) {
@@ -46,7 +57,10 @@ class ProviderRouter {
       return { ...cachedResult, cached: true };
     }
 
-    // 2. Determine task type and provider priority order
+    // 2. Fetch section-scoped relevant memories from memory-service
+    const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
+
+    // 3. Determine task type and preferred provider order
     const taskType = situationPayload.taskType || 'REASONING';
     const available = this.getPreferredProviders(taskType);
 
@@ -55,8 +69,8 @@ class ProviderRouter {
       return this.fallbackHeuristic(situationPayload);
     }
 
-    // 3. Build task-specific prompt
-    const prompt = this.buildPrompt(situationPayload, taskType);
+    // 4. Build prompt with injected structured memories
+    const prompt = this.buildPrompt(situationPayload, taskType, memories);
 
     let lastError = null;
     for (const provider of available) {
@@ -73,7 +87,7 @@ class ProviderRouter {
         logger.error('Router', `Provider ${provider.name} failed for task '${taskType}': ${err.message}`);
 
         if (err.status === 429) {
-          this.rateLimiter.markRateLimited(provider.name, 60000); // 60s cooldown
+          this.rateLimiter.markRateLimited(provider.name, 60000);
         }
         lastError = err;
       }
@@ -83,18 +97,19 @@ class ProviderRouter {
     return this.fallbackHeuristic(situationPayload);
   }
 
-  buildPrompt(payload, taskType) {
+  buildPrompt(payload, taskType, memories = []) {
     return `You are a Minecraft AI agent decision and personality engine.
 Task Mode: ${taskType}
 Agent Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
 Current Situation: ${JSON.stringify(payload.topCandidate || {})}
 All Evaluated Options: ${JSON.stringify(payload.allCandidates || [])}
+Relevant Retrieved Memory Chunks: ${JSON.stringify(memories)}
 
 Instructions:
 1. Choose the best action to perform.
 2. Provide a short reason.
 3. (Optional) Provide a natural in-game public chat message.
-4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue based on the situation (-20 to +20).
+4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue (-20 to +20).
 
 Reply ONLY with a valid JSON object (no markdown, no backticks):
 {

@@ -12,6 +12,8 @@ const StatsManager = require('./stats/stats');
 const StatsDecayEngine = require('./stats/decay');
 const RelationshipTracker = require('./stats/relationships');
 const DecisionTree = require('./decision/tree');
+const EventBuffer = require('./memory/buffer');
+const MemoryClient = require('./memory/client');
 const { ACTIONS } = require('../shared/constants');
 
 logger.info('Agent', `Initializing agent instance '${config.username}'...`);
@@ -39,6 +41,12 @@ function createAgent() {
   const relationships = new RelationshipTracker();
   const decisionTree = new DecisionTree(config.confidenceThreshold);
 
+  // Memory components
+  const memoryClient = new MemoryClient(config.username);
+  const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
+    memoryClient.flushBuffer(bufferSnapshot);
+  });
+
   let tickInterval = null;
   let inFlightTick = false;
 
@@ -48,11 +56,15 @@ function createAgent() {
     const defaultMovements = new movements(bot);
     bot.pathfinder.setMovements(defaultMovements);
 
-    chat.say(`Hello world! ${bot.username} is online with active Brain Broker escalation support.`);
+    chat.say(`Hello world! ${bot.username} is online with structured memory support.`);
+
+    eventBuffer.addEvent('spawn', {
+      position: { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) }
+    });
 
     // Main Agent Loop (Tick-based)
     tickInterval = setInterval(async () => {
-      if (inFlightTick) return; // Prevent concurrent overlapping tick calls
+      if (inFlightTick) return;
       inFlightTick = true;
 
       try {
@@ -63,7 +75,7 @@ function createAgent() {
         // 2. Run local stats decay tick
         statsDecay.tick();
 
-        // 3. Evaluate Decision Tree (with Brain Broker Escalation support)
+        // 3. Evaluate Decision Tree
         const decision = await decisionTree.evaluate(senses, stats);
 
         if (decision.chatMessage) {
@@ -85,12 +97,14 @@ function createAgent() {
       case ACTIONS.EAT:
         logger.info('AgentLoop', 'Executing EAT action');
         await inventory.eatFood();
+        eventBuffer.addEvent('eatFood', { health: stats.health, hunger: stats.hunger });
         break;
 
       case ACTIONS.FLEE:
         if (decision.meta && decision.meta.threat) {
           logger.info('AgentLoop', 'Executing FLEE action');
           movement.fleeFrom(decision.meta.threat);
+          eventBuffer.addEvent('flee', { threat: decision.meta.threat.name || 'hostile' });
         }
         break;
 
@@ -98,6 +112,7 @@ function createAgent() {
         if (decision.meta && decision.meta.target) {
           logger.info('AgentLoop', 'Executing FIGHT action');
           combat.attack(decision.meta.target);
+          eventBuffer.addEvent('fight', { target: decision.meta.target.name || 'hostile' });
         }
         break;
 
@@ -105,6 +120,7 @@ function createAgent() {
         if (decision.meta && decision.meta.bed) {
           logger.info('AgentLoop', 'Executing SLEEP action');
           bot.sleep(decision.meta.bed).catch(err => logger.error('AgentLoop', 'Sleep failed', err));
+          eventBuffer.addEvent('sleep', { bedPos: decision.meta.bed.position });
         }
         break;
 
@@ -112,12 +128,14 @@ function createAgent() {
         if (decision.meta && decision.meta.targetBlock) {
           logger.info('AgentLoop', 'Executing MINE action');
           movement.gotoBlock(decision.meta.targetBlock.position.x, decision.meta.targetBlock.position.y, decision.meta.targetBlock.position.z);
+          eventBuffer.addEvent('mineBlock', { block: decision.meta.targetBlock.name });
         }
         break;
 
+      case ACTIONS.EXPLORE:
       case ACTIONS.WANDER:
         if (!movement.isMoving()) {
-          logger.info('AgentLoop', 'Executing WANDER action');
+          logger.info('AgentLoop', `Executing ${decision.action} action`);
           movement.wander();
         }
         break;
@@ -130,12 +148,19 @@ function createAgent() {
   }
 
   // Handle normalized event triggers
-  events.on('agentHurt', () => {
+  events.on('agentHurt', ({ health }) => {
     stats.addAnger(25);
     stats.addHappiness(-15);
+    eventBuffer.addEvent('agentHurt', { health });
+  });
+
+  events.on('underAttack', ({ attacker }) => {
+    eventBuffer.addEvent('underAttack', { attacker: attacker.username || attacker.name || 'unknown' });
   });
 
   events.on('playerChat', ({ username, message }) => {
+    eventBuffer.addEvent('playerChat', { username, message });
+
     if (!message.startsWith(config.prefix)) {
       relationships.updateAffinity(username, 2);
       return;
@@ -170,8 +195,18 @@ function createAgent() {
         movement.stop();
         break;
 
+      case 'memories':
+        memoryClient.queryMemories('', 'recent', 3).then(memories => {
+          if (memories.length > 0) {
+            chat.say(`[Recent Memory] ${memories.join(' | ')}`);
+          } else {
+            chat.say('No recent memories recorded yet.');
+          }
+        });
+        break;
+
       default:
-        chat.say(`Unknown command '${command}'. Commands: status, come, wander, stop`);
+        chat.say(`Unknown command '${command}'. Commands: status, come, wander, stop, memories`);
         break;
     }
   });
