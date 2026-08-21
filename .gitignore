@@ -20,8 +20,9 @@ pip-log.txt
 pip-delete-this-directory.txt
 .pytest_cache/
 
-# Markdown files (allow plan.md and task.md)
+# Markdown files (except agent knowledge base)
 *.md
+!.agent/*.md
 
 # OS generated files
 .DS_Store
