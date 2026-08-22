@@ -387,6 +387,102 @@ class InventoryActuator {
 
   // --- Crafting ---
 
+  async _ensureCraftingTable() {
+    if (!this.bot.entity) return null;
+
+    // 1. Check if a crafting table already exists nearby
+    let table = this.bot.findBlock({
+      matching: this.bot.registry.blocksByName['crafting_table']?.id,
+      maxDistance: 6
+    });
+    if (table) return { table, newlyPlaced: false };
+
+    // 2. Do we have a crafting table in inventory? If not, do we have planks to make one (2×2)?
+    let tableInInv = this.bot.inventory?.items().find(i => i.name === 'crafting_table');
+    if (!tableInInv) {
+      const plankItem = this.bot.inventory?.items().find(i => i.name.endsWith('_planks'));
+      if (plankItem && plankItem.count >= 4) {
+        const tableItem = this.bot.registry.itemsByName['crafting_table'];
+        const tableRecipes = this.bot.recipesFor(tableItem.id, null, 1, null);
+        if (tableRecipes && tableRecipes.length > 0) {
+          logger.info('Actuation:Inventory', 'Refining planks into crafting_table in 2×2 grid first...');
+          try {
+            await this.bot.craft(tableRecipes[0], 1, null);
+            tableInInv = this.bot.inventory?.items().find(i => i.name === 'crafting_table');
+          } catch (e) {
+            logger.debug('Actuation:Inventory', `Failed to craft crafting table in 2×2: ${e.message}`);
+          }
+        }
+      }
+    }
+
+    if (!tableInInv) {
+      logger.warn('Actuation:Inventory', 'No crafting_table or materials in inventory to place for 3×3 recipe');
+      return null;
+    }
+
+    // 3. Smart Placement & Alcove Excavation (Handles digging straight down in 1×1 / 1×2 tunnels)
+    const botPos = this.bot.entity.position.floored();
+    const directions = [
+      new Vec3(1, 0, 0),
+      new Vec3(-1, 0, 0),
+      new Vec3(0, 0, 1),
+      new Vec3(0, 0, -1)
+    ];
+
+    for (const dir of directions) {
+      const waistPos = botPos.plus(dir);
+      const floorPos = waistPos.offset(0, -1, 0);
+
+      let waistBlock = this.bot.blockAt(waistPos);
+      let floorBlock = this.bot.blockAt(floorPos);
+
+      // If waist space is blocked by solid stone/dirt (e.g. dug straight down), carve out front block!
+      if (waistBlock && waistBlock.name !== 'air' && waistBlock.name !== 'water' && waistBlock.name !== 'lava') {
+        if (this.bot.canDigBlock(waistBlock)) {
+          logger.info('Actuation:Inventory', `Carving out front block ${waistBlock.name} at ${waistPos} to create crafting table space...`);
+          await this.digBlock(waistBlock);
+          waistBlock = this.bot.blockAt(waistPos);
+          floorBlock = this.bot.blockAt(floorPos);
+        }
+      }
+
+      // If space is now clear air:
+      if (waistBlock && waistBlock.name === 'air') {
+        // Case A: Floor is solid -> place on top of floor facing up
+        if (floorBlock && floorBlock.name !== 'air' && floorBlock.name !== 'water' && floorBlock.name !== 'lava') {
+          logger.info('Actuation:Inventory', `Placing crafting table on floor at ${floorPos} facing UP...`);
+          const placed = await this.placeBlock('crafting_table', floorBlock, new Vec3(0, 1, 0));
+          if (placed) {
+            table = this.bot.findBlock({ matching: this.bot.registry.blocksByName['crafting_table']?.id, maxDistance: 4 });
+            if (table) return { table, newlyPlaced: true };
+          }
+        }
+
+        // Case B: Floor not solid -> place against adjacent solid wall face
+        const sideBlocks = [
+          this.bot.blockAt(waistPos.offset(1, 0, 0)),
+          this.bot.blockAt(waistPos.offset(-1, 0, 0)),
+          this.bot.blockAt(waistPos.offset(0, 0, 1)),
+          this.bot.blockAt(waistPos.offset(0, 0, -1))
+        ].filter(b => b && b.name !== 'air' && b.name !== 'water' && b.name !== 'lava');
+
+        if (sideBlocks.length > 0) {
+          const side = sideBlocks[0];
+          const face = waistPos.minus(side.position);
+          logger.info('Actuation:Inventory', `Placing crafting table against side wall ${side.name} at ${side.position}...`);
+          const placed = await this.placeBlock('crafting_table', side, face);
+          if (placed) {
+            table = this.bot.findBlock({ matching: this.bot.registry.blocksByName['crafting_table']?.id, maxDistance: 4 });
+            if (table) return { table, newlyPlaced: true };
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   async craftItem(itemName, count = 1) {
     const item = this.bot.registry.itemsByName[itemName];
     if (!item) {
@@ -396,30 +492,15 @@ class InventoryActuator {
 
     // 1. Check if item can be crafted in 2×2 inventory grid
     let recipes = this.bot.recipesFor(item.id, null, count, null);
-
-    // 2. If 3×3 recipe is required, find or place a crafting table
     let craftingTable = null;
-    if (!recipes || recipes.length === 0) {
-      craftingTable = this.bot.findBlock({
-        matching: this.bot.registry.blocksByName['crafting_table']?.id,
-        maxDistance: 8
-      });
+    let newlyPlaced = false;
 
-      // If no crafting table placed nearby, check if we have one in inventory and place it
-      if (!craftingTable) {
-        const tableInInv = this.bot.inventory?.items().find(i => i.name === 'crafting_table');
-        if (tableInInv && this.bot.entity) {
-          const ground = this.bot.blockAt(this.bot.entity.position.offset(1, -1, 0)) ||
-                         this.bot.blockAt(this.bot.entity.position.offset(0, -1, 0));
-          if (ground && ground.name !== 'air' && ground.name !== 'water') {
-            logger.info('Actuation:Inventory', 'Placing crafting table from inventory for 3×3 craft...');
-            await this.placeBlock('crafting_table', ground, new Vec3(0, 1, 0));
-            craftingTable = this.bot.findBlock({
-              matching: this.bot.registry.blocksByName['crafting_table']?.id,
-              maxDistance: 6
-            });
-          }
-        }
+    // 2. If 3×3 recipe is required, find or place a crafting table with smart alcove support
+    if (!recipes || recipes.length === 0) {
+      const tableInfo = await this._ensureCraftingTable();
+      if (tableInfo) {
+        craftingTable = tableInfo.table;
+        newlyPlaced = tableInfo.newlyPlaced;
       }
 
       if (craftingTable) {
@@ -444,6 +525,20 @@ class InventoryActuator {
       logger.info('Actuation:Inventory', `Crafting ${count}x ${itemName}${craftingTable ? ' at crafting table' : ' (2x2)'}...`);
       await this.bot.craft(recipes[0], count, craftingTable);
       detailedLogger.logInventory(this.agentId, `Crafted item: ${count}x ${itemName}`, { usedTable: !!craftingTable });
+
+      // Auto-recover/mine placed crafting table back into backpack so bot never leaves it behind
+      if (newlyPlaced && craftingTable) {
+        try {
+          const tableBlock = this.bot.blockAt(craftingTable.position);
+          if (tableBlock && tableBlock.name === 'crafting_table') {
+            logger.info('Actuation:Inventory', 'Recovering crafting table back into inventory for mobile mining...');
+            await this.digBlock(tableBlock);
+          }
+        } catch (recoverErr) {
+          // non-blocking
+        }
+      }
+
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Crafting failed: ${err.message}`);
