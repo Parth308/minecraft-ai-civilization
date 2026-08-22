@@ -14,12 +14,15 @@ class StatsManager {
   }
 
   updateHealth(mcHealth) {
-    this.health = Math.max(0, Math.min(20, mcHealth));
+    if (typeof mcHealth === 'number' && !isNaN(mcHealth)) {
+      this.health = Math.max(0, Math.min(20, mcHealth));
+    }
   }
 
   updateHungerFromMC(mcFoodLevel) {
-    // MC food is 0-20, scale to 0-100
-    this.hunger = Math.round((mcFoodLevel / 20) * 100);
+    if (typeof mcFoodLevel === 'number' && !isNaN(mcFoodLevel)) {
+      this.hunger = Math.round((mcFoodLevel / 20) * 100);
+    }
   }
 
   addAnger(amount) {
