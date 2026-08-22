@@ -15,7 +15,8 @@ async function queryGroq(apiKey, prompt) {
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }]
-    })
+    }),
+    signal: AbortSignal.timeout(8000)
   });
 
   const latencyMs = Date.now() - t0;

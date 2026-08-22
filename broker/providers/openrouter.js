@@ -15,7 +15,8 @@ async function queryOpenRouter(apiKey, prompt) {
     body: JSON.stringify({
       model: 'meta-llama/llama-3.1-8b-instruct:free',
       messages: [{ role: 'user', content: prompt }]
-    })
+    }),
+    signal: AbortSignal.timeout(8000)
   });
 
   const latencyMs = Date.now() - t0;

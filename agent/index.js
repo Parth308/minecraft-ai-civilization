@@ -165,7 +165,7 @@ function createAgent() {
           statsDecay.tick();
 
           // 3. Evaluate Decision Tree
-          const decision = await decisionTree.evaluate(senses, stats);
+          const decision = await decisionTree.evaluate(senses, stats, persona);
 
           // ── Update live state for /status endpoint ──────────────────────
           agentState.stats       = stats.getSummary();
@@ -190,7 +190,7 @@ function createAgent() {
             costUsd: typeof decision.costUsd === 'number' ? decision.costUsd : null
           });
           if (agentState.recentDecisions.length > 100) agentState.recentDecisions.shift();
-          agentState.persona     = persona.getPersonaPromptContext ? undefined : { seed: persona.seed, traits: persona.traits };
+          agentState.persona     = persona.getPersonaPromptContext ? persona.getPersonaPromptContext() : { seed: persona.seed, traits: persona.traits };
           agentState.inventory   = inventory.listInventory();
           agentState.equipment   = senses.getEquipmentSummary();
           agentState.biome       = senses.getBiome();

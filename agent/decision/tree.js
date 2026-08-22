@@ -18,7 +18,7 @@ class DecisionTree {
     this.dynamicRuleEngine = new DynamicRuleEngine(memoryClient);
   }
 
-  async evaluate(senses, statsManager) {
+  async evaluate(senses, statsManager, persona = null) {
     const stats = statsManager.getSummary();
 
     const staticCandidates = [
@@ -34,7 +34,22 @@ class DecisionTree {
 
     // Include dynamically learned rules
     const dynamicCandidates = this.dynamicRuleEngine.evaluateDynamicRules(senses, stats);
-    const candidates = [...staticCandidates, ...dynamicCandidates];
+    const rawCandidates = [...staticCandidates, ...dynamicCandidates];
+
+    // Apply persona trait biases so different agents make distinct behavioral choices
+    const candidates = rawCandidates.map(c => {
+      let conf = c.confidence;
+      if (persona && persona.traits) {
+        const tr = persona.traits;
+        if (c.name === 'EXPLORE') conf += (tr.curiosity - 0.5) * 0.25;
+        if (c.name === 'FLEE') conf += (tr.caution - 0.5) * 0.20;
+        if (c.name === 'CRAFT') conf += (tr.caution - 0.5) * 0.18 + (tr.curiosity - 0.5) * 0.10;
+        if (c.name === 'MINE') conf += (tr.ambition - 0.5) * 0.20 + (tr.greed - 0.5) * 0.15;
+        if (c.name === 'TRADE' || c.name === 'TALK') conf += (tr.sociability - 0.5) * 0.25 + (tr.greed - 0.5) * 0.15;
+        if (c.name === 'FIGHT') conf += (0.5 - tr.caution) * 0.20 + (tr.ambition - 0.5) * 0.15;
+      }
+      return { ...c, confidence: Math.min(0.99, Math.max(0.01, Number(conf.toFixed(2)))) };
+    });
 
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
@@ -49,7 +64,8 @@ class DecisionTree {
         taskType: topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING',
         topCandidate,
         allCandidates: candidates,
-        stats
+        stats,
+        persona: persona?.getPersonaPromptContext ? persona.getPersonaPromptContext() : (persona || {})
       };
 
       const escalationResult = await this.escalator.escalate(payload);

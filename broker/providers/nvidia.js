@@ -18,7 +18,8 @@ async function queryNvidia(apiKey, prompt) {
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.6,
       max_tokens: 1024
-    })
+    }),
+    signal: AbortSignal.timeout(8000)
   });
 
   const latencyMs = Date.now() - t0;

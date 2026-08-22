@@ -12,7 +12,8 @@ async function queryGemini(apiKey, prompt) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }]
-    })
+    }),
+    signal: AbortSignal.timeout(8000)
   });
 
   const latencyMs = Date.now() - t0;

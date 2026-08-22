@@ -171,17 +171,28 @@ class ProviderRouter {
   }
 
   getPreferredProviders(taskType = 'REASONING') {
-    let order = ['Gemini', 'Nvidia', 'Groq', 'Cerebras', 'OpenRouter'];
+    // Ultra-fast LPU / low-latency inference providers first
+    let baseOrder = ['Groq', 'Cerebras', 'Gemini', 'OpenRouter', 'Nvidia'];
 
     if (taskType === 'CHAT' || taskType === 'REFLEX' || taskType === 'SOCIAL_CHAT') {
-      order = ['Groq', 'Nvidia', 'Gemini', 'Cerebras', 'OpenRouter'];
+      baseOrder = ['Groq', 'Cerebras', 'Gemini', 'OpenRouter', 'Nvidia'];
     } else if (taskType === 'REASONING' || taskType === 'EMOTION' || taskType === 'REFLECTION') {
-      order = ['Gemini', 'Nvidia', 'Groq', 'Cerebras', 'OpenRouter'];
+      baseOrder = ['Groq', 'Gemini', 'Cerebras', 'OpenRouter', 'Nvidia'];
     }
 
-    return order
+    // Filter to configured, non-rate-limited providers
+    const active = baseOrder
       .map(name => this.providerMap[name])
       .filter(p => p && p.key && !this.rateLimiter.isBlocked(p.name));
+
+    // Dynamic latency-aware sorting: deprioritize any provider with avgLatency > 5000ms
+    return active.sort((a, b) => {
+      const latA = this.stats[a.name]?.avgLatencyMs || 0;
+      const latB = this.stats[b.name]?.avgLatencyMs || 0;
+      const penaltyA = latA > 5000 ? 10000 : 0;
+      const penaltyB = latB > 5000 ? 10000 : 0;
+      return (latA + penaltyA) - (latB + penaltyB);
+    });
   }
 
   async fetchRelevantMemories(agentId, situation) {
@@ -396,14 +407,55 @@ Reply ONLY with a valid JSON object:
 
   parseLLMResponse(rawText) {
     try {
-      const cleanJson = rawText.replace(/```json|```/g, '').trim();
-      return JSON.parse(cleanJson);
-    } catch (err) {
-      logger.warn('Router', 'Failed to parse JSON response from LLM, returning default structure');
+      if (!rawText || typeof rawText !== 'string') {
+        throw new Error('Empty rawText from LLM');
+      }
+
+      // 1. Remove reasoning / thought tags from thinking models
+      let cleaned = rawText
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+
+      // 2. Locate outermost JSON object {...}
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : cleaned;
+
+      const parsed = JSON.parse(jsonStr);
+
+      // Normalize action to standard Minecraft agent action verbs
+      let action = String(parsed.action || '').toUpperCase().trim();
+      const validActions = ['MINE', 'CRAFT', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'CHAT', 'TRADE', 'FLEE', 'WANDER', 'BUILD', 'HARVEST', 'EQUIP', 'IDLE'];
+      if (!validActions.includes(action)) {
+        const found = validActions.find(v => action.includes(v));
+        action = found || 'EXPLORE';
+      }
+
       return {
-        action: 'WANDER',
-        reason: rawText.substring(0, 100),
-        chatMessage: rawText.substring(0, 100),
+        action,
+        reason: parsed.reason ? String(parsed.reason).trim() : 'Autonomous decision',
+        chatMessage: parsed.chatMessage ? String(parsed.chatMessage).trim() : null,
+        tacticLearned: parsed.tacticLearned ? String(parsed.tacticLearned).trim() : null,
+        itemToCraft: parsed.itemToCraft ? String(parsed.itemToCraft).trim() : null,
+        emotionDelta: {
+          anger: Number(parsed.emotionDelta?.anger) || 0,
+          happiness: Number(parsed.emotionDelta?.happiness) || 0,
+          fatigue: Number(parsed.emotionDelta?.fatigue) || 0
+        }
+      };
+    } catch (err) {
+      logger.warn('Router', `Failed to parse JSON response from LLM (${err.message}), extracting fallback structure`);
+
+      // Attempt to extract action word directly from raw text
+      const validActions = ['MINE', 'CRAFT', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'TRADE', 'FLEE', 'WANDER', 'BUILD'];
+      const upper = String(rawText || '').toUpperCase();
+      const extractedAction = validActions.find(v => upper.includes(v)) || 'EXPLORE';
+
+      return {
+        action: extractedAction,
+        reason: String(rawText || '').replace(/<[^>]+>/g, '').substring(0, 140).trim() || 'Adaptive reasoning',
+        chatMessage: null,
         tacticLearned: null,
         emotionDelta: { anger: 0, happiness: 0, fatigue: 0 }
       };

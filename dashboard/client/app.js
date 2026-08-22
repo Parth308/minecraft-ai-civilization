@@ -365,7 +365,10 @@
     const actionIcon = ACTION_ICONS[actionName] || '⚡';
     const goalStr = typeof a.activeGoal === 'string' ? a.activeGoal : (a.activeGoal?.description || 'Exploring & surviving civilization');
     const posStr = a.position ? `${a.position.x}, ${a.position.y}, ${a.position.z}` : '—';
-    const personaSeed = a.persona?.seed || (typeof a.persona === 'string' ? a.persona : null);
+    const personaObj = (a.persona && typeof a.persona === 'object') ? a.persona : {};
+    const personaTitle = personaObj.title || personaObj.seed || (typeof a.persona === 'string' ? a.persona : 'Pioneer');
+    const temperament = personaObj.temperament || null;
+    const quirk = personaObj.quirk || null;
 
     return `
       <div class="card agent-card">
@@ -375,7 +378,8 @@
             <div class="agent-identity">
               <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
               <span class="agent-name">${esc(a.username)}</span>
-              ${personaSeed ? `<span class="persona-badge">🧬 ${esc(personaSeed)}</span>` : ''}
+              <span class="persona-badge" title="${esc(personaObj.seed || '')}">🧬 ${esc(personaTitle)}</span>
+              ${temperament ? `<span class="badge badge-neutral" style="font-size:11px">🎭 ${esc(temperament)}</span>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <button class="btn-spectate" onclick="window.spectateAgent('${esc(a.username)}')">🎥 Spectate</button>
@@ -390,6 +394,7 @@
             ${a.isRaining ? '<span class="meta-chip" style="color:var(--amber)">🌧 Raining</span>' : ''}
             ${a.isInWater ? '<span class="meta-chip" style="color:#38bdf8">🌊 In Water</span>' : ''}
             ${a.isOnFire ? '<span class="meta-chip" style="color:var(--red)">🔥 On Fire</span>' : ''}
+            ${quirk ? `<span class="meta-chip" style="color:var(--lime);font-style:italic">✨ ${esc(quirk)}</span>` : ''}
           </div>
         </div>
 

@@ -15,7 +15,8 @@ async function queryCerebras(apiKey, prompt) {
     body: JSON.stringify({
       model: 'llama3.1-8b',
       messages: [{ role: 'user', content: prompt }]
-    })
+    }),
+    signal: AbortSignal.timeout(8000)
   });
 
   const latencyMs = Date.now() - t0;
