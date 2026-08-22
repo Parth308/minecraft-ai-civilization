@@ -136,8 +136,8 @@ Fill in your configuration:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 GROQ_API_KEY=your_groq_api_key_here
-NVIDIA_API_KEY=your_nvidia_api_key_here
-NVIDIA_MODEL=meta/llama-3.3-70b-instruct
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_MODEL=meta/llama-3.1-8b-instruct
 OPENROUTER_API_KEY=your_openrouter_key_optional
 
 # Embeddings Engine (ollama / gemini / local)

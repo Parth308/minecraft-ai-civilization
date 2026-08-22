@@ -3,7 +3,7 @@ const logger = require('../../shared/logger');
 async function queryNvidia(apiKey, prompt) {
   if (!apiKey) throw new Error('NVIDIA_API_KEY is not configured');
 
-  const model = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+  const model = process.env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct';
   logger.info('NvidiaProvider', `Querying NVIDIA NIM API with model: ${model}...`);
   const t0 = Date.now();
 
