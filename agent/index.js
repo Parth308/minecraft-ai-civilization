@@ -162,7 +162,7 @@ function createAgent() {
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
-  const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient);
+  const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
   });

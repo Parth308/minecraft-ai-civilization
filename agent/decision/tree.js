@@ -13,9 +13,9 @@ const EscalationManager = require('./escalate');
 const logger = require('../../shared/logger');
 
 class DecisionTree {
-  constructor(threshold = 0.6, memoryClient = null) {
+  constructor(threshold = 0.6, memoryClient = null, brainClient = null) {
     this.confidenceEvaluator = new ConfidenceEvaluator(threshold);
-    this.escalator = new EscalationManager();
+    this.escalator = new EscalationManager(brainClient);
     this.dynamicRuleEngine = new DynamicRuleEngine(memoryClient);
   }
 
@@ -63,6 +63,7 @@ class DecisionTree {
       logger.warn('DecisionTree', `Top action confidence (${topCandidate.confidence}) is below threshold (${this.confidenceEvaluator.threshold}). Triggering Escalation.`);
       
       const payload = {
+        agentId: senses.bot?.username || persona?.agentId || 'Agent',
         taskType: topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING',
         topCandidate,
         allCandidates: candidates,
