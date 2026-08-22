@@ -10,6 +10,23 @@ const WebKnowledgeClient = require('./search/webSearch');
 const config = require('./config');
 const logger = require('../shared/logger');
 
+/**
+ * Free Tier & Benchmark Rates (USD per 1M tokens)
+ * By default, FREE_TIER_MODE is enabled (100% free developer tiers).
+ * Benchmark list prices are tracked to display total dollar value saved.
+ */
+const FREE_TIER_MODE = process.env.FREE_TIER_MODE !== 'false';
+
+const BENCHMARK_RATES_PER_MTOK = {
+  Gemini:     { input: 0.30, output: 2.50, name: 'Gemini 2.0 Flash (Free Tier: 15 RPM / 250k TPM)' },
+  Groq:       { input: 0.59, output: 0.79, name: 'Llama 3.3 70B (Free Tier: 30 RPM / 12k TPM)' },
+  Nvidia:     { input: 0.60, output: 0.60, name: 'NVIDIA NIM (1,000 Free Credits / 40 RPM)' },
+  Cerebras:   { input: 0.10, output: 0.10, name: 'Cerebras Llama 3.1 8B ($5 Free Trial)' },
+  OpenRouter: { input: 0.00, output: 0.00, name: 'OpenRouter Free Models (Permanent $0.00)' }
+};
+
+const MAX_ESCALATION_LOG = 200;
+
 class ProviderRouter {
   constructor() {
     this.cache = new ExactCache(config.cacheTTLSeconds);
@@ -18,6 +35,7 @@ class ProviderRouter {
     this.webKnowledge = new WebKnowledgeClient();
     this.rrIndex = 0;
     this.memoryServiceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+    this.freeTierMode = FREE_TIER_MODE;
 
     // Provider map
     this.providerMap = {
@@ -26,6 +44,129 @@ class ProviderRouter {
       Nvidia: { name: 'Nvidia', key: config.keys.nvidia, fn: queryNvidia },
       Cerebras: { name: 'Cerebras', key: config.keys.cerebras, fn: queryCerebras },
       OpenRouter: { name: 'OpenRouter', key: config.keys.openrouter, fn: queryOpenRouter }
+    };
+
+    // ── Observability state ────────────────────────────────────────────────
+    this.stats = {}; // providerName -> per-provider counters
+    for (const name of Object.keys(this.providerMap)) {
+      this.stats[name] = {
+        calls: 0,
+        successes: 0,
+        failures: 0,
+        rateLimited: 0,
+        cacheHits: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        savedUsd: 0,
+        totalLatencyMs: 0,
+        lastUsedAt: null,
+        tier: BENCHMARK_RATES_PER_MTOK[name]?.name || 'Free Tier'
+      };
+    }
+    this.recentEscalations = []; // ring buffer of last MAX_ESCALATION_LOG escalation outcomes
+    this.startedAt = new Date().toISOString();
+
+    // Cache-level counters (exact + semantic)
+    this.cacheStats = {
+      exactHits: 0,
+      semanticHits: 0,
+      fallbacks: 0
+    };
+  }
+
+  // ── Stats helpers ─────────────────────────────────────────────────────────
+
+  _providerStat(name) {
+    if (!this.stats[name]) {
+      this.stats[name] = {
+        calls: 0, successes: 0, failures: 0, rateLimited: 0, cacheHits: 0,
+        inputTokens: 0, outputTokens: 0, costUsd: 0, savedUsd: 0, totalLatencyMs: 0, lastUsedAt: null,
+        tier: BENCHMARK_RATES_PER_MTOK[name]?.name || 'Free Tier'
+      };
+    }
+    return this.stats[name];
+  }
+
+  _estimateBenchmarkCost(providerName, inputTokens, outputTokens) {
+    const rates = BENCHMARK_RATES_PER_MTOK[providerName];
+    if (!rates) return 0;
+    return ((inputTokens || 0) / 1e6) * rates.input + ((outputTokens || 0) / 1e6) * rates.output;
+  }
+
+  _estimateCost(providerName, inputTokens, outputTokens) {
+    if (this.freeTierMode) return 0; // 100% free tier
+    return this._estimateBenchmarkCost(providerName, inputTokens, outputTokens);
+  }
+
+  _recordProviderSuccess(name, usage, latencyMs) {
+    const s = this._providerStat(name);
+    s.calls += 1;
+    s.successes += 1;
+    s.totalLatencyMs += latencyMs || 0;
+    s.lastUsedAt = new Date().toISOString();
+
+    const inTok = usage?.inputTokens ?? 0;
+    const outTok = usage?.outputTokens ?? 0;
+    s.inputTokens += inTok;
+    s.outputTokens += outTok;
+    s.costUsd += this._estimateCost(name, inTok, outTok);
+    s.savedUsd += this._estimateBenchmarkCost(name, inTok, outTok);
+  }
+
+  _recordProviderFailure(name, err) {
+    const s = this._providerStat(name);
+    s.calls += 1;
+    s.failures += 1;
+    s.lastUsedAt = new Date().toISOString();
+    if (err && err.status === 429) s.rateLimited += 1;
+  }
+
+  _logEscalation(event) {
+    this.recentEscalations.push({ ts: new Date().toISOString(), ...event });
+    if (this.recentEscalations.length > MAX_ESCALATION_LOG) {
+      this.recentEscalations.shift();
+    }
+  }
+
+  /**
+   * Full observability snapshot consumed by GET /api/stats.
+   */
+  getStats() {
+    const totals = {
+      calls: 0, successes: 0, failures: 0, rateLimited: 0,
+      inputTokens: 0, outputTokens: 0, costUsd: 0, savedUsd: 0,
+      freeTierMode: this.freeTierMode,
+      avgLatencyMs: null, startedAt: this.startedAt
+    };
+    const providers = {};
+    for (const [name, s] of Object.entries(this.stats)) {
+      providers[name] = {
+        ...s,
+        avgLatencyMs: s.successes > 0 ? Math.round(s.totalLatencyMs / s.successes) : null,
+        configured: !!this.providerMap[name]?.key
+      };
+      totals.calls += s.calls;
+      totals.successes += s.successes;
+      totals.failures += s.failures;
+      totals.rateLimited += s.rateLimited;
+      totals.inputTokens += s.inputTokens;
+      totals.outputTokens += s.outputTokens;
+      totals.costUsd += s.costUsd;
+      totals.savedUsd += s.savedUsd;
+    }
+
+    return {
+      totals,
+      providers,
+      freeTierMode: this.freeTierMode,
+      rateLimits: this.rateLimiter.getState(),
+      caches: {
+        exactHits: this.cacheStats.exactHits,
+        semanticHits: this.cacheStats.semanticHits,
+        fallbacks: this.cacheStats.fallbacks
+      },
+      recentEscalations: this.recentEscalations.slice(-MAX_ESCALATION_LOG)
     };
   }
 
@@ -58,22 +199,37 @@ class ProviderRouter {
 
   async processEscalation(situationPayload) {
     const taskType = situationPayload.taskType || 'REASONING';
+    const agentId = situationPayload.agentId || 'unknown';
 
     // Exact and semantic cache checks (skipped for social chat and reflection to maintain dynamic free will)
     if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
       const exactMatch = this.cache.get(situationPayload);
       if (exactMatch) {
+        this.cacheStats.exactHits += 1;
+        this._logEscalation({
+          agentId, taskType, source: 'cache', cacheType: 'exact',
+          action: exactMatch.action || null, reason: exactMatch.reason || null,
+          provider: null, model: null, cached: true, webKnowledgeUsed: false,
+          inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0
+        });
         return { ...exactMatch, cached: true, cacheType: 'exact' };
       }
 
       const semanticMatch = await this.semanticCache.findSimilar(situationPayload);
       if (semanticMatch) {
+        this.cacheStats.semanticHits += 1;
+        this._logEscalation({
+          agentId, taskType, source: 'cache', cacheType: 'semantic',
+          action: semanticMatch.action || null, reason: semanticMatch.reason || null,
+          provider: null, model: null, cached: true, webKnowledgeUsed: false,
+          inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0
+        });
         return { ...semanticMatch, cached: true, cacheType: 'semantic' };
       }
     }
 
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
-    
+
     // Live Web Knowledge Search
     let webFacts = null;
     if (taskType === 'REASONING' || taskType === 'REFLECTION') {
@@ -88,32 +244,67 @@ class ProviderRouter {
 
     if (available.length === 0) {
       logger.warn('Router', `No unblocked LLM providers available for task '${taskType}'! Using fallback.`);
-      return this.fallbackHeuristic(situationPayload);
+      this.cacheStats.fallbacks += 1;
+      const fb = this.fallbackHeuristic(situationPayload);
+      this._logEscalation({
+        agentId, taskType, source: 'fallback',
+        action: fb.action, reason: fb.reason,
+        provider: null, model: null, cached: false, webKnowledgeUsed: false,
+        inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0
+      });
+      return fb;
     }
 
     const prompt = this.buildPrompt(situationPayload, taskType, memories, webFacts);
+    const t0 = Date.now();
     let lastError = null;
 
     for (const provider of available) {
       try {
         logger.info('Router', `[Task:${taskType}] Routing to preferred provider: ${provider.name}${webFacts ? ' (with Web Knowledge)' : ''}`);
-        const rawText = await provider.fn(provider.key, prompt);
+        const result = await provider.fn(provider.key, prompt);
+
+        // Normalize legacy string returns vs structured {text, usage, model, latencyMs}
+        const isStructured = result && typeof result === 'object' && typeof result.text === 'string';
+        const rawText = isStructured ? result.text : String(result);
+        const usage = isStructured ? result.usage : { inputTokens: null, outputTokens: null };
+        const model = isStructured ? result.model : null;
+        const latencyMs = isStructured ? (result.latencyMs ?? Date.now() - t0) : (Date.now() - t0);
+
         const decisionData = this.parseLLMResponse(rawText);
+        this._recordProviderSuccess(provider.name, usage, latencyMs);
 
         if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
           this.cache.set(situationPayload, decisionData);
           await this.semanticCache.store(situationPayload, decisionData);
         }
 
+        const inTok = usage?.inputTokens ?? 0;
+        const outTok = usage?.outputTokens ?? 0;
+        this._logEscalation({
+          agentId, taskType, source: 'llm',
+          action: decisionData.action || null, reason: decisionData.reason || null,
+          provider: provider.name, model, cached: false,
+          webKnowledgeUsed: !!webFacts,
+          inputTokens: inTok, outputTokens: outTok,
+          costUsd: this._estimateCost(provider.name, inTok, outTok),
+          latencyMs
+        });
+
         return {
           ...decisionData,
           provider: provider.name,
+          model,
           taskType,
+          usage: { inputTokens: inTok, outputTokens: outTok },
+          costUsd: this._estimateCost(provider.name, inTok, outTok),
+          latencyMs,
           webKnowledgeUsed: !!webFacts,
           cached: false
         };
       } catch (err) {
         logger.error('Router', `Provider ${provider.name} failed for task '${taskType}': ${err.message}`);
+        this._recordProviderFailure(provider.name, err);
         if (err.status === 429) {
           this.rateLimiter.markRateLimited(provider.name, 60000);
         }
@@ -122,7 +313,16 @@ class ProviderRouter {
     }
 
     logger.warn('Router', `All preferred providers failed for task '${taskType}'. Falling back.`);
-    return this.fallbackHeuristic(situationPayload);
+    this.cacheStats.fallbacks += 1;
+    const fb = this.fallbackHeuristic(situationPayload);
+    this._logEscalation({
+      agentId, taskType, source: 'fallback',
+      action: fb.action, reason: fb.reason,
+      provider: null, model: null, cached: false, webKnowledgeUsed: false,
+      inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0,
+      error: lastError ? lastError.message : 'all providers failed'
+    });
+    return fb;
   }
 
   buildPrompt(payload, taskType, memories = [], webFacts = null) {

@@ -4,6 +4,7 @@ async function queryGroq(apiKey, prompt) {
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
 
   logger.info('GroqProvider', 'Querying Groq API...');
+  const t0 = Date.now();
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -16,6 +17,8 @@ async function queryGroq(apiKey, prompt) {
       messages: [{ role: 'user', content: prompt }]
     })
   });
+
+  const latencyMs = Date.now() - t0;
 
   if (response.status === 429) {
     const error = new Error('Groq API Rate Limit Exceeded (429)');
@@ -30,7 +33,16 @@ async function queryGroq(apiKey, prompt) {
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error('Invalid response structure from Groq API');
-  return text;
+
+  return {
+    text,
+    model: data.model || 'llama-3.3-70b-versatile',
+    latencyMs,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens ?? null,
+      outputTokens: data.usage?.completion_tokens ?? null
+    }
+  };
 }
 
 module.exports = queryGroq;

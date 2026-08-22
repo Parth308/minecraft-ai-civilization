@@ -21,6 +21,11 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Observability Stats Endpoint — token/cost/rate-limit/escalation telemetry
+app.get('/api/stats', (req, res) => {
+  res.json(router.getStats());
+});
+
 // Escalation Endpoint
 app.post('/api/escalate', async (req, res) => {
   try {

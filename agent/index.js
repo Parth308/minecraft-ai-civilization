@@ -50,6 +50,7 @@ const agentState = {
   isInWater: false,
   isOnFire: false,
   recentChat: [],
+  recentDecisions: [],
   uptime: 0,
   startedAt: new Date().toISOString()
 };
@@ -73,8 +74,23 @@ const statusServer = http.createServer((req, res) => {
     res.end();
   }
 });
+
+function announceToDashboard() {
+  const dashboardUrl = process.env.DASHBOARD_URL || 'http://civilization-dashboard:3003';
+  const statusHost = process.env.STATUS_HOST || process.env.HOSTNAME || 'localhost';
+  const statusUrl = process.env.STATUS_URL || `http://${statusHost}:${config.statusPort}`;
+
+  fetch(`${dashboardUrl}/api/dashboard/register-agent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: config.username, url: statusUrl })
+  }).catch(() => { /* ignore if dashboard is not up yet */ });
+}
+
 statusServer.listen(config.statusPort, () => {
   logger.info('AgentStatus', `${config.username} permanent status server on :${config.statusPort}`);
+  announceToDashboard();
+  setInterval(announceToDashboard, 15000);
 });
 
 function createAgent() {
@@ -155,6 +171,25 @@ function createAgent() {
           agentState.stats       = stats.getSummary();
           agentState.lastDecision = { ...decision, timestamp: new Date().toISOString() };
           agentState.activeGoal  = goalManager.currentGoal.description;
+          const decisionSource = (decision.source === 'builtin_rule' || decision.source === 'learned_rule')
+            ? 'tree'
+            : (decision.source || (decision.escalated ? 'llm' : 'tree'));
+
+          agentState.recentDecisions.push({
+            ts: new Date().toISOString(),
+            action: decision.action,
+            source: decisionSource,
+            confidence: decision.confidence ?? null,
+            provider: decision.provider || null,
+            model: decision.model || null,
+            cached: !!decision.cached,
+            cacheType: decision.cacheType || null,
+            fallback: !!decision.fallback,
+            latencyMs: decision.latencyMs ?? null,
+            reason: (decision.reason || '').substring(0, 200),
+            costUsd: typeof decision.costUsd === 'number' ? decision.costUsd : null
+          });
+          if (agentState.recentDecisions.length > 100) agentState.recentDecisions.shift();
           agentState.persona     = persona.getPersonaPromptContext ? undefined : { seed: persona.seed, traits: persona.traits };
           agentState.inventory   = inventory.listInventory();
           agentState.equipment   = senses.getEquipmentSummary();

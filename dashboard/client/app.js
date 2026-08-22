@@ -1,496 +1,497 @@
-/**
- * Civilization Control Center — Frontend App
- * Pure vanilla JS, no build step required.
- * Connects to dashboard WebSocket and live-updates all panels.
- */
+/* Control Tower — vanilla JS dashboard.
+   Data via WebSocket events: full_state, agents_state, service_health,
+   broker_stats, chat_history, chat_message. */
 
-// ─── State ────────────────────────────────────────────────────────────────────
+(() => {
+  'use strict';
 
-const state = {
-  ws: null,
-  wsReady: false,
-  agents: {},          // keyed by username
-  broker: {},
-  memoryService: {},
-  spectator: {},
-  dtreeAgent: 'alpha', // which agent the decision tree shows
-  memAgent: 'Agent_Alpha',
-  memSection: 'profile',
-  chatCount: 0,
-  viewerActive: false
-};
-
-const AGENT_KEYS = { 'Agent_Alpha': 'alpha', 'Agent_Beta': 'beta' };
-
-// ─── WebSocket ────────────────────────────────────────────────────────────────
-
-function connectWs() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  state.ws = new WebSocket(`${proto}://${location.host}/ws`);
-
-  state.ws.onopen = () => {
-    state.wsReady = true;
-    console.log('[WS] Connected');
+  const state = {
+    page: 'overview',
+    agents: [],
+    broker: null,
+    memoryService: null,
+    brokerStats: null,
+    chat: [],
+    wsOnline: false
   };
 
-  state.ws.onmessage = (ev) => {
-    try {
-      const { type, data } = JSON.parse(ev.data);
-      handleMsg(type, data);
-    } catch (err) {
-      console.error('[WS] Parse error', err);
-    }
+  const root = document.getElementById('page-root');
+
+  // ── Formatting helpers ────────────────────────────────────────────
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const fmtInt = n => (n == null ? '—' : Number(n).toLocaleString('en-US'));
+  const fmtCost = usd => {
+    if (usd == null) return '—';
+    if (usd === 0) return '$0.00';
+    if (usd < 0.01) return `$${usd.toFixed(4)}`;
+    if (usd < 1000) return `$${usd.toFixed(2)}`;
+    return `$${(usd / 1000).toFixed(1)}k`;
   };
-
-  state.ws.onclose = () => {
-    state.wsReady = false;
-    console.warn('[WS] Disconnected — reconnecting in 3s...');
-    setTimeout(connectWs, 3000);
+  const fmtMs = ms => (ms == null ? '—' : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`);
+  const timeOf = iso => {
+    try { return new Date(iso).toLocaleTimeString('en-US', { hour12: false }); } catch { return ''; }
   };
+  const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
 
-  state.ws.onerror = (err) => console.error('[WS] Error', err);
-}
-
-function wsSend(type, data) {
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(JSON.stringify({ type, ...data }));
-  }
-}
-
-// ─── Message Handlers ─────────────────────────────────────────────────────────
-
-function handleMsg(type, data) {
-  switch (type) {
-    case 'full_state':
-      updateServicesPanel(data.broker, data.memoryService);
-      if (data.agents) data.agents.forEach(updateAgentCard);
-      updateSpectator(data.spectator || {});
-      break;
-
-    case 'service_health':
-      updateServicesPanel(data.broker, data.memoryService);
-      break;
-
-    case 'agents_state':
-      data.forEach(updateAgentCard);
-      updateDecisionTree();
-      break;
-
-    case 'chat_message':
-      appendChatMsg(data);
-      break;
-
-    case 'chat_history':
-      data.messages.forEach(appendChatMsg);
-      break;
-
-    case 'spectator_state':
-      updateSpectator(data);
-      break;
-
-    case 'spectate_ack':
-      if (data.ok) activateViewer();
-      break;
-  }
-}
-
-// ─── Service Health Panel ────────────────────────────────────────────────────
-
-function updateServicesPanel(broker, mem) {
-  if (broker) {
-    state.broker = broker;
-    setDot('brokerDot', broker.status);
-    setText('brokerMeta', broker.responseMs != null ? `${broker.responseMs}ms` : broker.lastError || '—');
-    // LLM provider chips
-    const list = document.getElementById('providersList');
-    if (list && broker.providers) {
-      list.innerHTML = broker.providers.map(p =>
-        `<span class="provider-chip">${p}</span>`
-      ).join('');
-    }
-  }
-  if (mem) {
-    state.memoryService = mem;
-    setDot('memDot', mem.status);
-    setText('memMeta', mem.responseMs != null ? `${mem.responseMs}ms` : mem.lastError || '—');
+  function sourceBadge(ev) {
+    if (ev.source === 'llm') return '<span class="badge badge-llm">LLM</span>';
+    if (ev.source === 'cache') return `<span class="badge badge-cache">CACHE·${esc((ev.cacheType || '').toUpperCase())}</span>`;
+    if (ev.source === 'fallback') return '<span class="badge badge-fallback">FALLBACK</span>';
+    return '<span class="badge badge-tree">TREE</span>';
   }
 
-  const uptime = broker?.uptime || mem?.uptime || null;
-  if (uptime != null) setText('serverUptime', `up ${formatUptime(uptime)}`);
-}
+  const SOURCE_LABEL = { tree: 'Tree', llm: 'LLM', cache: 'Cache', fallback: 'Fallback' };
 
-function updateSpectator(sp) {
-  state.spectator = sp;
-  setDot('spectDot', sp.online ? 'ok' : 'error');
-  setText('spectMeta', sp.online ? (sp.currentTarget || 'ready') : 'offline');
-}
-
-// ─── Agent Cards ──────────────────────────────────────────────────────────────
-
-function updateAgentCard(agent) {
-  const key = AGENT_KEYS[agent.username];
-  if (!key) return;
-  state.agents[agent.username] = agent;
-
-  const action = agent.online && agent.lastDecision?.action ? agent.lastDecision.action : 'OFFLINE';
-  const stats = agent.stats || {};
-  const pos = agent.position;
-
-  // Action badge
-  const badge = document.getElementById(`${key}Badge`);
-  if (badge) { badge.className = `action-badge ${action}`; badge.textContent = action; }
-
-  // Position
-  setText(`${key}Pos`, pos ? `X ${pos.x}  Y ${pos.y}  Z ${pos.z}` : 'Position: —');
-
-  // Confidence ring (2πr = 100.53 for r=16)
-  const conf = agent.lastDecision?.confidence || 0;
-  const CIRC = 100.53;
-  const offset = CIRC - conf * CIRC;
-  setStyle(`${key}RingFill`, 'strokeDashoffset', offset);
-  setText(`${key}RingTxt`, `${Math.round(conf * 100)}%`);
-
-  // Stats bars
-  if (agent.online) {
-    setBar(`${key}HP`,     (stats.health / 20) * 100, `${stats.health || 0}/20`);
-    setBar(`${key}Hunger`,  stats.hunger || 0,          `${stats.hunger || 0}%`);
-    setBar(`${key}Anger`,   stats.anger  || 0,          `${stats.anger  || 0}%`);
-    setBar(`${key}Happy`,   stats.happiness || 0,       `${stats.happiness || 0}%`);
-    setBar(`${key}Fatigue`, stats.fatigue || 0,         `${stats.fatigue || 0}%`);
-  }
-
-  // Goal
-  setText(`${key}Goal`, agent.activeGoal || 'No active goal');
-
-  // Inventory & Equipment
-  updateAgentInventory(key, agent);
-}
-
-function getItemIcon(name) {
-  if (!name) return '📦';
-  const n = name.toLowerCase();
-  if (n.includes('pickaxe')) return '⛏️';
-  if (n.includes('axe')) return '🪓';
-  if (n.includes('shovel')) return '🥄';
-  if (n.includes('sword')) return '⚔️';
-  if (n.includes('bow') || n.includes('crossbow')) return '🏹';
-  if (n.includes('shield')) return '🛡️';
-  if (n.includes('helmet') || n.includes('cap')) return '🪖';
-  if (n.includes('chestplate') || n.includes('tunic')) return '🦺';
-  if (n.includes('leggings') || n.includes('pants')) return '👖';
-  if (n.includes('boots')) return '👢';
-  if (n.includes('log') || n.includes('wood') || n.includes('plank')) return '🪵';
-  if (n.includes('coal')) return '🪙';
-  if (n.includes('iron') || n.includes('gold') || n.includes('diamond')) return '💎';
-  if (n.includes('beef') || n.includes('pork') || n.includes('mutton') || n.includes('chicken') || n.includes('bread') || n.includes('apple') || n.includes('stew') || n.includes('potato') || n.includes('carrot')) return '🍖';
-  if (n.includes('torch')) return '🔦';
-  return '📦';
-}
-
-function updateAgentInventory(key, agent) {
-  const inv = agent.inventory || [];
-  const equip = agent.equipment || {};
-
-  // Update item count badge
-  const countEl = document.getElementById(`${key}InvCount`);
-  const totalCount = Array.isArray(inv) ? (typeof inv[0] === 'object' ? inv.reduce((s, i) => s + (i.count || 1), 0) : inv.length) : 0;
-  if (countEl) countEl.textContent = `${totalCount} item${totalCount === 1 ? '' : 's'}`;
-
-  // Update Equipment Row
-  const equipEl = document.getElementById(`${key}Equip`);
-  if (equipEl) {
-    const main = equip.mainHand ? `<span class="equip-chip active" title="Main Hand">⚔️ ${equip.mainHand}</span>` : `<span class="equip-chip">⚔️ empty</span>`;
-    const off = equip.offHand ? `<span class="equip-chip active" title="Off Hand">🛡️ ${equip.offHand}</span>` : '';
-    const armor = [equip.helmet, equip.chestplate, equip.leggings, equip.boots].filter(Boolean);
-    const armorHtml = armor.length > 0 ? `<span class="equip-chip active" title="Armor">🪖 ${armor.join(', ')}</span>` : '';
-    equipEl.innerHTML = main + off + armorHtml;
-  }
-
-  // Update Inventory Grid
-  const invEl = document.getElementById(`${key}Inv`);
-  if (invEl) {
-    if (!inv || inv.length === 0) {
-      invEl.innerHTML = `<div class="inv-empty">Inventory empty</div>`;
-      return;
-    }
-    invEl.innerHTML = inv.map(item => {
-      if (typeof item === 'string') {
-        const parts = item.split(' x');
-        const name = parts[0];
-        const count = parts[1] || '1';
-        return `<span class="inv-item" title="${name}">${getItemIcon(name)} ${name} <span class="count">×${count}</span></span>`;
+  // ── Derived metrics ───────────────────────────────────────────────
+  function decisionSplit() {
+    const counts = { tree: 0, llm: 0, cache: 0, fallback: 0 };
+    for (const a of state.agents) {
+      for (const d of a.recentDecisions || []) {
+        const k = d.source in counts ? d.source : 'tree';
+        counts[k] += 1;
       }
-      const name = item.displayName || item.name;
-      return `<span class="inv-item" title="${item.name}">${getItemIcon(item.name)} ${name} <span class="count">×${item.count}</span></span>`;
-    }).join('');
-  }
-}
-
-// ─── Decision Tree ────────────────────────────────────────────────────────────
-
-function setDtreeAgent(agentKey) {
-  state.dtreeAgent = agentKey;
-  document.getElementById('dtreeTabAlpha').className = `dtree-tab alpha${agentKey === 'alpha' ? ' active' : ''}`;
-  document.getElementById('dtreeTabBeta').className  = `dtree-tab beta${agentKey === 'beta'  ? ' active' : ''}`;
-  updateDecisionTree();
-}
-
-function updateDecisionTree() {
-  const username = state.dtreeAgent === 'alpha' ? 'Agent_Alpha' : 'Agent_Beta';
-  const agent = state.agents[username];
-  const container = document.getElementById('dtreeContent');
-  if (!container) return;
-
-  if (!agent?.lastDecision) {
-    container.innerHTML = `<div style="padding:10px 14px;color:var(--text-dim);font-size:11px;">No decision data yet...</div>`;
-    return;
+    }
+    return counts;
   }
 
-  const { action, confidence, escalated, allCandidates, source, provider, webKnowledgeUsed, reason } = agent.lastDecision;
-  const candidates = allCandidates || [{ name: action, confidence, reason: '' }];
+  function onlineAgents() { return state.agents.filter(a => a.online); }
 
-  // Decision Header Badge (LEARNED RULE vs LIVE LLM vs BUILT-IN)
-  let sourceBadge = '';
-  if (escalated || source === 'llm') {
-    const webBadge = webKnowledgeUsed ? '<span style="font-size:9px;background:rgba(0,212,255,0.2);padding:1px 5px;border-radius:4px;color:var(--cyan);margin-left:4px;">🌐 Wiki Knowledge</span>' : '';
-    sourceBadge = `<div class="escalated-badge" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.4);color:var(--purple)">
-      <span>🧠 <strong>LIVE LLM DECISION</strong> (${provider || 'Broker'})</span>
-      ${webBadge}
-      <span style="margin-left:auto;font-family:var(--mono);font-weight:700;">${action}</span>
-    </div>`;
-  } else if (source === 'learned_rule') {
-    sourceBadge = `<div class="escalated-badge" style="background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.35);color:#10b981">
-      <span>🎓 <strong>LEARNED RULE REPLAY</strong> (Self-Taught)</span>
-      <span style="margin-left:auto;font-family:var(--mono);font-weight:700;">${action}</span>
-    </div>`;
-  } else {
-    sourceBadge = `<div class="escalated-badge" style="background:rgba(0,212,255,0.08);border-color:rgba(0,212,255,0.25);color:var(--cyan)">
-      <span>⚡ <strong>BUILT-IN HEURISTIC</strong></span>
-      <span style="margin-left:auto;font-family:var(--mono);font-weight:700;">${action}</span>
-    </div>`;
-  }
+  // ── Render dispatch ───────────────────────────────────────────────
+  let draftChat = '';
 
-  let html = sourceBadge;
-
-  // Render Candidates List
-  html += candidates
-    .sort((a, b) => b.confidence - a.confidence)
-    .map(c => {
-      const isWinner = c.name === action;
-      const pct = Math.round(c.confidence * 100);
-      const isDynamic = c.isDynamic;
-      const tag = isDynamic ? '<span style="font-size:8px;color:#10b981;background:rgba(16,185,129,0.15);padding:1px 3px;border-radius:3px;margin-left:4px;">LEARNED</span>' : '';
-      return `
-        <div class="dtree-row${isWinner ? ' winner' : ''}">
-          <span class="dtree-rule">${c.name} ${tag}</span>
-          <div class="dtree-bar-bg"><div class="dtree-bar-fill${isWinner ? ' winner' : ''}" style="width:${pct}%"></div></div>
-          <span class="dtree-conf">${c.confidence.toFixed(2)}</span>
-        </div>`;
-    }).join('');
-
-  if (reason) {
-    html += `<div style="padding:4px 14px;font-size:10px;color:var(--text-dim);font-style:italic;">Reason: ${escHtml(reason)}</div>`;
-  }
-
-  container.innerHTML = html;
-}
-
-// ─── Memory Viewer ────────────────────────────────────────────────────────────
-
-function setMemAgent(name) {
-  state.memAgent = `Agent_${name}`;
-  const key = name.toLowerCase();
-  document.getElementById('memBtnAlpha').className = `mem-agent-btn${key === 'alpha' ? ' active alpha' : ''}`;
-  document.getElementById('memBtnBeta').className  = `mem-agent-btn${key === 'beta'  ? ' active beta'  : ''}`;
-  loadMemSection();
-}
-
-function setMemSection(section) {
-  state.memSection = section;
-  document.querySelectorAll('.mem-tab').forEach(t => t.classList.remove('active'));
-  const tabs = ['profile', 'relationships', 'events', 'skills', 'recent'];
-  const idx = tabs.indexOf(section);
-  if (idx >= 0) document.querySelectorAll('.mem-tab')[idx]?.classList.add('active');
-  loadMemSection();
-}
-
-async function loadMemSection() {
-  const content = document.getElementById('memContent');
-  if (!content) return;
-  content.innerHTML = `<div class="shimmer" style="height:14px;border-radius:3px;margin-bottom:8px;"></div>`.repeat(6);
-
-  try {
-    const url = `/api/dashboard/memory/sections/${encodeURIComponent(state.memAgent)}/${state.memSection}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    renderMemContent(data.content || '');
-  } catch (err) {
-    content.innerHTML = `<div class="mem-empty">Failed to load: ${err.message}</div>`;
-  }
-}
-
-function renderMemContent(raw) {
-  const content = document.getElementById('memContent');
-  if (!content) return;
-  const lines = raw.split('\n').filter(l => l.trim().startsWith('-'));
-  if (lines.length === 0) {
-    content.innerHTML = `<div class="mem-empty">No entries in this section yet.</div>`;
-    return;
-  }
-  content.innerHTML = lines.map(l => {
-    const text = l.replace(/^-\s*/, '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    return `<div class="entry"><span class="bullet">▸</span><span>${text}</span></div>`;
-  }).join('');
-}
-
-// ─── Civilization Ledger ──────────────────────────────────────────────────────
-
-async function loadLedger() {
-  try {
-    const res = await fetch('/api/dashboard/ledger');
-    const data = await res.json();
-    renderLedgerSection('ledgerCurrencies', data.currencies || [], 'currency');
-    renderLedgerSection('ledgerSettlements', data.settlements || [], 'settlement');
-    renderLedgerSection('ledgerFactions', data.factions || [], 'faction');
-  } catch (err) {
-    console.warn('[Ledger] Failed to load:', err.message);
-  }
-}
-
-function renderLedgerSection(elId, items, type) {
-  const el = document.getElementById(elId);
-  if (!el) return;
-  if (!items.length) { el.innerHTML = `<div class="ledger-empty">None yet</div>`; return; }
-  el.innerHTML = items.map(item => `
-    <div class="ledger-row">
-      <span class="ledger-name">${item.name}</span>
-      <span class="ledger-by">by ${item.establishedBy || item.claimedBy || item.founder || '?'}</span>
-    </div>`).join('');
-}
-
-// ─── Live Chat ────────────────────────────────────────────────────────────────
-
-function appendChatMsg(msg) {
-  const log = document.getElementById('chatLog');
-  if (!log) return;
-  const ts = new Date(msg.timestamp || Date.now()).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' });
-  const userClass = msg.source === 'operator' ? 'operator'
-    : (msg.username || '').includes('Alpha') ? 'alpha'
-    : (msg.username || '').includes('Beta')  ? 'beta'
-    : 'server';
-
-  const div = document.createElement('div');
-  div.className = 'chat-msg';
-  div.innerHTML = `<span class="chat-ts">${ts}</span><span class="chat-user ${userClass}">${msg.username || 'Server'}</span><span class="chat-text">${escHtml(msg.message || '')}</span>`;
-  log.appendChild(div);
-
-  // Auto-scroll to bottom
-  log.scrollTop = log.scrollHeight;
-
-  // Limit DOM nodes
-  while (log.children.length > 100) log.removeChild(log.firstChild);
-
-  state.chatCount++;
-  setText('chatCount', `${state.chatCount} messages`);
-}
-
-async function sendChat() {
-  const input = document.getElementById('chatInput');
-  const message = input.value.trim();
-  if (!message) return;
-  input.value = '';
-
-  try {
-    await fetch('/api/dashboard/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
-    });
-  } catch (err) {
-    console.error('[Chat] Send failed:', err.message);
-  }
-}
-
-// ─── Spectator Bot ────────────────────────────────────────────────────────────
-
-window.spectateAgent = function(agentId) {
-  wsSend('spectate_agent', { agentId });
-  activateViewer();
-};
-
-function activateViewer() {
-  const overlay = document.getElementById('viewerOverlay');
-  const frame = document.getElementById('worldFrame');
-  if (overlay) overlay.classList.add('hidden');
-  if (frame) {
-    if (!frame.src || frame.src === 'about:blank' || frame.src === location.href) {
-      frame.src = '/viewer/';
+  function scrollChat() {
+    const feed = document.getElementById('chat-feed');
+    if (feed) {
+      feed.scrollTop = feed.scrollHeight;
     }
   }
-  state.viewerActive = true;
-}
 
-// ─── Exposed globals for HTML onclick ────────────────────────────────────────
+  function render() {
+    const input = document.getElementById('chat-input');
+    const wasFocused = input && document.activeElement === input;
+    if (input) draftChat = input.value;
 
-window.setDtreeAgent = setDtreeAgent;
-window.setMemAgent = setMemAgent;
-window.setMemSection = setMemSection;
-window.sendChat = sendChat;
+    const fn = { overview: renderOverview, agents: renderAgents, decisions: renderDecisions, costs: renderCosts }[state.page];
+    root.innerHTML = fn ? fn() : '';
 
-// ─── Utility Helpers ─────────────────────────────────────────────────────────
+    if (state.page === 'overview') {
+      const newInput = document.getElementById('chat-input');
+      if (newInput) {
+        if (draftChat) newInput.value = draftChat;
+        if (wasFocused) newInput.focus();
+      }
+      scrollChat();
+    }
+  }
 
-function setText(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
+  function setPage(page) {
+    state.page = page;
+    document.querySelectorAll('.nav-item').forEach(btn => {
+      btn.setAttribute('aria-current', btn.dataset.page === page ? 'page' : 'false');
+    });
+    render();
+  }
 
-function setStyle(id, prop, val) {
-  const el = document.getElementById(id);
-  if (el) el.style[prop] = val;
-}
+  // ── Page: Overview ────────────────────────────────────────────────
+  function renderOverview() {
+    const s = state.brokerStats;
+    const t = s?.totals || {};
+    const split = decisionSplit();
+    const total = Object.values(split).reduce((x, y) => x + y, 0);
+    const rlHits = Object.values(s?.rateLimits?.providers || {}).reduce((x, p) => x + p.totalHits, 0);
+    const blocked = Object.values(s?.rateLimits?.providers || {}).filter(p => p.blocked).length;
 
-function setDot(id, status) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.className = `dot ${status === 'ok' ? 'ok' : status === 'error' ? 'error' : 'unknown'}`;
-}
+    return `
+      <div class="page-header">
+        <div class="page-title">Overview</div>
+        <div class="page-desc">Live civilization telemetry</div>
+      </div>
 
-function setBar(id, pct, label) {
-  const fill = document.getElementById(id);
-  if (fill) fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
-  const val = document.getElementById(`${id}v`);
-  if (val) val.textContent = label;
-}
+      <div class="grid-kpi">
+        <div class="card">
+          <div class="kpi-label">Agents Online</div>
+          <div class="kpi-value green">${onlineAgents().length}<span style="font-size:15px;color:var(--text-faint)">/${state.agents.length}</span></div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">Local Tree Share</div>
+          <div class="kpi-value">${pct(split.tree, total)}%</div>
+          <div class="kpi-sub">${fmtInt(split.tree)} of ${fmtInt(total)} recent decisions · $0 cost</div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">LLM Escalations</div>
+          <div class="kpi-value amber">${fmtInt(t.calls ?? '—')}</div>
+          <div class="kpi-sub">${fmtInt(s?.caches?.exactHits || 0)} exact + ${fmtInt(s?.caches?.semanticHits || 0)} semantic cache hits</div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">Spend (Free Tier)</div>
+          <div class="kpi-value green">$0.00</div>
+          <div class="kpi-sub">${s?.freeTierMode ? `100% Free Tier · ${fmtCost(t.savedUsd)} saved` : `${fmtCost(t.costUsd)} spend`}</div>
+        </div>
+        <div class="card">
+          <div class="kpi-label">Rate Limits</div>
+          <div class="kpi-value ${rlHits > 0 ? 'red' : ''}">${fmtInt(rlHits)}</div>
+          <div class="kpi-sub">${blocked} provider${blocked === 1 ? '' : 's'} cooling down</div>
+        </div>
+      </div>
 
-function formatUptime(secs) {
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = Math.floor(secs % 60);
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
+      <div class="section-title">Decision Source Split (recent window)</div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="bar-track" style="height:10px;display:flex;border-radius:99px;background:var(--surface-3);overflow:hidden">
+          ${total > 0 ? `
+            <span style="width:${pct(split.tree, total)}%;background:var(--green)" title="Tree ${split.tree}"></span>
+            <span style="width:${pct(split.llm, total)}%;background:var(--amber)" title="LLM ${split.llm}"></span>
+            <span style="width:${pct(split.cache, total)}%;background:var(--lime)" title="Cache ${split.cache}"></span>
+            <span style="width:${pct(split.fallback, total)}%;background:var(--red)" title="Fallback ${split.fallback}"></span>
+          ` : ''}
+        </div>
+        <div class="stat-strip">
+          <span><span class="badge badge-tree">Tree</span> <b>${split.tree}</b></span>
+          <span><span class="badge badge-llm">LLM</span> <b>${split.llm}</b></span>
+          <span><span class="badge badge-cache">Cache</span> <b>${split.cache}</b></span>
+          <span><span class="badge badge-fallback">Fallback</span> <b>${split.fallback}</b></span>
+        </div>
+      </div>
 
-function escHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+      <div class="grid-2">
+        <div>
+          <div class="section-title" style="margin-top:0">Recent Escalations</div>
+          <div class="card" style="padding:6px 4px">${escalationsTable((s?.recentEscalations || []).slice(-8).reverse(), true)}</div>
+        </div>
+        <div>
+          <div class="section-title" style="margin-top:0">Global Chat</div>
+          <div class="card" style="display:flex;flex-direction:column;gap:10px">
+            <div class="chat-feed" id="chat-feed" role="log">${chatFeed(state.chat.slice(-40))}</div>
+            <form class="chat-input-row" id="chat-form" onsubmit="return false;">
+              <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
+              <button class="btn btn-send" id="chat-send-btn" type="button">Send</button>
+            </form>
+          </div>
+        </div>
+      </div>`;
+  }
 
-// ─── Init ────────────────────────────────────────────────────────────────────
+  // ── Page: Agents ──────────────────────────────────────────────────
+  function renderAgents() {
+    return `
+      <div class="page-header">
+        <div class="page-title">Agents</div>
+        <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered)</div>
+      </div>
+      ${state.agents.length === 0
+        ? '<div class="card empty-state">No agents reporting yet…</div>'
+        : `<div class="agent-grid">${state.agents.map(agentCard).join('')}</div>`}`;
+  }
 
-// Enter sends chat
-document.getElementById('chatInput')?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendChat();
-});
+  function statBar(label, val, max, cls = '') {
+    const w = Math.max(0, Math.min(100, (val / max) * 100));
+    return `
+      <div style="flex:1;min-width:110px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim)">
+          <span>${esc(label)}</span><span class="num">${Math.round(val)}</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill ${cls}" style="width:${w}%"></div></div>
+      </div>`;
+  }
 
-// Load ledger on startup and every 30s
-loadLedger();
-setInterval(loadLedger, 30000);
+  function agentCard(a) {
+    const st = a.stats || {};
+    const d = a.lastDecision;
+    const src = d ? (d.escalated ? 'llm' : 'tree') : null;
 
-// Load initial memory section
-loadMemSection();
+    return `
+      <div class="card">
+        <div class="agent-head">
+          <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
+          <span class="agent-name">${esc(a.username)}</span>
+          <span class="badge ${a.online ? 'badge-online' : 'badge-offline'}" style="margin-left:auto">${a.online ? 'ONLINE' : 'OFFLINE'}</span>
+        </div>
 
-// Connect WebSocket
-connectWs();
+        <div class="stat-strip" style="margin-top:0;margin-bottom:12px">
+          <span>Pos <b>${a.position ? `${a.position.x},${a.position.y},${a.position.z}` : '—'}</b></span>
+          <span>${esc(a.biome || '—')}</span>
+          <span>${a.isNight ? '🌙 night' : '☀️ day'}</span>
+          <span>Goal: <b>${esc(typeof a.activeGoal === 'string' ? a.activeGoal : a.activeGoal?.description || '—')}</b></span>
+        </div>
 
-console.log('%c⬡ Civilization Control Center', 'color:#00d4ff;font-size:18px;font-weight:bold;');
-console.log('%cConnecting to live agent telemetry...', 'color:#666;');
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          ${statBar('Health', st.health ?? 20, 20, (st.health ?? 20) <= 6 ? 'red' : '')}
+          ${statBar('Hunger', st.hunger ?? 20, 20, (st.hunger ?? 20) <= 6 ? 'amber' : '')}
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
+          ${statBar('Happiness', Math.max(0, (st.happiness ?? 50)), 100)}
+          ${statBar('Fatigue', Math.max(0, (st.fatigue ?? 0)), 100, (st.fatigue ?? 0) > 70 ? 'amber' : '')}
+        </div>
+
+        ${d ? `
+          <div class="decision-reason">
+            <div style="margin-bottom:4px">
+              ${src === 'llm' ? '<span class="badge badge-llm">LLM</span>' : '<span class="badge badge-tree">TREE</span>'}
+              ${d.cached ? '<span class="badge badge-cache">CACHE</span>' : ''}
+              <b class="mono">${esc(d.action)}</b>
+              ${d.confidence != null ? `<span style="color:var(--text-faint)">conf ${Number(d.confidence).toFixed(2)}</span>` : ''}
+              ${d.provider ? `<span style="color:var(--amber)">via ${esc(d.provider)}</span>` : ''}
+            </div>
+            ${esc(d.reason || '')}
+          </div>` : '<div class="decision-reason">No decision yet…</div>'}
+
+        ${(a.recentDecisions || []).length > 0 ? `
+          <div class="section-title" style="margin:12px 0 6px;font-size:11px">Last ${Math.min(5, a.recentDecisions.length)} calls</div>
+          ${a.recentDecisions.slice(-5).reverse().map(x => `
+            <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--text-dim)">
+              <span class="num" style="color:var(--text-faint)">${timeOf(x.ts)}</span>
+              ${sourceBadge({ ...x, source: x.source })}
+              <b class="mono" style="color:var(--text)">${esc(x.action)}</b>
+              ${x.source === 'llm' && x.provider ? `<span style="color:var(--amber-deep)">${esc(x.provider)}</span>` : ''}
+            </div>`).join('')}
+        ` : ''}
+      </div>`;
+  }
+
+  // ── Page: Decisions ───────────────────────────────────────────────
+  function renderDecisions() {
+    const escs = [...(state.brokerStats?.recentEscalations || [])].reverse();
+    return `
+      <div class="page-header">
+        <div class="page-title">Decisions &amp; Escalations</div>
+        <div class="page-desc">Every LLM call, cache hit and fallback routed by the broker (last 200)</div>
+      </div>
+
+      <div class="card" style="padding:6px 4px;margin-bottom:16px">
+        ${escalationsTable(escs, false)}
+      </div>
+
+      <div class="section-title">Per-Agent Decision Feeds</div>
+      <div class="grid-2">
+        ${state.agents.map(a => `
+          <div class="card">
+            <div class="agent-head" style="margin-bottom:8px">
+              <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
+              <span class="agent-name">${esc(a.username)}</span>
+            </div>
+            ${(a.recentDecisions || []).length === 0
+              ? '<div class="empty-state">No local decisions yet…</div>'
+              : a.recentDecisions.slice(-12).reverse().map(x => `
+                <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px">
+                  <span class="num" style="color:var(--text-faint)">${timeOf(x.ts)}</span>
+                  ${sourceBadge(x)}
+                  <b class="mono">${esc(x.action)}</b>
+                  ${x.confidence != null ? `<span style="color:var(--text-faint)">conf ${Number(x.confidence).toFixed(2)}</span>` : ''}
+                  <span style="color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(x.reason || '')}</span>
+                </div>`).join('')}
+          </div>`).join('')}
+      </div>`;
+  }
+
+  function escalationsTable(rows, compact) {
+    if (!rows.length) return '<div class="empty-state">No escalations recorded yet…</div>';
+    return `
+      <table>
+        <thead><tr>
+          <th>Time</th><th>Agent</th><th>Source</th><th>Action</th>
+          ${compact ? '' : '<th>Provider / Model</th>'}
+          <th>Tokens</th><th>Cost</th><th>Latency</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(e => `
+            <tr>
+              <td class="num" style="color:var(--text-faint)">${timeOf(e.ts)}</td>
+              <td>${esc(e.agentId)}</td>
+              <td>${sourceBadge(e)}</td>
+              <td><b class="mono">${esc(e.action || '—')}</b></td>
+              ${compact ? '' : `<td>${e.provider ? `<span style="color:var(--amber)">${esc(e.provider)}</span>` : '<span style="color:var(--text-faint)">—</span>'} ${e.model ? `<span style="color:var(--text-faint);font-size:11px">${esc(e.model)}</span>` : ''}</td>`}
+              <td class="num">${e.source === 'llm' ? `${fmtInt(e.inputTokens)}/${fmtInt(e.outputTokens)}` : '—'}</td>
+              <td class="num">${e.costUsd > 0 ? fmtCost(e.costUsd) : e.source === 'llm' ? '$0*' : '—'}</td>
+              <td class="num">${e.latencyMs ? fmtMs(e.latencyMs) : '—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // ── Page: Costs ───────────────────────────────────────────────────
+  function renderCosts() {
+    const s = state.brokerStats;
+    if (!s) return '<div class="card empty-state">Waiting for broker stats…</div>';
+    const t = s.totals || {};
+    const rl = s.rateLimits?.providers || {};
+
+    return `
+      <div class="page-header">
+        <div class="kpi-title"><div class="page-title">Costs &amp; Free Tier Limits</div>
+        <div class="page-desc">100% Free Developer Tier Active · Zero Cost · Benchmark Savings: ${fmtCost(t.savedUsd)}</div></div>
+      </div>
+
+      <div class="grid-kpi">
+        <div class="card"><div class="kpi-label">Actual Spend</div><div class="kpi-value green">$0.00</div><div class="kpi-sub">100% Free Tier Active</div></div>
+        <div class="card"><div class="kpi-label">Tokens Processed</div><div class="kpi-value">${fmtInt((t.inputTokens || 0) + (t.outputTokens || 0))}</div><div class="kpi-sub">${fmtInt(t.inputTokens)} in / ${fmtInt(t.outputTokens)} out</div></div>
+        <div class="card"><div class="kpi-label">Commercial Value Saved</div><div class="kpi-value" style="color:var(--lime)">${fmtCost(t.savedUsd)}</div><div class="kpi-sub">vs commercial list prices</div></div>
+        <div class="card"><div class="kpi-label">Avg Latency</div><div class="kpi-value">${t.successes ? fmtMs(Math.round((Object.values(s.providers).reduce((x, p) => x + p.totalLatencyMs, 0)) / t.successes)) : '—'}</div></div>
+      </div>
+
+      <div class="section-title">Free Tier Providers</div>
+      <div class="card" style="padding:6px 4px;margin-bottom:16px">
+        <table>
+          <thead><tr>
+            <th>Provider &amp; Tier</th><th>Calls</th><th>OK / Fail</th><th>429 Hits</th>
+            <th>In Tok</th><th>Out Tok</th><th>Actual / Saved</th><th>Avg Latency</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            ${Object.entries(s.providers).map(([name, p]) => {
+              const r = rl[name];
+              return `
+                <tr>
+                  <td>
+                    <b>${esc(name)}</b>${!p.configured ? ' <span class="badge badge-neutral">no key</span>' : ''}
+                    <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${esc(p.tier || '')}</div>
+                  </td>
+                  <td class="num">${fmtInt(p.calls)}</td>
+                  <td class="num"><span style="color:var(--green)">${fmtInt(p.successes)}</span> / <span style="color:var(--red)">${fmtInt(p.failures)}</span></td>
+                  <td class="num" style="color:${p.rateLimited > 0 ? 'var(--red)' : 'inherit'}">${fmtInt(p.rateLimited)}</td>
+                  <td class="num">${fmtInt(p.inputTokens)}</td>
+                  <td class="num">${fmtInt(p.outputTokens)}</td>
+                  <td class="num"><span class="green">$0.00</span> <span style="color:var(--text-faint);font-size:11px">(${fmtCost(p.savedUsd)} saved)</span></td>
+                  <td class="num">${p.avgLatencyMs != null ? fmtMs(p.avgLatencyMs) : '—'}</td>
+                  <td>${r?.blocked
+                    ? `<span class="badge badge-offline">COOLDOWN ${Math.ceil(r.cooldownRemainingMs / 1000)}s</span>`
+                    : p.configured ? '<span class="badge badge-online">READY</span>'
+                    : '<span class="badge badge-neutral">OFF</span>'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Cache Efficiency (free wins)</div>
+      <div class="grid-kpi">
+        <div class="card"><div class="kpi-label">Exact Hits</div><div class="kpi-value" style="color:var(--lime)">${fmtInt(s.caches.exactHits)}</div><div class="kpi-sub">$0 spent</div></div>
+        <div class="card"><div class="kpi-label">Semantic Hits</div><div class="kpi-value" style="color:var(--lime)">${fmtInt(s.caches.semanticHits)}</div><div class="kpi-sub">$0 spent</div></div>
+        <div class="card"><div class="kpi-label">Fallbacks</div><div class="kpi-value ${s.caches.fallbacks > 0 ? 'red' : ''}">${fmtInt(s.caches.fallbacks)}</div><div class="kpi-sub">provider unavailable</div></div>
+        <div class="card"><div class="kpi-label">Broker Uptime</div><div class="kpi-value mono" style="font-size:18px">${t.startedAt ? new Date(t.startedAt).toLocaleString('en-US') : '—'}</div></div>
+      </div>`;
+  }
+
+  // ── Chat feed ─────────────────────────────────────────────────────
+  function chatFeed(msgs) {
+    if (!msgs.length) return '<div class="empty-state">No chat yet…</div>';
+    return msgs.map(m => `
+      <div class="chat-msg">
+        <span class="chat-time num">${timeOf(m.timestamp)}</span>
+        <span class="who">${esc(m.username || m.agentUsername || '?')}</span>
+        ${esc(m.message)}
+      </div>`).join('');
+  }
+
+  // ── Sidebar service pills ─────────────────────────────────────────
+  function setSvc(id, ok) {
+    const el = document.getElementById(id);
+    if (el) el.className = `status-pill ${ok ? 'ok' : 'err'}`;
+  }
+
+  // ── WebSocket wiring ──────────────────────────────────────────────
+  let ws = null;
+
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+    ws.onopen = () => { state.wsOnline = true; setSvc('svc-ws', true); };
+
+    ws.onmessage = ev => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      handleEvent(msg.type, msg.data);
+    };
+
+    ws.onclose = () => {
+      state.wsOnline = false;
+      setSvc('svc-ws', false);
+      setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = () => { try { ws.close(); } catch { /* noop */ } };
+  }
+
+  function handleEvent(type, data) {
+    switch (type) {
+      case 'full_state':
+        state.broker = data.broker || null;
+        state.memoryService = data.memoryService || null;
+        state.brokerStats = data.brokerStats || state.brokerStats;
+        state.agents = Array.isArray(data.agents) ? data.agents : [];
+        break;
+      case 'agents_state':
+        state.agents = Array.isArray(data) ? data : [];
+        break;
+      case 'service_health':
+        state.broker = data.broker || state.broker;
+        state.memoryService = data.memoryService || state.memoryService;
+        break;
+      case 'broker_stats':
+        state.brokerStats = data;
+        break;
+      case 'chat_history':
+        state.chat = data.messages || [];
+        break;
+      case 'chat_message':
+        state.chat.push(data);
+        if (state.chat.length > 120) state.chat.shift();
+        break;
+      default: return;
+    }
+    setSvc('svc-broker', state.broker?.status === 'ok');
+    setSvc('svc-memory', state.memoryService?.status === 'ok');
+    render();
+  }
+
+  // ── Operator Chat ──────────────────────────────────────────────────
+  async function sendOperatorChat() {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.disabled = true;
+    try {
+      const res = await fetch('/api/dashboard/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      if (res.ok) {
+        draftChat = '';
+        input.value = '';
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.warn('Chat send failed:', err.error || res.statusText);
+      }
+    } catch (err) {
+      console.error('Failed to send operator chat:', err);
+    } finally {
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => setPage(btn.dataset.page));
+  });
+
+  root.addEventListener('click', e => {
+    if (e.target && (e.target.id === 'chat-send-btn' || e.target.closest('#chat-send-btn'))) {
+      e.preventDefault();
+      sendOperatorChat();
+    }
+  });
+
+  root.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target && e.target.id === 'chat-input') {
+      e.preventDefault();
+      sendOperatorChat();
+    }
+  });
+
+  connectWS();
+  render();
+})();

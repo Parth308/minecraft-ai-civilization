@@ -5,6 +5,7 @@ async function queryNvidia(apiKey, prompt) {
 
   const model = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
   logger.info('NvidiaProvider', `Querying NVIDIA NIM API with model: ${model}...`);
+  const t0 = Date.now();
 
   const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
     method: 'POST',
@@ -20,6 +21,8 @@ async function queryNvidia(apiKey, prompt) {
     })
   });
 
+  const latencyMs = Date.now() - t0;
+
   if (response.status === 429) {
     const error = new Error('NVIDIA NIM API Rate Limit Exceeded (429)');
     error.status = 429;
@@ -34,7 +37,16 @@ async function queryNvidia(apiKey, prompt) {
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error('Invalid response structure from NVIDIA NIM API');
-  return text;
+
+  return {
+    text,
+    model: data.model || model,
+    latencyMs,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens ?? null,
+      outputTokens: data.usage?.completion_tokens ?? null
+    }
+  };
 }
 
 module.exports = queryNvidia;

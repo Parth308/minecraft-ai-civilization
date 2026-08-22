@@ -186,7 +186,7 @@ async function boot() {
 server.on('upgrade', (req, socket, head) => {
   if (req.url.startsWith('/viewer')) {
     // Let http-proxy-middleware handle WS upgrades for viewer
-  } else if (req.url === '/ws') {
+  } else if (req.url === '/ws' || req.url === '/' || req.url.startsWith('/ws?')) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
     });

@@ -64,12 +64,22 @@ class DecisionTree {
         if (escalationResult.emotionDelta.fatigue) statsManager.addFatigue(escalationResult.emotionDelta.fatigue);
       }
 
+      const isCached = !!escalationResult.cached;
+      const isFallback = !!escalationResult.fallback;
+      const source = isCached ? 'cache' : (isFallback ? 'fallback' : 'llm');
+
       return {
         action: escalationResult.action || 'WANDER',
         confidence: topCandidate.confidence,
         escalated: true,
-        source: 'llm',
-        provider: escalationResult.provider || 'Broker',
+        source,
+        provider: escalationResult.provider || (isCached ? 'Cache' : isFallback ? 'Local Fallback' : 'Broker'),
+        model: escalationResult.model || null,
+        cached: isCached,
+        cacheType: escalationResult.cacheType || null,
+        fallback: isFallback,
+        costUsd: typeof escalationResult.costUsd === 'number' ? escalationResult.costUsd : null,
+        latencyMs: typeof escalationResult.latencyMs === 'number' ? escalationResult.latencyMs : null,
         webKnowledgeUsed: !!escalationResult.webKnowledgeUsed,
         reason: escalationResult.reason || 'Escalated to LLM for autonomous reasoning',
         tacticLearned: escalationResult.tacticLearned || null,
@@ -93,6 +103,13 @@ class DecisionTree {
       confidence: topCandidate.confidence,
       escalated: false,
       source: topCandidate.isDynamic ? 'learned_rule' : 'builtin_rule',
+      provider: null,
+      model: null,
+      cached: false,
+      cacheType: null,
+      fallback: false,
+      costUsd: 0,
+      latencyMs: 0,
       reason: topCandidate.reason || '',
       meta: topCandidate,
       allCandidates: candidates.map(c => ({
