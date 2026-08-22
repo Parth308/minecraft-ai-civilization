@@ -1,12 +1,23 @@
 const { ACTIONS } = require('../../../shared/constants');
 
 function evaluateCraft(senses, stats) {
-  const hasPickaxe = senses.hasItem('wooden_pickaxe') ||
-                     senses.hasItem('stone_pickaxe') ||
-                     senses.hasItem('iron_pickaxe') ||
-                     senses.hasItem('diamond_pickaxe') ||
-                     senses.hasItem('golden_pickaxe') ||
-                     senses.hasItem('netherite_pickaxe');
+  const hasStonePickOrBetter = senses.hasItem('stone_pickaxe') ||
+                               senses.hasItem('iron_pickaxe') ||
+                               senses.hasItem('diamond_pickaxe') ||
+                               senses.hasItem('golden_pickaxe') ||
+                               senses.hasItem('netherite_pickaxe');
+
+  const hasPickaxe = hasStonePickOrBetter || senses.hasItem('wooden_pickaxe');
+
+  const hasAxe = senses.hasItem('stone_axe') ||
+                 senses.hasItem('iron_axe') ||
+                 senses.hasItem('diamond_axe') ||
+                 senses.hasItem('wooden_axe');
+
+  const hasSword = senses.hasItem('stone_sword') ||
+                   senses.hasItem('iron_sword') ||
+                   senses.hasItem('diamond_sword') ||
+                   senses.hasItem('wooden_sword');
 
   const logCount = senses.countItem('log') || (
     senses.countItem('oak_log') +
@@ -33,7 +44,7 @@ function evaluateCraft(senses, stats) {
   const hasTable = senses.hasItem('crafting_table') || !!senses.getNearbyBlock('crafting_table', 8);
 
   // 1. Logs -> Planks (2x2 craft in inventory)
-  if (logCount > 0) {
+  if (logCount > 0 && plankCount < 16) {
     const logItem = senses.hasItem('oak_log') ? 'oak_planks' :
                     senses.hasItem('birch_log') ? 'birch_planks' :
                     senses.hasItem('spruce_log') ? 'spruce_planks' : 'oak_planks';
@@ -46,8 +57,8 @@ function evaluateCraft(senses, stats) {
     };
   }
 
-  // 2. Planks -> Sticks (2x2 craft in inventory)
-  if (plankCount >= 2 && stickCount < 4) {
+  // 2. Planks -> Sticks (2x2 craft in inventory) — ONLY if we need sticks for uncrafted tools
+  if (plankCount >= 2 && stickCount < 4 && (!hasStonePickOrBetter || !hasAxe || !hasSword)) {
     return {
       name: ACTIONS.CRAFT,
       confidence: 0.92,
@@ -69,7 +80,8 @@ function evaluateCraft(senses, stats) {
   }
 
   // 4. Cobblestone + Sticks -> Stone Pickaxe (3x3 craft)
-  if (cobbleCount >= 3 && stickCount >= 2 && (!hasPickaxe || senses.hasItem('wooden_pickaxe'))) {
+  // ONLY if the bot does NOT already have a stone or better pickaxe!
+  if (cobbleCount >= 3 && stickCount >= 2 && !hasStonePickOrBetter) {
     return {
       name: ACTIONS.CRAFT,
       confidence: 0.96,
@@ -80,6 +92,7 @@ function evaluateCraft(senses, stats) {
   }
 
   // 5. Planks + Sticks -> Wooden Pickaxe (3x3 craft)
+  // ONLY if the bot has NO pickaxe at all!
   if (!hasPickaxe && plankCount >= 3 && stickCount >= 2) {
     return {
       name: ACTIONS.CRAFT,
@@ -90,29 +103,40 @@ function evaluateCraft(senses, stats) {
     };
   }
 
-  // 6. Planks + Sticks -> Wooden Axe (3x3 craft)
-  if (!senses.hasItem('wooden_axe') && !senses.hasItem('stone_axe') && plankCount >= 3 && stickCount >= 2) {
+  // 6. Cobblestone + Sticks -> Stone Sword (3x3 craft)
+  if (cobbleCount >= 2 && stickCount >= 1 && !hasSword) {
     return {
       name: ACTIONS.CRAFT,
-      confidence: 0.85,
-      itemToCraft: 'wooden_axe',
+      confidence: 0.88,
+      itemToCraft: 'stone_sword',
       count: 1,
-      reason: `Crafting wooden axe to speed up wood gathering`
+      reason: `Crafting stone sword for self-defense and hunting`
     };
   }
 
-  // 7. Cobblestone + Sticks -> Stone Sword / Axe
-  if (cobbleCount >= 3 && stickCount >= 2 && !senses.hasItem('stone_axe')) {
+  // 7. Cobblestone + Sticks -> Stone Axe (3x3 craft)
+  if (cobbleCount >= 3 && stickCount >= 2 && !hasAxe) {
     return {
       name: ACTIONS.CRAFT,
-      confidence: 0.84,
+      confidence: 0.86,
       itemToCraft: 'stone_axe',
       count: 1,
       reason: `Crafting stone axe for faster wood harvesting`
     };
   }
 
-  return { name: ACTIONS.CRAFT, confidence: 0.0, reason: 'No crafting recipe ready or needed' };
+  // 8. Planks + Sticks -> Wooden Axe (3x3 craft)
+  if (!hasAxe && plankCount >= 3 && stickCount >= 2 && cobbleCount < 3) {
+    return {
+      name: ACTIONS.CRAFT,
+      confidence: 0.82,
+      itemToCraft: 'wooden_axe',
+      count: 1,
+      reason: `Crafting wooden axe for wood gathering`
+    };
+  }
+
+  return { name: ACTIONS.CRAFT, confidence: 0.0, reason: 'All essential tools crafted; inventory ready' };
 }
 
 module.exports = evaluateCraft;
