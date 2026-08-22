@@ -23,6 +23,13 @@ const SocialDialogueEngine = require('./social/dialogue');
 const FactionAffiliationManager = require('./social/factions');
 const { ACTIONS } = require('../shared/constants');
 
+let prismarineViewer = null;
+try {
+  prismarineViewer = require('prismarine-viewer').mineflayer;
+} catch (e) {
+  // prismarine-viewer is optional if running in bare environments
+}
+
 // Global Error Protections
 process.on('uncaughtException', (err) => {
   logger.error('AgentUncaught', 'Uncaught Exception:', err);
@@ -37,6 +44,8 @@ const agentState = {
   username: config.username,
   online: false,
   position: null,
+  viewerReady: false,
+  viewerPort: null,
   stats: {},
   lastDecision: null,
   activeGoal: null,
@@ -144,6 +153,19 @@ function createAgent() {
       bot.pathfinder.setMovements(defaultMovements);
 
       chat.say(`Greetings world! ${bot.username} is awake.`);
+
+      // Start Native First-Person 3D POV Viewer Stream if VIEWER_PORT is configured
+      const viewerPort = process.env.VIEWER_PORT ? parseInt(process.env.VIEWER_PORT, 10) : null;
+      if (viewerPort && prismarineViewer) {
+        try {
+          prismarineViewer(bot, { port: viewerPort, firstPerson: true });
+          agentState.viewerReady = true;
+          agentState.viewerPort = viewerPort;
+          logger.info('AgentViewer', `[POV Stream] Direct 3D First-Person View active for ${bot.username} on port ${viewerPort}`);
+        } catch (err) {
+          logger.warn('AgentViewer', `Failed to start POV viewer: ${err.message}`);
+        }
+      }
 
       eventBuffer.addEvent('spawn', {
         position: pos,

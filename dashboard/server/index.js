@@ -52,44 +52,72 @@ app.use(express.json());
 // Serve static frontend
 app.use(express.static(path.join(__dirname, '../client')));
 
-// Proxy prismarine-viewer (internal port 3004) under /viewer/*
-app.use('/viewer', createProxyMiddleware({
-  target: `http://localhost:${VIEWER_PORT}`,
-  ws: true,
-  changeOrigin: true,
-  pathRewrite: { '^/viewer': '' },
-  on: {
-    error: (err, req, res) => {
-      if (res?.writeHead) {
-        res.writeHead(503, { 'Content-Type': 'text/html' });
-        res.end(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta http-equiv="refresh" content="2">
-            <style>
-              body { background: #060a14; color: #00d4ff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; margin: 0; }
-              .spinner { width: 28px; height: 28px; border: 3px solid rgba(0,212,255,0.15); border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.9s linear infinite; margin-bottom: 14px; }
-              @keyframes spin { to { transform: rotate(360deg); } }
-            </style>
-          </head>
-          <body>
-            <div class="spinner"></div>
-            <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#8ba3c7;">Connecting to Spectator Bot 3D stream...</div>
-          </body>
-          </html>
-        `);
+// Proxy prismarine-viewer dynamically per-agent
+const AGENT_VIEWER_MAP = {
+  'Agent_Alpha': process.env.AGENT_ALPHA_VIEWER_URL || 'http://agent-alpha:3020',
+  'Agent_Beta': process.env.AGENT_BETA_VIEWER_URL || 'http://agent-beta:3021',
+  'Agent_Gamma': process.env.AGENT_GAMMA_VIEWER_URL || 'http://agent-gamma:3022',
+  'SpectatorBot': `http://localhost:${VIEWER_PORT}`
+};
+
+// Route for specific agent viewer: /viewer/agent/:agentName/*
+app.use('/viewer/agent/:agentName', (req, res, next) => {
+  const agentName = req.params.agentName;
+  const target = AGENT_VIEWER_MAP[agentName] || AGENT_VIEWER_MAP['Agent_Alpha'];
+  return createProxyMiddleware({
+    target,
+    ws: true,
+    changeOrigin: true,
+    pathRewrite: { [`^/viewer/agent/${agentName}`]: '' },
+    on: {
+      error: (err, req, res) => {
+        if (res?.writeHead) {
+          res.writeHead(503, { 'Content-Type': 'text/html' });
+          res.end(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta http-equiv="refresh" content="2">
+              <style>
+                body { background: #0c0a09; color: #34d399; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 90vh; margin: 0; }
+                .spinner { width: 32px; height: 32px; border: 3px solid rgba(52,211,153,0.2); border-top-color: #34d399; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+                @keyframes spin { to { transform: rotate(360deg); } }
+              </style>
+            </head>
+            <body>
+              <div class="spinner"></div>
+              <div style="font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:#a8a29e;">Connecting to ${agentName} 3D POV stream...</div>
+            </body>
+            </html>
+          `);
+        }
       }
     }
-  }
+  })(req, res, next);
+});
+
+// Default viewer fallback
+app.use('/viewer', createProxyMiddleware({
+  target: AGENT_VIEWER_MAP['Agent_Alpha'] || `http://localhost:${VIEWER_PORT}`,
+  ws: true,
+  changeOrigin: true,
+  pathRewrite: { '^/viewer': '' }
 }));
 
-// Proxy Socket.io for prismarine-viewer world chunk streaming
-app.use('/socket.io', createProxyMiddleware({
-  target: `http://localhost:${VIEWER_PORT}`,
-  ws: true,
-  changeOrigin: true
-}));
+// Proxy Socket.io for prismarine-viewer chunk streaming
+app.use('/socket.io', (req, res, next) => {
+  const referer = req.headers.referer || '';
+  let target = AGENT_VIEWER_MAP['Agent_Alpha'];
+  if (referer.includes('Agent_Beta')) target = AGENT_VIEWER_MAP['Agent_Beta'];
+  else if (referer.includes('Agent_Gamma')) target = AGENT_VIEWER_MAP['Agent_Gamma'];
+  else if (referer.includes('SpectatorBot')) target = AGENT_VIEWER_MAP['SpectatorBot'];
+
+  return createProxyMiddleware({
+    target,
+    ws: true,
+    changeOrigin: true
+  })(req, res, next);
+});
 
 const server = http.createServer(app);
 
