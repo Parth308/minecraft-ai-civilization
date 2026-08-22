@@ -3,6 +3,8 @@ const queryGroq = require('./providers/groq');
 const queryNvidia = require('./providers/nvidia');
 const queryCerebras = require('./providers/cerebras');
 const queryOpenRouter = require('./providers/openrouter');
+const queryAgnes = require('./providers/agnes');
+const queryLLM7 = require('./providers/llm7');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -22,7 +24,9 @@ const BENCHMARK_RATES_PER_MTOK = {
   Groq:       { input: 0.59, output: 0.79, name: 'Llama 3.3 70B (Free Tier: 30 RPM / 12k TPM)' },
   Nvidia:     { input: 0.60, output: 0.60, name: 'NVIDIA NIM (1,000 Free Credits / 40 RPM)' },
   Cerebras:   { input: 0.10, output: 0.10, name: 'Cerebras Llama 3.1 8B ($5 Free Trial)' },
-  OpenRouter: { input: 0.00, output: 0.00, name: 'OpenRouter Free Models (Permanent $0.00)' }
+  OpenRouter: { input: 0.00, output: 0.00, name: 'OpenRouter Free Models (Permanent $0.00)' },
+  Agnes:      { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
+  LLM7:       { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' }
 };
 
 const MAX_ESCALATION_LOG = 200;
@@ -43,7 +47,9 @@ class ProviderRouter {
       Groq: { name: 'Groq', key: config.keys.groq, fn: queryGroq },
       Nvidia: { name: 'Nvidia', key: config.keys.nvidia, fn: queryNvidia },
       Cerebras: { name: 'Cerebras', key: config.keys.cerebras, fn: queryCerebras },
-      OpenRouter: { name: 'OpenRouter', key: config.keys.openrouter, fn: queryOpenRouter }
+      OpenRouter: { name: 'OpenRouter', key: config.keys.openrouter, fn: queryOpenRouter },
+      Agnes: { name: 'Agnes', key: config.keys.agnes, fn: queryAgnes },
+      LLM7: { name: 'LLM7', key: config.keys.llm7, fn: queryLLM7 }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -172,12 +178,12 @@ class ProviderRouter {
 
   getPreferredProviders(taskType = 'REASONING') {
     // Ultra-fast LPU / low-latency inference providers first
-    let baseOrder = ['Groq', 'Cerebras', 'Gemini', 'OpenRouter', 'Nvidia'];
+    let baseOrder = ['Groq', 'Gemini', 'Cerebras', 'Agnes', 'LLM7', 'OpenRouter', 'Nvidia'];
 
     if (taskType === 'CHAT' || taskType === 'REFLEX' || taskType === 'SOCIAL_CHAT') {
-      baseOrder = ['Groq', 'Cerebras', 'Gemini', 'OpenRouter', 'Nvidia'];
+      baseOrder = ['Groq', 'Cerebras', 'Agnes', 'LLM7', 'Gemini', 'OpenRouter', 'Nvidia'];
     } else if (taskType === 'REASONING' || taskType === 'EMOTION' || taskType === 'REFLECTION') {
-      baseOrder = ['Groq', 'Gemini', 'Cerebras', 'OpenRouter', 'Nvidia'];
+      baseOrder = ['Gemini', 'Groq', 'Agnes', 'Cerebras', 'LLM7', 'OpenRouter', 'Nvidia'];
     }
 
     // Filter to configured, non-rate-limited providers

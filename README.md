@@ -135,10 +135,17 @@ cp .env.example .env
 Fill in your configuration:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
 GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
 NVIDIA_API_KEY=nvapi-...
 NVIDIA_MODEL=meta/llama-3.1-8b-instruct
+CEREBRAS_API_KEY=your_cerebras_key_optional
 OPENROUTER_API_KEY=your_openrouter_key_optional
+AGNES_API_KEY=your_agnes_key_optional
+AGNES_MODEL=deepseek-v3
+LLM7_API_KEY=unused
+LLM7_MODEL=default
 
 # Embeddings Engine (ollama / gemini / local)
 EMBEDDING_PROVIDER=ollama
