@@ -178,7 +178,7 @@ class ProviderRouter {
 
   getPreferredProviders(taskType = 'REASONING') {
     // Ultra-fast LPU / high-bandwidth inference providers first
-    const baseOrder = ['Groq', 'LLM7', 'Nvidia', 'Agnes', 'Gemini', 'OpenRouter', 'Cerebras'];
+    const baseOrder = ['Groq', 'LLM7', 'Nvidia', 'Agnes', 'Cerebras', 'OpenRouter', 'Gemini'];
 
     // Filter to configured, non-rate-limited providers
     const active = baseOrder

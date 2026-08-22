@@ -3,7 +3,7 @@ const logger = require('../../shared/logger');
 async function queryOpenRouter(apiKey, prompt) {
   if (!apiKey) throw new Error('OPENROUTER_API_KEY is not configured');
 
-  const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
+  const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.2-3b-instruct:free';
   logger.info('OpenRouterProvider', `Querying OpenRouter API with model: ${model}...`);
   const t0 = Date.now();
 

@@ -3,7 +3,7 @@ const logger = require('../../shared/logger');
 async function queryCerebras(apiKey, prompt) {
   if (!apiKey) throw new Error('CEREBRAS_API_KEY is not configured');
 
-  const model = process.env.CEREBRAS_MODEL || 'llama3.1-8b';
+  const model = process.env.CEREBRAS_MODEL || 'llama-3.3-70b';
   logger.info('CerebrasProvider', `Querying Cerebras API with model: ${model}...`);
   const t0 = Date.now();
 
