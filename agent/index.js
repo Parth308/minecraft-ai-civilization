@@ -170,6 +170,49 @@ function createAgent() {
   let tickInterval = null;
   let inFlightTick = false;
 
+  // Chat anti-spam: per-sender cooldown and global outgoing throttle
+  const chatCooldowns = new Map(); // sender -> last response timestamp
+  const AGENT_CHAT_COOLDOWN_MS = 6000;  // min 6s between replies to same sender
+  const PLAYER_CHAT_COOLDOWN_MS = 1800; // min 1.8s between replies to player
+  let lastOutgoingChat = 0;             // global outgoing chat throttle
+
+  // Random human-like idle behaviours
+  function doRandomHumanBehaviour() {
+    const r = Math.random();
+    if (r < 0.15) {
+      // Jump
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 250);
+    } else if (r < 0.30) {
+      // Look at random nearby direction
+      const yaw = (Math.random() - 0.5) * Math.PI * 2;
+      const pitch = (Math.random() - 0.5) * 0.8;
+      bot.look(yaw, pitch, false);
+    } else if (r < 0.40) {
+      // Swing arm (like inspecting something)
+      bot.swingArm();
+    } else if (r < 0.50) {
+      // Sneak briefly
+      bot.setControlState('sneak', true);
+      setTimeout(() => bot.setControlState('sneak', false), 600);
+    } else if (r < 0.60) {
+      // Sprint-step in a random direction
+      const dir = ['forward', 'back', 'left', 'right'][Math.floor(Math.random() * 4)];
+      bot.setControlState('sprint', true);
+      bot.setControlState(dir, true);
+      setTimeout(() => {
+        bot.setControlState(dir, false);
+        bot.setControlState('sprint', false);
+      }, 400 + Math.random() * 400);
+    }
+  }
+
+  // Every 12-30 seconds, do something random to look alive
+  setInterval(() => {
+    if (!bot.entity || inFlightTick) return;
+    doRandomHumanBehaviour();
+  }, 12000 + Math.random() * 18000);
+
   bot.once('spawn', () => {
     try {
       const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : { x: 0, y: 0, z: 0 };
@@ -548,58 +591,96 @@ function createAgent() {
   });
 
   events.on('playerChat', async ({ username, message }) => {
-    // Only capture own messages or human/operator messages in recentChat to avoid cross-agent echo duplicates
-    if (username === bot.username || username.toLowerCase() === 'operator' || !username.startsWith('Agent_')) {
-      agentState.recentChat.push({ username, message, timestamp: new Date().toISOString() });
-      if (agentState.recentChat.length > 50) agentState.recentChat.shift();
-    }
-
+    // Always record to recentChat
+    agentState.recentChat.push({ username, message, timestamp: new Date().toISOString() });
+    if (agentState.recentChat.length > 60) agentState.recentChat.shift();
     eventBuffer.addEvent('playerChat', { username, message });
 
+    // Ignore our own echoes
+    if (username === bot.username) return;
 
-    // Handle operator/debug commands
+    // Handle operator/debug commands (! prefix)
     if (message.startsWith(config.prefix)) {
       const args = message.slice(config.prefix.length).trim().split(/ +/);
       const command = args.shift().toLowerCase();
-
       switch (command) {
-        case 'status':
+        case 'status': {
           const summary = stats.getSummary();
           chat.say(`[Status] HP:${summary.health} | Hunger:${summary.hunger}% | Anger:${summary.anger}% | Happy:${summary.happiness}% | Goal: "${goalManager.currentGoal.description}"`);
           break;
-
-        case 'come':
+        }
+        case 'come': {
           const player = senses.getNearbyPlayers().find(p => p.username === username);
           if (player && player.entity) {
-            chat.say(`Heading towards you, ${username}.`);
+            chat.say(`On my way, ${username}.`);
             movement.goto(player.entity.position.x, player.entity.position.y, player.entity.position.z);
           } else {
-            chat.say(`I can't locate you, ${username}.`);
+            chat.say(`Can't locate you ${username}, where are you?`);
           }
           break;
-
+        }
         case 'stop':
-          chat.say('Halting.');
+          chat.say('Alright, stopping.');
           movement.stop();
           break;
-
         case 'memories':
           memoryClient.queryMemories('', '', 3).then(memories => {
-            if (memories.length > 0) {
-              chat.say(`[Memories] ${memories.join(' | ')}`);
-            } else {
-              chat.say('No memories logged yet.');
-            }
+            chat.say(memories.length > 0 ? `[Memory] ${memories.join(' | ')}` : 'My mind is clear... no memories yet.');
           });
           break;
       }
       return;
     }
 
-    // Natural Emergent Social Dialogue
-    const reply = await dialogueEngine.processIncomingChat(username, message);
+    // ── Smart chat response gating ──────────────────────────────────────────
+    const isAgentSender  = username.startsWith('Agent_');
+    const cooldownMs     = isAgentSender ? AGENT_CHAT_COOLDOWN_MS : PLAYER_CHAT_COOLDOWN_MS;
+    const lastReplied    = chatCooldowns.get(username) || 0;
+    const now            = Date.now();
+
+    // Enforce per-sender cooldown
+    if (now - lastReplied < cooldownMs) {
+      logger.debug('AgentChat', `Skipping reply to ${username} — cooldown active (${Math.round((cooldownMs - (now - lastReplied)) / 1000)}s left)`);
+      return;
+    }
+
+    // Personality-driven selective listening:
+    // Low sociability agents ignore 40% of agent messages; high caution agents sometimes ignore players too
+    const traits = persona.traits || {};
+    if (isAgentSender) {
+      const ignoreChance = 0.35 + (1 - (traits.sociability || 0.5)) * 0.4;
+      if (Math.random() < ignoreChance) {
+        logger.debug('AgentChat', `${bot.username} chose to silently ignore ${username} (introverted/busy)`);
+        return;
+      }
+    }
+
+    // Check global outgoing throttle (never send chat more than 1/sec)
+    if (now - lastOutgoingChat < 1200) {
+      return;
+    }
+
+    // Build rich civContext for the LLM
+    const civContext = {
+      currentTask: agentState.lastDecision?.action || 'idle',
+      currentGoal: goalManager.currentGoal?.description || '',
+      position: bot.entity ? {
+        x: Math.round(bot.entity.position.x),
+        y: Math.round(bot.entity.position.y),
+        z: Math.round(bot.entity.position.z)
+      } : {},
+      stats: stats.getSummary(),
+      inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ') || 'empty',
+      recentDecisions: (agentState.recentDecisions || []).slice(-3).map(d => d.action).join(' -> ')
+    };
+
+    const reply = await dialogueEngine.processIncomingChat(username, message, civContext);
     if (reply) {
-      chat.say(reply);
+      chatCooldowns.set(username, Date.now());
+      lastOutgoingChat = Date.now();
+      // Add a tiny human-like typing delay (0.5-1.8s)
+      const delay = 500 + Math.random() * 1300;
+      setTimeout(() => chat.say(reply), delay);
     }
   });
 
