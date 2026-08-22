@@ -226,33 +226,404 @@ tr:last-child td { border-bottom: none; }
 .badge-online   { background: rgba(16,185,129,.12); color: var(--green); border: 1px solid rgba(16,185,129,.25); }
 .badge-neutral  { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
 
-/* Agent cards */
+/* ── Agent Cards & Cognition Hub ─────────────────────────────── */
+
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+  gap: 16px;
+}
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px;
+  transition: border-color var(--dur) ease-out, box-shadow var(--dur) ease-out;
 }
 
-.agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.agent-name { font-weight: 700; font-size: 14px; }
-
-.stat-strip { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); margin-top: 10px; }
-.stat-strip b { color: var(--text); font-family: var(--font); font-weight: 600; }
-
-.bar-track {
-  height: 6px; border-radius: 99px; background: var(--surface-3);
-  overflow: hidden; margin-top: 6px;
+.agent-card:hover {
+  border-color: #524b45;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
-.bar-fill { height: 100%; border-radius: 99px; background: var(--green); transition: width var(--dur) ease-out; }
-.bar-fill.amber { background: var(--amber); }
-.bar-fill.red { background: var(--red); }
 
-.decision-reason {
-  margin-top: 10px; padding: 8px 10px;
-  background: var(--bg);
+.agent-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 12px;
+}
+
+.agent-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-name {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: .01em;
+}
+
+.persona-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--amber);
+  background: rgba(251,191,36,0.1);
+  padding: 2px 8px;
   border-radius: var(--r-sm);
-  font-size: 12px; color: var(--text-dim);
-  border-left: 2px solid var(--border);
+  border: 1px solid rgba(251,191,36,0.25);
+}
+
+.agent-meta-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+}
+
+.meta-chip b {
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.agent-goal-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16,185,129,0.06);
+  border: 1px solid rgba(16,185,129,0.2);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  font-size: 12.5px;
+}
+
+.goal-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--green);
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+
+.goal-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.agent-body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 16px;
+}
+
+@media (max-width: 1200px) {
+  .agent-body-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.agent-vitals-column, .agent-cognition-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.subcard-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-faint);
+}
+
+.vitals-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg);
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-soft);
+}
+
+.stat-row-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.stat-label-box {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 95px;
+  color: var(--text-dim);
+}
+
+.stat-meter {
+  flex: 1;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.stat-meter-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width var(--dur) ease-out;
+}
+
+.stat-meter-fill.green   { background: var(--green); }
+.stat-meter-fill.amber   { background: var(--amber); }
+.stat-meter-fill.red     { background: var(--red); }
+.stat-meter-fill.lime    { background: var(--lime); }
+.stat-meter-fill.neutral { background: #a8a29e; }
+
+.stat-num-val {
+  width: 32px;
+  text-align: right;
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* Equipment & Inventory */
+.equip-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.equip-slot {
+  font-size: 11.5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+}
+
+.inv-chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 85px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.inv-chip {
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--text-dim);
+}
+
+.inv-chip b {
+  color: var(--green);
+  font-family: var(--font);
+}
+
+/* Cognition Column & Decision Box */
+.action-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+}
+
+.action-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-icon-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.action-name {
+  font-family: var(--font);
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.thought-bubble {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thought-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.thought-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--amber);
+  letter-spacing: .05em;
+}
+
+.thought-content {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.thought-dialogue {
+  font-size: 12px;
+  color: var(--green);
+  background: rgba(16,185,129,0.06);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.thought-tactic {
+  font-size: 11.5px;
+  color: var(--lime);
+}
+
+/* Candidates Decision Alternatives */
+.candidates-section {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+}
+
+.candidates-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.candidates-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.candidate-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid transparent;
+}
+
+.candidate-row.top-pick {
+  background: rgba(16,185,129,0.08);
+  border-color: rgba(16,185,129,0.25);
+}
+
+.candidate-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+}
+
+.candidate-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.candidate-conf {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.candidate-bar-track {
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.candidate-bar-fill {
+  height: 100%;
+  background: var(--text-faint);
+  border-radius: 99px;
+}
+
+.candidate-bar-fill.top {
+  background: var(--green);
+}
+
+.candidate-reason {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Recent Decisions Micro Timeline */
+.agent-history-box {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+}
+
+.agent-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
 }
 
 /* Chat feed */

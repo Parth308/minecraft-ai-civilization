@@ -173,78 +173,203 @@
   }
 
   // ── Page: Agents ──────────────────────────────────────────────────
+  const ACTION_ICONS = {
+    MINE: '⛏️',
+    CRAFT: '⚒️',
+    FIGHT: '⚔️',
+    EAT: '🍖',
+    SLEEP: '🛌',
+    EXPLORE: '🧭',
+    TALK: '💬',
+    CHAT: '💬',
+    TRADE: '🤝',
+    FLEE: '🏃',
+    WANDER: '🚶',
+    BUILD: '🧱',
+    HARVEST: '🌾',
+    EQUIP: '🛡️',
+    IDLE: '⏳'
+  };
+
+  function formatItemName(name) {
+    if (!name) return 'Empty';
+    return String(name).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function formatArmor(eq = {}) {
+    const pieces = [eq.helmet, eq.chestplate, eq.leggings, eq.boots].filter(Boolean);
+    if (!pieces.length) return 'None';
+    return pieces.map(p => formatItemName(p)).join(', ');
+  }
+
+  function renderCandidatesMatrix(candidates = []) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return '';
+    return `
+      <div class="candidates-section">
+        <div class="candidates-header">
+          <span>Decision Alternatives</span>
+          <span>Decision Tree Matrix</span>
+        </div>
+        <div class="candidates-grid">
+          ${candidates.map((c, i) => {
+            const isTop = i === 0;
+            const confPct = Math.round((c.confidence ?? 0) * 100);
+            const icon = ACTION_ICONS[c.name] || '⚡';
+            return `
+              <div class="candidate-row ${isTop ? 'top-pick' : ''}">
+                <div class="candidate-meta">
+                  <span class="candidate-name">${icon} ${esc(c.name)}${c.isDynamic ? ' <span class="badge badge-cache" style="font-size:9px;padding:1px 4px">LEARNED</span>' : ''}</span>
+                  <span class="num candidate-conf">${confPct}%</span>
+                </div>
+                <div class="candidate-bar-track">
+                  <div class="candidate-bar-fill ${isTop ? 'top' : ''}" style="width:${confPct}%"></div>
+                </div>
+                ${c.reason ? `<div class="candidate-reason">${esc(c.reason)}</div>` : ''}
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  function statMeter(label, icon, val, max, colorCls = 'green') {
+    const w = Math.max(0, Math.min(100, (val / max) * 100));
+    return `
+      <div class="stat-row-item">
+        <div class="stat-label-box">
+          <span>${icon}</span>
+          <span>${esc(label)}</span>
+        </div>
+        <div class="stat-meter">
+          <div class="stat-meter-fill ${colorCls}" style="width:${w}%"></div>
+        </div>
+        <span class="stat-num-val">${Math.round(val)}</span>
+      </div>`;
+  }
+
   function renderAgents() {
     return `
       <div class="page-header">
-        <div class="page-title">Agents</div>
-        <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered)</div>
+        <div class="page-title">Agents &amp; Cognition</div>
+        <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered) · Live decision reasoning &amp; vitals</div>
       </div>
       ${state.agents.length === 0
         ? '<div class="card empty-state">No agents reporting yet…</div>'
         : `<div class="agent-grid">${state.agents.map(agentCard).join('')}</div>`}`;
   }
 
-  function statBar(label, val, max, cls = '') {
-    const w = Math.max(0, Math.min(100, (val / max) * 100));
-    return `
-      <div style="flex:1;min-width:110px">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim)">
-          <span>${esc(label)}</span><span class="num">${Math.round(val)}</span>
-        </div>
-        <div class="bar-track"><div class="bar-fill ${cls}" style="width:${w}%"></div></div>
-      </div>`;
-  }
-
   function agentCard(a) {
     const st = a.stats || {};
     const d = a.lastDecision;
-    const src = d ? (d.escalated ? 'llm' : 'tree') : null;
+    const eq = a.equipment || {};
+    const inv = Array.isArray(a.inventory) ? a.inventory : [];
+    const actionName = (d?.action || 'IDLE').toUpperCase();
+    const actionIcon = ACTION_ICONS[actionName] || '⚡';
+    const goalStr = typeof a.activeGoal === 'string' ? a.activeGoal : (a.activeGoal?.description || 'Exploring & surviving civilization');
+    const posStr = a.position ? `${a.position.x}, ${a.position.y}, ${a.position.z}` : '—';
+    const personaSeed = a.persona?.seed || (typeof a.persona === 'string' ? a.persona : null);
 
     return `
-      <div class="card">
-        <div class="agent-head">
-          <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
-          <span class="agent-name">${esc(a.username)}</span>
-          <span class="badge ${a.online ? 'badge-online' : 'badge-offline'}" style="margin-left:auto">${a.online ? 'ONLINE' : 'OFFLINE'}</span>
-        </div>
-
-        <div class="stat-strip" style="margin-top:0;margin-bottom:12px">
-          <span>Pos <b>${a.position ? `${a.position.x},${a.position.y},${a.position.z}` : '—'}</b></span>
-          <span>${esc(a.biome || '—')}</span>
-          <span>${a.isNight ? '🌙 night' : '☀️ day'}</span>
-          <span>Goal: <b>${esc(typeof a.activeGoal === 'string' ? a.activeGoal : a.activeGoal?.description || '—')}</b></span>
-        </div>
-
-        <div style="display:flex;gap:12px;flex-wrap:wrap">
-          ${statBar('Health', st.health ?? 20, 20, (st.health ?? 20) <= 6 ? 'red' : '')}
-          ${statBar('Hunger', st.hunger ?? 20, 20, (st.hunger ?? 20) <= 6 ? 'amber' : '')}
-        </div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
-          ${statBar('Happiness', Math.max(0, (st.happiness ?? 50)), 100)}
-          ${statBar('Fatigue', Math.max(0, (st.fatigue ?? 0)), 100, (st.fatigue ?? 0) > 70 ? 'amber' : '')}
-        </div>
-
-        ${d ? `
-          <div class="decision-reason">
-            <div style="margin-bottom:4px">
-              ${src === 'llm' ? '<span class="badge badge-llm">LLM</span>' : '<span class="badge badge-tree">TREE</span>'}
-              ${d.cached ? '<span class="badge badge-cache">CACHE</span>' : ''}
-              <b class="mono">${esc(d.action)}</b>
-              ${d.confidence != null ? `<span style="color:var(--text-faint)">conf ${Number(d.confidence).toFixed(2)}</span>` : ''}
-              ${d.provider ? `<span style="color:var(--amber)">via ${esc(d.provider)}</span>` : ''}
+      <div class="card agent-card">
+        <!-- Header Ribbon -->
+        <div class="agent-card-header">
+          <div class="agent-title-row">
+            <div class="agent-identity">
+              <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
+              <span class="agent-name">${esc(a.username)}</span>
+              ${personaSeed ? `<span class="persona-badge">🧬 ${esc(personaSeed)}</span>` : ''}
             </div>
-            ${esc(d.reason || '')}
-          </div>` : '<div class="decision-reason">No decision yet…</div>'}
+            <span class="badge ${a.online ? 'badge-online' : 'badge-offline'}">${a.online ? 'ONLINE' : 'OFFLINE'}</span>
+          </div>
 
+          <div class="agent-meta-ribbon">
+            <span class="meta-chip">📍 <b>${posStr}</b></span>
+            <span class="meta-chip">🌲 <b>${esc(a.biome || 'Unknown')}</b></span>
+            <span class="meta-chip">${a.isNight ? '🌙 Night' : '☀️ Day'}</span>
+            ${a.isRaining ? '<span class="meta-chip" style="color:var(--amber)">🌧 Raining</span>' : ''}
+            ${a.isInWater ? '<span class="meta-chip" style="color:#38bdf8">🌊 In Water</span>' : ''}
+            ${a.isOnFire ? '<span class="meta-chip" style="color:var(--red)">🔥 On Fire</span>' : ''}
+          </div>
+        </div>
+
+        <!-- Goal Ribbon -->
+        <div class="agent-goal-box">
+          <span class="goal-label">🎯 ACTIVE GOAL</span>
+          <span class="goal-text">${esc(goalStr)}</span>
+        </div>
+
+        <!-- Main Body Grid: Vitals/Gear on Left vs Cognition Hub on Right -->
+        <div class="agent-body-grid">
+          <!-- Left Column: Vitals & Equipment -->
+          <div class="agent-vitals-column">
+            <div class="subcard-title">Vitals &amp; Internal State</div>
+            <div class="vitals-grid">
+              ${statMeter('Health', '❤️', st.health ?? 20, 20, (st.health ?? 20) <= 6 ? 'red' : 'green')}
+              ${statMeter('Hunger', '🍖', st.hunger ?? 20, 20, (st.hunger ?? 20) <= 6 ? 'red' : 'amber')}
+              ${statMeter('Happiness', '😊', Math.max(0, st.happiness ?? 50), 100, 'lime')}
+              ${statMeter('Fatigue', '💤', Math.max(0, st.fatigue ?? 0), 100, (st.fatigue ?? 0) > 70 ? 'red' : 'neutral')}
+              ${statMeter('Anger', '😠', Math.max(0, st.anger ?? 0), 100, (st.anger ?? 0) > 50 ? 'red' : 'neutral')}
+            </div>
+
+            <div class="subcard-title" style="margin-top:6px">Gear &amp; Inventory</div>
+            <div class="equip-strip">
+              <span class="equip-slot" title="Main Hand">⚔️ ${esc(formatItemName(eq.mainHand))}</span>
+              <span class="equip-slot" title="Armor">🛡️ ${esc(formatArmor(eq))}</span>
+              <span class="equip-slot" title="Total Items">🎒 ${inv.length} item${inv.length === 1 ? '' : 's'}</span>
+            </div>
+
+            ${inv.length > 0 ? `
+              <div class="inv-chips-wrap">
+                ${inv.slice(0, 10).map(item => `
+                  <span class="inv-chip">${esc(formatItemName(item.name))} <b>×${item.count || 1}</b></span>
+                `).join('')}
+                ${inv.length > 10 ? `<span class="inv-chip">+${inv.length - 10} more</span>` : ''}
+              </div>
+            ` : '<div style="font-size:11.5px;color:var(--text-faint);padding:4px 0">Empty inventory</div>'}
+          </div>
+
+          <!-- Right Column: Cognition Decision Hub -->
+          <div class="agent-cognition-column">
+            <div class="subcard-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>🧠 Cognitive Decision Engine</span>
+              ${d?.confidence != null ? `<span style="color:var(--text-dim);font-size:11px">Conf: <b class="num" style="color:var(--text)">${Math.round(d.confidence * 100)}%</b></span>` : ''}
+            </div>
+
+            <div class="action-banner">
+              <div class="action-badge-row">
+                <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
+                ${d ? sourceBadge(d) : ''}
+                ${d?.provider ? `<span class="badge badge-neutral">${esc(d.provider)}${d.model ? ` · ${esc(d.model.split('/').pop())}` : ''}</span>` : ''}
+                ${d?.latencyMs ? `<span class="badge badge-neutral">⚡ ${Math.round(d.latencyMs)}ms</span>` : ''}
+              </div>
+            </div>
+
+            <div class="thought-bubble">
+              <div class="thought-header">
+                <span class="thought-tag">💭 THOUGHT &amp; REASONING</span>
+                ${d?.webKnowledgeUsed ? '<span class="badge badge-cache" style="font-size:10px">🌐 Web Knowledge</span>' : ''}
+              </div>
+              <div class="thought-content">${esc(d?.reason || 'Evaluating survival parameters and heuristic rules…')}</div>
+              ${d?.chatMessage ? `<div class="thought-dialogue">💬 <i>"${esc(d.chatMessage)}"</i></div>` : ''}
+              ${d?.tacticLearned ? `<div class="thought-tactic">💡 <b>Learned Tactic:</b> ${esc(d.tacticLearned)}</div>` : ''}
+            </div>
+
+            ${renderCandidatesMatrix(d?.allCandidates)}
+          </div>
+        </div>
+
+        <!-- Recent Activity Trace -->
         ${(a.recentDecisions || []).length > 0 ? `
-          <div class="section-title" style="margin:12px 0 6px;font-size:11px">Last ${Math.min(5, a.recentDecisions.length)} calls</div>
-          ${a.recentDecisions.slice(-5).reverse().map(x => `
-            <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--text-dim)">
-              <span class="num" style="color:var(--text-faint)">${timeOf(x.ts)}</span>
-              ${sourceBadge({ ...x, source: x.source })}
-              <b class="mono" style="color:var(--text)">${esc(x.action)}</b>
-              ${x.source === 'llm' && x.provider ? `<span style="color:var(--amber-deep)">${esc(x.provider)}</span>` : ''}
-            </div>`).join('')}
+          <div class="agent-history-box">
+            <div class="subcard-title" style="margin-bottom:6px">Recent Decision Trace</div>
+            ${a.recentDecisions.slice(-5).reverse().map(x => `
+              <div class="agent-history-row">
+                <span class="num" style="color:var(--text-faint);width:55px">${timeOf(x.ts)}</span>
+                ${sourceBadge(x)}
+                <b class="mono" style="color:var(--text);width:85px">${ACTION_ICONS[x.action] || ''} ${esc(x.action)}</b>
+                ${x.source === 'llm' && x.provider ? `<span style="color:var(--amber-deep);font-size:11px">${esc(x.provider)}</span>` : ''}
+                <span style="color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:11.5px">${esc(x.reason || '')}</span>
+              </div>`).join('')}
+          </div>
         ` : ''}
       </div>`;
   }
