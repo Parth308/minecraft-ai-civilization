@@ -181,6 +181,14 @@
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
               <button class="btn btn-send" id="chat-send-btn" type="button">Send</button>
             </form>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;font-size:11px;align-items:center">
+              <span style="color:var(--text-faint)">⚡ Quick God-Mode:</span>
+              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!status')">!status</span>
+              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!come')">!come</span>
+              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!memories')">!memories</span>
+              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!quest Build a secure wooden shelter')">!quest Build Shelter</span>
+              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!quest Mine iron ore and craft armor')">!quest Mine Iron</span>
+            </div>
           </div>
         </div>
       </div>`;
@@ -435,6 +443,25 @@
                 ${inv.length > 10 ? `<span class="inv-chip">+${inv.length - 10} more</span>` : ''}
               </div>
             ` : '<div style="font-size:11.5px;color:var(--text-faint);padding:4px 0">Empty inventory</div>'}
+
+            <!-- Live Personality Genome Tuner -->
+            <div class="subcard-title" style="margin-top:10px">🧬 Live Personality Genome (Real-Time Tuner)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--bg);padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--border-soft);font-size:11px">
+              ${['curiosity', 'caution', 'greed', 'sociability', 'ambition'].map(t => {
+                const tr = a.persona?.traits || {};
+                const v = Math.round(((tr[t] ?? 0.5) * 100));
+                return `
+                  <div>
+                    <div style="display:flex;justify-content:space-between;color:var(--text-dim);text-transform:capitalize;margin-bottom:2px">
+                      <span>${t}</span>
+                      <b style="color:var(--text)">${v}%</b>
+                    </div>
+                    <input type="range" min="0.05" max="0.95" step="0.05" value="${tr[t] ?? 0.5}"
+                      style="width:100%;accent-color:var(--green);cursor:pointer"
+                      onchange="window.setAgentTrait('${esc(a.username)}', '${t}', this.value)" />
+                  </div>`;
+              }).join('')}
+            </div>
           </div>
 
           <!-- Right Column: Cognition Decision Hub -->
@@ -728,6 +755,32 @@
     const frame = document.getElementById('world-stream-frame');
     if (frame) {
       frame.src = '/viewer/?t=' + Date.now();
+    }
+  };
+
+  window.setAgentTrait = async function(agentName, traitKey, val) {
+    const numVal = parseFloat(val);
+    try {
+      await fetch(`/api/dashboard/agents/${encodeURIComponent(agentName)}/personality`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ traits: { [traitKey]: numVal } })
+      });
+      const agent = state.agents.find(a => a.username === agentName);
+      if (agent && agent.persona && agent.persona.traits) {
+        agent.persona.traits[traitKey] = numVal;
+      }
+      render();
+    } catch (err) {
+      console.error('Failed to update agent trait:', err);
+    }
+  };
+
+  window.insertChatCommand = function(cmd) {
+    const input = document.getElementById('chat-input');
+    if (input) {
+      input.value = cmd;
+      input.focus();
     }
   };
 

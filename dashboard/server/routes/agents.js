@@ -12,6 +12,33 @@ function agentRoutes(app, aggregator) {
     res.json(agent);
   });
 
+  app.post('/api/dashboard/agents/:agentId/personality', async (req, res) => {
+    const agentName = req.params.agentId;
+    const agents = aggregator.getState().agents;
+    const agent = agents.find(a => a.username === agentName);
+    
+    // Determine internal host/port
+    const hostMap = {
+      'Agent_Alpha': 'http://agent-alpha:3010',
+      'Agent_Beta': 'http://agent-beta:3011',
+      'Agent_Gamma': 'http://agent-gamma:3012'
+    };
+    const targetUrl = hostMap[agentName] || agent?.statusUrl || `http://${agentName.toLowerCase().replace('_', '-')}:3010`;
+
+    try {
+      const resp = await fetch(`${targetUrl}/personality`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(4000)
+      });
+      const data = await resp.json();
+      res.json(data);
+    } catch (err) {
+      res.status(500).json({ error: `Failed to update agent personality: ${err.message}` });
+    }
+  });
+
   app.post('/api/dashboard/register-agent', (req, res) => {
     const { name, url } = req.body || {};
     if (!url) {

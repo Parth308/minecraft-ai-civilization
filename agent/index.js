@@ -21,6 +21,9 @@ const DynamicPersona = require('./cognition/persona');
 const GoalManager = require('./cognition/goals');
 const SocialDialogueEngine = require('./social/dialogue');
 const FactionAffiliationManager = require('./social/factions');
+const BuilderSkill = require('./skills/builder');
+const BarterSkill = require('./skills/barter');
+const ReflectionEngine = require('./cognition/reflection');
 const { ACTIONS } = require('../shared/constants');
 
 let prismarineViewer = null;
@@ -40,6 +43,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // ── Live agent state exposed on /status (read by dashboard) ────────────────
 let currentBot = null;
+let currentPersona = null;
 const agentState = {
   username: config.username,
   online: false,
@@ -64,7 +68,7 @@ const agentState = {
   startedAt: new Date().toISOString()
 };
 
-// Lightweight zero-dep status server (runs continuously for container lifetime)
+// Lightweight status server (runs continuously for container lifetime)
 const statusServer = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
   if (req.url === '/status') {
@@ -78,6 +82,26 @@ const statusServer = http.createServer((req, res) => {
   } else if (req.url === '/health') {
     res.writeHead(200);
     res.end(JSON.stringify({ status: 'ok', username: config.username, online: agentState.online }));
+  } else if (req.url === '/personality' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body);
+        if (currentPersona && parsed.traits) {
+          Object.assign(currentPersona.traits, parsed.traits);
+        }
+        if (currentPersona && parsed.archetype) {
+          currentPersona.archetype = parsed.archetype;
+        }
+        logger.info('AgentStatus', `Updated live personality for ${config.username}: ${JSON.stringify(currentPersona?.traits)}`);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, persona: currentPersona?.getPersonaPromptContext ? currentPersona.getPersonaPromptContext() : currentPersona }));
+      } catch (e) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
   } else {
     res.writeHead(404);
     res.end();
@@ -127,10 +151,14 @@ function createAgent() {
 
   // Cognitive & Social Architecture
   const persona = new DynamicPersona(config.username, config.personalitySeed);
+  currentPersona = persona;
   const goalManager = new GoalManager(config.username, persona);
   const brainClient = new BrainClient(config.brokerUrl);
   const factionManager = new FactionAffiliationManager(config.username, persona);
   const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships, factionManager);
+  const builder = new BuilderSkill(bot, inventory, movement);
+  const barter = new BarterSkill(bot, inventory, relationships, chat);
+  const reflection = new ReflectionEngine(brainClient, persona, memoryClient, chat);
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
@@ -338,6 +366,22 @@ function createAgent() {
         }
         break;
 
+      case ACTIONS.BUILD:
+      case 'BUILD':
+        logger.info('AgentLoop', 'Executing autonomous BUILD action (shelter/structure)');
+        await builder.buildShelter();
+        eventBuffer.addEvent('buildShelter', {});
+        break;
+
+      case ACTIONS.TRADE:
+      case 'TRADE':
+        if (decision.meta && decision.meta.partner) {
+          logger.info('AgentLoop', `Executing autonomous TRADE with ${decision.meta.partner}`);
+          await barter.executeTrade(decision.meta.partner, 'oak_planks', 4, 'cobblestone', 4);
+          eventBuffer.addEvent('executeTrade', { partner: decision.meta.partner });
+        }
+        break;
+
       case ACTIONS.EXPLORE:
       case ACTIONS.WANDER:
         if (!movement.isMoving()) {
@@ -354,6 +398,13 @@ function createAgent() {
   }
 
   // Perception Event Listeners
+  events.on('timeTransition', ({ phase, timeOfDay }) => {
+    detailedLogger.logSenses(bot.username, `Time of day phase entered: ${phase}`, { timeOfDay });
+    eventBuffer.addEvent('timeTransition', { phase, timeOfDay });
+    if (phase === 'night') {
+      reflection.runReflection(agentState.recentDecisions, stats.getSummary());
+    }
+  });
   events.on('agentHurt', async ({ health }) => {
     stats.addAnger(25);
     stats.addHappiness(-15);
