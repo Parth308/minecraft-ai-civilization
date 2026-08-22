@@ -6,6 +6,7 @@ const evaluateMine = require('./rules/mine');
 const evaluateCraft = require('./rules/craft');
 const evaluateExplore = require('./rules/explore');
 const evaluateTrade = require('./rules/trade');
+const evaluateTalk = require('./rules/talk');
 const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
 const EscalationManager = require('./escalate');
@@ -29,7 +30,8 @@ class DecisionTree {
       evaluateCraft(senses, stats),
       evaluateMine(senses, stats),
       evaluateExplore(senses, stats),
-      evaluateTrade(senses, stats)
+      evaluateTrade(senses, stats),
+      evaluateTalk(senses, stats)
     ];
 
     // Include dynamically learned rules

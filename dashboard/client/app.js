@@ -38,9 +38,12 @@
   const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
 
   function sourceBadge(ev) {
-    if (ev.source === 'llm') return '<span class="badge badge-llm">LLM</span>';
+    if (ev.source === 'llm') {
+      const p = ev.provider ? `<span class="badge badge-llm">${esc(ev.provider)}</span>` : '<span class="badge badge-llm">LLM</span>';
+      return p;
+    }
     if (ev.source === 'cache') return `<span class="badge badge-cache">CACHE·${esc((ev.cacheType || '').toUpperCase())}</span>`;
-    if (ev.source === 'fallback') return '<span class="badge badge-fallback">FALLBACK</span>';
+    if (ev.source === 'fallback') return '<span class="badge badge-fallback">SAFETY</span>';
     return '<span class="badge badge-tree">TREE</span>';
   }
 
@@ -605,13 +608,24 @@
 
   // ── Chat feed ─────────────────────────────────────────────────────
   function chatFeed(msgs) {
-    if (!msgs.length) return '<div class="empty-state">No chat yet…</div>';
-    return msgs.map(m => `
-      <div class="chat-msg">
+    if (!msgs.length) return '<div class="empty-state">No chat yet… Send a message as operator to converse with agents!</div>';
+    return msgs.map(m => {
+      const u = m.username || m.agentUsername || '?';
+      const isOperator = u.toLowerCase() === 'youallneed' || u.toLowerCase() === 'operator';
+      const isAlpha = u === 'Agent_Alpha';
+      const isBeta = u === 'Agent_Beta';
+      const isGamma = u === 'Agent_Gamma';
+      
+      const badgeClass = isOperator ? 'who-operator' : isAlpha ? 'who-alpha' : isBeta ? 'who-beta' : isGamma ? 'who-gamma' : 'who-other';
+      const badgeLabel = isOperator ? '👑 ' + esc(u) : '🤖 ' + esc(u);
+
+      return `
+      <div class="chat-msg ${isOperator ? 'chat-msg-operator' : ''}">
         <span class="chat-time num">${timeOf(m.timestamp)}</span>
-        <span class="who">${esc(m.username || m.agentUsername || '?')}</span>
-        ${esc(m.message)}
-      </div>`).join('');
+        <span class="who ${badgeClass}">${badgeLabel}</span>
+        <span class="chat-text">${esc(m.message)}</span>
+      </div>`;
+    }).join('');
   }
 
   // ── Sidebar service pills ─────────────────────────────────────────

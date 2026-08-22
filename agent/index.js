@@ -312,6 +312,25 @@ function createAgent() {
         }
         break;
 
+      case ACTIONS.TALK:
+        if (decision.meta && decision.meta.partner) {
+          const partner = decision.meta.partner;
+          logger.info('AgentLoop', `Executing autonomous TALK with ${partner}`);
+          const promptMsg = `Greetings ${partner}! How is your work going?`;
+          const reply = await dialogueEngine.processIncomingChat(partner, promptMsg);
+          if (reply) {
+            chat.say(reply);
+          } else {
+            const archetype = persona.archetype || 'bold-explorer';
+            if (archetype === 'quirky-tinkerer') chat.say(`Hey ${partner}! Look at this biome structure!`);
+            else if (archetype === 'cautious-builder') chat.say(`Hello ${partner}. Keeping an eye out for shelter.`);
+            else if (archetype === 'shrewd-trader') chat.say(`Greetings ${partner}. Let me know if you need to trade materials.`);
+            else chat.say(`Hey ${partner}! Good to see you.`);
+          }
+          eventBuffer.addEvent('autonomousTalk', { partner });
+        }
+        break;
+
       case ACTIONS.EXPLORE:
       case ACTIONS.WANDER:
         if (!movement.isMoving()) {
@@ -333,6 +352,39 @@ function createAgent() {
     stats.addHappiness(-15);
     detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
     eventBuffer.addEvent('agentHurt', { health });
+
+    // Look for who hit us (nearest player or mob within 5 blocks)
+    const nearby = senses.getNearbyPlayers(5);
+    const nearbyMobs = senses.getNearbyHostiles(5);
+
+    if (nearby && nearby.length > 0) {
+      const attacker = nearby[0];
+      if (attacker.entity) {
+        bot.lookAt(attacker.entity.position.offset(0, attacker.entity.height || 1.6, 0), true);
+      }
+
+      const archetype = persona.archetype || 'bold-explorer';
+      const attackerName = attacker.username || 'friend';
+      let shout = `Ouch! Watch where you're swinging, ${attackerName}! (HP: ${Math.round(health)}/20)`;
+
+      if (archetype === 'quirky-tinkerer') {
+        shout = `Ow! Hey ${attackerName}, that's not how you test structural integrity!`;
+      } else if (archetype === 'cautious-builder') {
+        shout = `Hey ${attackerName}! Unprovoked aggression is not tolerated! Back off!`;
+      } else if (archetype === 'shrewd-trader') {
+        shout = `Ouch! That attack just cost you 10 emeralds in hazard fees, ${attackerName}!`;
+      } else if (archetype === 'bold-explorer') {
+        shout = `Is that a challenge, ${attackerName}? Don't test me!`;
+      }
+
+      chat.say(shout);
+
+      // Backstep retreat
+      movement.fleeFrom(attacker.entity || attacker, 4);
+    } else if (nearbyMobs && nearbyMobs.length > 0) {
+      const mob = nearbyMobs[0];
+      combat.attack(mob);
+    }
   });
 
   events.on('agentOnFire', () => {
