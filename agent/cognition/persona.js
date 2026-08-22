@@ -76,10 +76,12 @@ class DynamicPersona {
   constructor(agentId, seed = 'friendly-explorer') {
     this.agentId = agentId;
 
-    // Pick archetype: if 'random' or unknown, pick based on agentId hash + random
+    // Pick archetype: if 'random', pick purely random from available archetypes
     let archetypeKey = seed;
-    if (!ARCHETYPES[archetypeKey] || archetypeKey === 'random') {
-      const keys = Object.keys(ARCHETYPES);
+    const keys = Object.keys(ARCHETYPES);
+    if (!archetypeKey || archetypeKey === 'random') {
+      archetypeKey = keys[Math.floor(Math.random() * keys.length)];
+    } else if (!ARCHETYPES[archetypeKey]) {
       if (agentId.toLowerCase().includes('beta')) {
         archetypeKey = 'cautious-builder';
       } else if (agentId.toLowerCase().includes('gamma')) {
