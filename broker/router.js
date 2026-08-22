@@ -410,33 +410,95 @@ Reply ONLY with a valid JSON object:
 }`;
     }
 
-    return `You are a Minecraft AI agent decision and survival engine with sovereign agency.
-Task Mode: ${taskType}
-Agent Identity & Personality: ${JSON.stringify(payload.persona || {})}
-Agent Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
-Current Situation: ${JSON.stringify(payload.topCandidate || {})}
-All Evaluated Options: ${JSON.stringify(payload.allCandidates || [])}
-Relevant Retrieved Memory Chunks: ${JSON.stringify(memories)}
-${webFacts ? `\nVerified Web & Minecraft Wiki Knowledge:\n${webFacts}\n` : ''}
-Instructions:
-1. Choose the best action to perform with complete freedom.
-2. Provide a short reason explaining the strategy.
-3. (Optional) Provide an in-game public chat message reflecting thoughts, chatter, or goals.
-4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue (-20 to +20).
-5. Formulate a learned tactic statement (tacticLearned) for durable retention in long-term dynamic rule memory.
+    const p = payload.persona || {};
+    const stats = payload.stats || {};
+    const top = payload.topCandidate || {};
+    const inv = payload.inventory || [];
+    const pos = payload.position || {};
+    const nearby = payload.nearby || {};
 
-Reply ONLY with a valid JSON object:
+    return `You are ${p.agentId || 'Agent'}, a fully autonomous AI-powered Minecraft civilization member.
+You have a brain, personality, and complete free will. You decide what to do next based on everything you know.
+
+═══════════════════════════════════════════
+🧠 YOUR IDENTITY
+═══════════════════════════════════════════
+Name: ${p.agentId} | Title: ${p.title} | Temperament: ${p.temperament}
+Quirk: ${p.quirk}
+Worldview: ${p.worldview}
+Speaking Style: ${p.speakingStyle}
+Personality Traits: curiosity=${p.traits?.curiosity} caution=${p.traits?.caution} greed=${p.traits?.greed} sociability=${p.traits?.sociability} ambition=${p.traits?.ambition}
+
+═══════════════════════════════════════════
+📊 YOUR CURRENT STATUS
+═══════════════════════════════════════════
+Health: ${stats.health}/20 | Hunger: ${stats.hunger}% | Happiness: ${stats.happiness}% | Fatigue: ${stats.fatigue}% | Anger: ${stats.anger}%
+Position: X=${pos.x} Y=${pos.y} Z=${pos.z} | Biome: ${payload.biome || 'unknown'} | Time: ${payload.timeOfDay || 'day'} | Night: ${payload.isNight ? 'YES (danger!)' : 'No'} | Raining: ${payload.isRaining ? 'Yes' : 'No'}
+
+═══════════════════════════════════════════
+🎒 INVENTORY (what you actually have)
+═══════════════════════════════════════════
+${inv.length > 0 ? inv.map(i => `${i.count}x ${i.name}`).join(', ') : 'EMPTY — you have nothing'}
+
+═══════════════════════════════════════════
+👀 WHAT'S AROUND YOU RIGHT NOW
+═══════════════════════════════════════════
+Nearby players/agents: ${JSON.stringify(nearby.players || [])}
+Hostile mobs: ${JSON.stringify(nearby.hostiles || [])}
+Nearby blocks of interest: ${JSON.stringify(nearby.blocks || [])}
+Nearby animals/passive: ${JSON.stringify(nearby.animals || [])}
+
+═══════════════════════════════════════════
+🎯 YOUR ACTIVE GOAL & MEMORY
+═══════════════════════════════════════════
+Current goal: ${payload.activeGoal || 'No goal set — pick one'}
+Recent memories: ${JSON.stringify(memories)}
+${webFacts ? `\nMinecraft Wiki Knowledge:\n${webFacts}\n` : ''}
+
+═══════════════════════════════════════════
+🤔 DECISION ENGINE EVALUATED THESE OPTIONS
+═══════════════════════════════════════════
+Best local rule: ${top.name} (confidence ${top.confidence}) — "${top.reason}"
+All options scored: ${(payload.allCandidates || []).map(c => `${c.name}:${c.confidence}`).join(', ')}
+
+═══════════════════════════════════════════
+⚡ YOUR AVAILABLE ACTIONS (pick ONE freely)
+═══════════════════════════════════════════
+MINE      — dig any specific block by name (iron_ore, diamond_ore, coal_ore, log, gravel, etc.)
+CRAFT     — craft any Minecraft item by name (furnace, torch, bread, shield, bucket, etc.)
+EAT       — eat food from inventory if hungry
+FIGHT     — attack nearest hostile mob or defend against attacker
+FLEE      — run away from danger (mobs, lava, fall damage)
+SLEEP     — find and sleep in a bed when it's night
+EXPLORE   — walk in a direction to discover new terrain and biomes
+WANDER    — random exploration nearby
+BUILD     — construct a shelter, wall, tower, farm, or any structure
+TRADE     — offer specific items to another agent in exchange for something
+TALK      — initiate conversation or shout something in-world
+PLAN      — set a new multi-step goal/mission (e.g. "get iron armor", "build a village")
+IDLE      — do nothing / rest
+
+FREEDOM REMINDERS:
+- You are NOT limited to what the local rules say — override them with LLM reasoning
+- If diamonds are nearby → MINE diamonds regardless of what local rules suggest
+- If a hostile is nearby and you're strong → FIGHT back, don't just FLEE
+- At night with no shelter → BUILD or find shelter immediately
+- If hungry and have food → EAT right now, stop everything else
+- You can talk, brag, warn, or threaten other agents mid-action
+- Set PLAN goals to drive long-term civilisation building
+
+Reply ONLY as raw JSON (no markdown, no backticks, no explanation):
 {
-  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "CRAFT" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD" | "TALK",
-  "reason": "short explanation",
-  "chatMessage": "optional chat output or null",
-  "tacticLearned": "optional durable tactic statement or null",
-  "itemToCraft": "optional item name if action is CRAFT (e.g. wooden_pickaxe, oak_planks, stick, crafting_table, stone_pickaxe)",
-  "emotionDelta": {
-    "anger": 0,
-    "happiness": 0,
-    "fatigue": 0
-  }
+  "action": "MINE|CRAFT|EAT|FIGHT|FLEE|SLEEP|EXPLORE|WANDER|BUILD|TRADE|TALK|PLAN|IDLE",
+  "reason": "1-2 sentence explanation of your thinking",
+  "chatMessage": "optional in-game chat to say right now, or null",
+  "tacticLearned": "optional durable tactic for memory, or null",
+  "targetResource": "if MINE: exact block name to look for (e.g. iron_ore, oak_log, diamond_ore)",
+  "itemToCraft": "if CRAFT: exact item name (e.g. torch, furnace, iron_pickaxe)",
+  "buildType": "if BUILD: what to build (shelter, wall, tower, farm, house)",
+  "tradeOffer": "if TRADE: e.g. '4x oak_planks for 2x iron_ingot from Agent_Alpha'",
+  "newGoal": "if PLAN: new multi-step goal description, else null",
+  "emotionDelta": { "anger": 0, "happiness": 0, "fatigue": 0 }
 }`;
   }
 
@@ -461,7 +523,7 @@ Reply ONLY with a valid JSON object:
 
       // Normalize action to standard Minecraft agent action verbs
       let action = String(parsed.action || '').toUpperCase().trim();
-      const validActions = ['MINE', 'CRAFT', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'CHAT', 'TRADE', 'FLEE', 'WANDER', 'BUILD', 'HARVEST', 'EQUIP', 'IDLE'];
+      const validActions = ['MINE', 'CRAFT', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'CHAT', 'TRADE', 'FLEE', 'WANDER', 'BUILD', 'HARVEST', 'EQUIP', 'IDLE', 'PLAN'];
       if (!validActions.includes(action)) {
         const found = validActions.find(v => action.includes(v));
         action = found || 'EXPLORE';
@@ -473,6 +535,10 @@ Reply ONLY with a valid JSON object:
         chatMessage: parsed.chatMessage ? String(parsed.chatMessage).trim() : null,
         tacticLearned: parsed.tacticLearned ? String(parsed.tacticLearned).trim() : null,
         itemToCraft: parsed.itemToCraft ? String(parsed.itemToCraft).trim() : null,
+        targetResource: parsed.targetResource ? String(parsed.targetResource).trim() : null,
+        buildType: parsed.buildType ? String(parsed.buildType).trim() : null,
+        tradeOffer: parsed.tradeOffer ? String(parsed.tradeOffer).trim() : null,
+        newGoal: parsed.newGoal ? String(parsed.newGoal).trim() : null,
         emotionDelta: {
           anger: Number(parsed.emotionDelta?.anger) || 0,
           happiness: Number(parsed.emotionDelta?.happiness) || 0,

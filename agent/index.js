@@ -259,8 +259,8 @@ function createAgent() {
           // 2. Run local stats decay tick
           statsDecay.tick();
 
-          // 3. Evaluate Decision Tree
-          const decision = await decisionTree.evaluate(senses, stats, persona);
+          // 3. Evaluate Decision Tree (with full agentState context for LLM)
+          const decision = await decisionTree.evaluate(senses, stats, persona, agentState);
 
           // ── Update live state for /status endpoint ──────────────────────
           agentState.stats       = stats.getSummary();
@@ -294,7 +294,13 @@ function createAgent() {
           agentState.isRaining   = senses.isRaining();
           agentState.isInWater   = senses.isInWater();
           agentState.isOnFire    = senses.isOnFire();
+          agentState.position    = bot.entity ? {
+            x: Math.round(bot.entity.position.x),
+            y: Math.round(bot.entity.position.y),
+            z: Math.round(bot.entity.position.z)
+          } : {};
           // ───────────────────────────────────────────────────────────────
+
           detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
             confidence: decision.confidence,
             escalated: decision.escalated,
@@ -314,7 +320,8 @@ function createAgent() {
             if (decision.emotionDelta.fatigue) stats.addFatigue(decision.emotionDelta.fatigue);
           }
 
-          if (decision.chatMessage) {
+          if (decision.chatMessage && (Date.now() - lastOutgoingChat > 3000)) {
+            lastOutgoingChat = Date.now();
             chat.say(decision.chatMessage);
           }
 
@@ -411,47 +418,97 @@ function createAgent() {
       }
 
       case ACTIONS.TALK:
-        if (decision.meta && decision.meta.partner) {
-          const partner = decision.meta.partner;
-          logger.info('AgentLoop', `Executing autonomous TALK with ${partner}`);
-          const promptMsg = `Greetings ${partner}! How is your work going?`;
-          const reply = await dialogueEngine.processIncomingChat(partner, promptMsg);
-          if (reply) {
-            chat.say(reply);
-          } else {
-            const archetype = persona.archetype || 'bold-explorer';
-            if (archetype === 'quirky-tinkerer') chat.say(`Hey ${partner}! Look at this biome structure!`);
-            else if (archetype === 'cautious-builder') chat.say(`Hello ${partner}. Keeping an eye out for shelter.`);
-            else if (archetype === 'shrewd-trader') chat.say(`Greetings ${partner}. Let me know if you need to trade materials.`);
-            else chat.say(`Hey ${partner}! Good to see you.`);
+      case 'TALK': {
+        // Always escalate TALK to LLM for authentic personality-driven speech
+        const talkPartner = decision.meta?.partner ||
+          (senses.getNearbyPlayers(32)?.[0]?.username) ||
+          (bot.players ? Object.keys(bot.players).filter(n => n !== bot.username)[0] : null);
+        const talkSubject = decision.reason || `What's on your mind as ${persona.title || 'a settler'}?`;
+        logger.info('AgentLoop', `Executing autonomous TALK${talkPartner ? ` with ${talkPartner}` : ' (shout to world)'}`);
+        const talkReply = await dialogueEngine.processIncomingChat(
+          talkPartner || 'World',
+          talkSubject,
+          {
+            currentTask: decision.action,
+            currentGoal: agentState.activeGoal,
+            stats: stats.getSummary(),
+            inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ')
           }
-          eventBuffer.addEvent('autonomousTalk', { partner });
+        );
+        if (talkReply && Date.now() - lastOutgoingChat > 2000) {
+          lastOutgoingChat = Date.now();
+          chatCooldowns.set(talkPartner || 'World', Date.now());
+          setTimeout(() => chat.say(talkReply), 400 + Math.random() * 800);
         }
+        eventBuffer.addEvent('autonomousTalk', { partner: talkPartner, message: talkReply });
         break;
+      }
 
       case ACTIONS.BUILD:
-      case 'BUILD':
-        logger.info('AgentLoop', 'Executing autonomous BUILD action (shelter/structure)');
-        await builder.buildShelter();
-        eventBuffer.addEvent('buildShelter', {});
+      case 'BUILD': {
+        const buildType = decision.buildType || 'shelter';
+        logger.info('AgentLoop', `Executing autonomous BUILD action: ${buildType}`);
+        const didBuild = await builder.buildShelter();
+        if (didBuild && Date.now() - lastOutgoingChat > 3000) {
+          lastOutgoingChat = Date.now();
+          chat.say(`just finished building a ${buildType}!`);
+        }
+        eventBuffer.addEvent('buildShelter', { buildType });
         break;
+      }
 
       case ACTIONS.TRADE:
-      case 'TRADE':
-        if (decision.meta && decision.meta.partner) {
-          logger.info('AgentLoop', `Executing autonomous TRADE with ${decision.meta.partner}`);
-          await barter.executeTrade(decision.meta.partner, 'oak_planks', 4, 'cobblestone', 4);
-          eventBuffer.addEvent('executeTrade', { partner: decision.meta.partner });
+      case 'TRADE': {
+        // Parse LLM's freeform trade offer: e.g. '4x oak_planks for 2x iron_ingot from Agent_Alpha'
+        const offer = decision.tradeOffer || '';
+        const partnerMatch = offer.match(/from (\S+)/i);
+        const tradePartner = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
+        const giveMatch = offer.match(/(\d+)x ([\w_]+) for/i);
+        const wantMatch = offer.match(/for (\d+)x ([\w_]+)/i);
+        const giveItem = giveMatch?.[2] || 'oak_planks';
+        const giveCount = parseInt(giveMatch?.[1] || '4');
+        const wantItem = wantMatch?.[2] || 'cobblestone';
+        const wantCount = parseInt(wantMatch?.[1] || '4');
+        if (tradePartner) {
+          logger.info('AgentLoop', `Executing TRADE with ${tradePartner}: ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
+          await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
+          eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer });
+        } else {
+          // Broadcast trade desire to world if no partner specified
+          if (Date.now() - lastOutgoingChat > 3000) {
+            lastOutgoingChat = Date.now();
+            chat.say(`anyone want to trade? ${offer || 'I have stuff to offer'}`);
+          }
         }
         break;
+      }
 
       case ACTIONS.EXPLORE:
+      case 'EXPLORE':
       case ACTIONS.WANDER:
-        if (!movement.isMoving()) {
-          logger.info('AgentLoop', `Executing ${decision.action} action`);
-          movement.wander(16);
+      case 'WANDER': {
+        // Pick a direction based on ambition — ambitious agents explore further
+        const exploreDist = Math.round(16 + (persona.traits?.ambition || 0.5) * 24);
+        logger.info('AgentLoop', `Executing ${decision.action} action (range: ${exploreDist} blocks)`);
+        movement.wander(exploreDist);
+        break;
+      }
+
+      case 'PLAN': {
+        // LLM set a new long-term goal
+        const newGoal = decision.newGoal;
+        if (newGoal && typeof goalManager.setGoal === 'function') {
+          goalManager.setGoal(newGoal);
+          agentState.activeGoal = newGoal;
+          logger.info('AgentLoop', `Agent set new PLAN goal: ${newGoal}`);
+          if (Date.now() - lastOutgoingChat > 3000) {
+            lastOutgoingChat = Date.now();
+            chat.say(`new mission: ${newGoal}`);
+          }
+          eventBuffer.addEvent('newGoal', { goal: newGoal });
         }
         break;
+      }
 
       case ACTIONS.IDLE:
       default:

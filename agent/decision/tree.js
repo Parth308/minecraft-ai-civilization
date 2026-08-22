@@ -19,7 +19,7 @@ class DecisionTree {
     this.dynamicRuleEngine = new DynamicRuleEngine(memoryClient);
   }
 
-  async evaluate(senses, statsManager, persona = null) {
+  async evaluate(senses, statsManager, persona = null, agentState = {}) {
     const stats = statsManager.getSummary();
 
     const staticCandidates = [
@@ -68,6 +68,24 @@ class DecisionTree {
         topCandidate,
         allCandidates: candidates,
         stats,
+        // Full environmental context for rich LLM reasoning
+        inventory: agentState.inventory || [],
+        position: agentState.position || {},
+        biome: agentState.biome || 'unknown',
+        timeOfDay: agentState.timeOfDay || 'day',
+        isNight: agentState.isNight || false,
+        isRaining: agentState.isRaining || false,
+        activeGoal: agentState.activeGoal || '',
+        nearby: {
+          players: senses.getNearbyPlayers ? senses.getNearbyPlayers(32).map(p => p.username) : [],
+          hostiles: senses.getNearbyHostiles ? senses.getNearbyHostiles(16).map(m => m.name || m.mobType) : [],
+          animals: senses.getNearbyAnimals ? senses.getNearbyAnimals(16).map(m => m.name || m.mobType) : [],
+          blocks: ['iron_ore','coal_ore','diamond_ore','oak_log','crafting_table'].reduce((acc, b) => {
+            const bl = senses.getNearbyBlock ? senses.getNearbyBlock(b, 20) : null;
+            if (bl) acc.push(`${b} at Y=${bl.position.y}`);
+            return acc;
+          }, [])
+        },
         persona: persona?.getPersonaPromptContext ? persona.getPersonaPromptContext() : (persona || {})
       };
 
