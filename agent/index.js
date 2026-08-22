@@ -234,6 +234,13 @@ function createAgent() {
             agentState.activeGoal = decision.newGoal;
           }
 
+          // Apply dynamic emotional shifts returned by LLM
+          if (decision.emotionDelta) {
+            if (decision.emotionDelta.anger) stats.addAnger(decision.emotionDelta.anger);
+            if (decision.emotionDelta.happiness) stats.addHappiness(decision.emotionDelta.happiness);
+            if (decision.emotionDelta.fatigue) stats.addFatigue(decision.emotionDelta.fatigue);
+          }
+
           if (decision.chatMessage) {
             chat.say(decision.chatMessage);
           }
@@ -347,7 +354,7 @@ function createAgent() {
   }
 
   // Perception Event Listeners
-  events.on('agentHurt', ({ health }) => {
+  events.on('agentHurt', async ({ health }) => {
     stats.addAnger(25);
     stats.addHappiness(-15);
     detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
@@ -363,21 +370,28 @@ function createAgent() {
         bot.lookAt(attacker.entity.position.offset(0, attacker.entity.height || 1.6, 0), true);
       }
 
-      const archetype = persona.archetype || 'bold-explorer';
-      const attackerName = attacker.username || 'friend';
-      let shout = `Ouch! Watch where you're swinging, ${attackerName}! (HP: ${Math.round(health)}/20)`;
+      const attackerName = attacker.username || 'someone';
 
-      if (archetype === 'quirky-tinkerer') {
-        shout = `Ow! Hey ${attackerName}, that's not how you test structural integrity!`;
-      } else if (archetype === 'cautious-builder') {
-        shout = `Hey ${attackerName}! Unprovoked aggression is not tolerated! Back off!`;
-      } else if (archetype === 'shrewd-trader') {
-        shout = `Ouch! That attack just cost you 10 emeralds in hazard fees, ${attackerName}!`;
-      } else if (archetype === 'bold-explorer') {
-        shout = `Is that a challenge, ${attackerName}? Don't test me!`;
-      }
-
-      chat.say(shout);
+      // Dynamic LLM-generated emotional reaction & shout
+      brainClient.escalate({
+        taskType: 'EMOTION',
+        agentId: bot.username,
+        event: 'agentHurt',
+        attacker: attackerName,
+        health: Math.round(health),
+        stats: stats.getSummary(),
+        persona: persona.getPersonaPromptContext ? persona.getPersonaPromptContext() : persona
+      }).then(res => {
+        if (res && res.chatMessage) {
+          chat.say(res.chatMessage);
+        } else if (res && res.reason) {
+          chat.say(`Ouch! ${res.reason}`);
+        } else {
+          chat.say(`Ouch! Why did you hit me, ${attackerName}?! (HP: ${Math.round(health)}/20)`);
+        }
+      }).catch(() => {
+        chat.say(`Ow! Watch your swings, ${attackerName}! (HP: ${Math.round(health)}/20)`);
+      });
 
       // Backstep retreat
       movement.fleeFrom(attacker.entity || attacker, 4);

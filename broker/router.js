@@ -382,23 +382,45 @@ Reply ONLY with a valid JSON object (no markdown, no backticks):
       return payload.topCandidate?.prompt || 'Reflect on recent experiences and output insights.';
     }
 
-    return `You are a Minecraft AI agent decision and survival engine.
+    if (taskType === 'EMOTION') {
+      return `You are a Minecraft AI agent with distinct personality, feelings, and sovereign agency.
+Agent Identity & Personality: ${JSON.stringify(payload.persona || {})}
+Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
+Event: ${payload.event || 'damage_taken'}
+Attacker: ${payload.attacker || 'someone'}
+Current Health: ${payload.health || 20}/20
+
+Respond naturally to this event in 1 punchy, in-character Minecraft chat sentence (shout, complaint, witty retort, or warning).
+Reply ONLY with a valid JSON object:
+{
+  "chatMessage": "your in-character reaction to say in Minecraft chat",
+  "reason": "internal emotional reaction",
+  "emotionDelta": {
+    "anger": 15,
+    "happiness": -10,
+    "fatigue": 0
+  }
+}`;
+    }
+
+    return `You are a Minecraft AI agent decision and survival engine with sovereign agency.
 Task Mode: ${taskType}
+Agent Identity & Personality: ${JSON.stringify(payload.persona || {})}
 Agent Current Stats & Emotions: ${JSON.stringify(payload.stats || {})}
 Current Situation: ${JSON.stringify(payload.topCandidate || {})}
 All Evaluated Options: ${JSON.stringify(payload.allCandidates || [])}
 Relevant Retrieved Memory Chunks: ${JSON.stringify(memories)}
 ${webFacts ? `\nVerified Web & Minecraft Wiki Knowledge:\n${webFacts}\n` : ''}
 Instructions:
-1. Choose the best action to perform.
-2. Provide a short reason explaining the survival strategy (e.g. why wood must be chopped before stone can be mined, or why crafting tools is necessary).
-3. (Optional) Provide an in-game public chat message.
+1. Choose the best action to perform with complete freedom.
+2. Provide a short reason explaining the strategy.
+3. (Optional) Provide an in-game public chat message reflecting thoughts, chatter, or goals.
 4. Calculate emotional adjustments (emotionDelta) to anger, happiness, or fatigue (-20 to +20).
 5. Formulate a learned tactic statement (tacticLearned) for durable retention in long-term dynamic rule memory.
 
 Reply ONLY with a valid JSON object:
 {
-  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "CRAFT" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD",
+  "action": "EAT" | "FLEE" | "FIGHT" | "SLEEP" | "MINE" | "CRAFT" | "WANDER" | "IDLE" | "TRADE" | "EXPLORE" | "BUILD" | "TALK",
   "reason": "short explanation",
   "chatMessage": "optional chat output or null",
   "tacticLearned": "optional durable tactic statement or null",
