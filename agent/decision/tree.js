@@ -78,14 +78,22 @@ class DecisionTree {
         activeGoal: agentState.activeGoal || '',
         nearby: {
           players: senses.getNearbyPlayers ? senses.getNearbyPlayers(32).map(p => p.username) : [],
-          hostiles: senses.getNearbyHostiles ? senses.getNearbyHostiles(16).map(m => m.name || m.mobType) : [],
-          animals: senses.getNearbyAnimals ? senses.getNearbyAnimals(16).map(m => m.name || m.mobType) : [],
-          blocks: ['iron_ore','coal_ore','diamond_ore','oak_log','crafting_table'].reduce((acc, b) => {
-            const bl = senses.getNearbyBlock ? senses.getNearbyBlock(b, 20) : null;
-            if (bl) acc.push(`${b} at Y=${bl.position.y}`);
-            return acc;
-          }, [])
+          hostiles: senses.getNearbyHostileMobs ? senses.getNearbyHostileMobs(16).map(m => m.name || m.mobType || 'mob') : [],
+          animals: senses.getNearbyPassiveMobs ? senses.getNearbyPassiveMobs(16).map(m => m.name || m.mobType || 'animal') : [],
+          ores: senses.getNearbyOres ? senses.getNearbyOres(20).map(b => `${b.name}@Y${b.position.y}`) : [],
+          trees: senses.getNearbyTrees ? senses.getNearbyTrees(16).map(b => `${b.name}@Y${b.position.y}`) : [],
+          blocks: [
+            senses.getNearbyBlock('crafting_table', 8) ? 'crafting_table nearby' : null,
+            senses.getNearbyBlock('furnace', 8) ? 'furnace nearby' : null,
+            senses.getNearbyBlock('chest', 12) ? 'chest nearby' : null,
+            senses.getNearbyBlock('bed', 10) ? 'bed nearby' : null,
+            senses.getNearbyBlock('water', 8) ? 'water nearby' : null
+          ].filter(Boolean)
         },
+        equipment: agentState.equipment || {},
+        lightLevel: senses.getLightLevel ? senses.getLightLevel() : 15,
+        isUnderground: senses.isUnderground ? senses.isUnderground() : false,
+        recentEvents: (agentState.recentDecisions || []).slice(-5).map(d => `${d.action}(${d.source})`).join(' → '),
         persona: persona?.getPersonaPromptContext ? persona.getPersonaPromptContext() : (persona || {})
       };
 
@@ -122,9 +130,15 @@ class DecisionTree {
         tacticLearned: escalationResult.tacticLearned || null,
         chatMessage: escalationResult.chatMessage || null,
         newGoal: escalationResult.newGoal || null,
+        targetResource: escalationResult.targetResource || null,
+        buildType: escalationResult.buildType || null,
+        tradeOffer: escalationResult.tradeOffer || null,
         meta: {
           ...topCandidate,
-          itemToCraft: escalationResult.itemToCraft || topCandidate.itemToCraft
+          itemToCraft: escalationResult.itemToCraft || topCandidate.itemToCraft,
+          targetBlock: topCandidate.targetBlock || null,
+          threat: topCandidate.threat || null,
+          target: topCandidate.target || null
         },
         allCandidates: candidates.map(c => ({
           name: c.name,

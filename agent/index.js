@@ -353,29 +353,57 @@ function createAgent() {
         break;
 
       case ACTIONS.FLEE:
-        if (decision.meta && decision.meta.threat) {
-          logger.info('AgentLoop', 'Executing FLEE action');
-          movement.fleeFrom(decision.meta.threat);
-          eventBuffer.addEvent('flee', { threat: decision.meta.threat.name || 'hostile' });
+      case 'FLEE': {
+        // Resolve threat: prefer rule meta, else auto-pick nearest hostile from senses
+        let fleeThreat = decision.meta?.threat;
+        if (!fleeThreat) {
+          const nearHostiles = senses.getNearbyHostileMobs(16);
+          fleeThreat = nearHostiles.length > 0 ? nearHostiles[0] : null;
+        }
+        if (fleeThreat) {
+          logger.info('AgentLoop', `Executing FLEE from ${fleeThreat.name || 'threat'}`);
+          movement.fleeFrom(fleeThreat);
+          eventBuffer.addEvent('flee', { threat: fleeThreat.name || 'hostile' });
+        } else {
+          // Generic flee — run away from current position
+          movement.wander(20);
         }
         break;
+      }
 
       case ACTIONS.FIGHT:
-        if (decision.meta && decision.meta.target) {
-          logger.info('AgentLoop', 'Executing FIGHT action');
-          combat.attack(decision.meta.target);
-          eventBuffer.addEvent('fight', { target: decision.meta.target.name || 'hostile' });
+      case 'FIGHT': {
+        // Resolve target: prefer rule meta, else auto-pick nearest hostile
+        let fightTarget = decision.meta?.target;
+        if (!fightTarget) {
+          const nearHostiles = senses.getNearbyHostileMobs(12);
+          fightTarget = nearHostiles.length > 0 ? nearHostiles[0] : null;
+        }
+        if (fightTarget) {
+          logger.info('AgentLoop', `Executing FIGHT vs ${fightTarget.name || fightTarget.mobType || 'hostile'}`);
+          await combat.equipBestWeapon();
+          combat.attack(fightTarget);
+          eventBuffer.addEvent('fight', { target: fightTarget.name || 'hostile' });
+        } else {
+          logger.debug('AgentLoop', 'FIGHT requested but no hostile in range');
         }
         break;
+      }
 
       case ACTIONS.SLEEP:
-        if (decision.meta && decision.meta.bed) {
+      case 'SLEEP': {
+        // Use meta.bed if provided by rule engine, else search for one
+        const bedBlock = decision.meta?.bed || senses.getNearbyBed(20);
+        if (bedBlock) {
           logger.info('AgentLoop', 'Executing SLEEP action');
-          detailedLogger.logCognition(bot.username, 'Entering bed to sleep', { bedPos: decision.meta.bed.position });
-          bot.sleep(decision.meta.bed).catch(err => logger.error('AgentLoop', 'Sleep failed', err));
-          eventBuffer.addEvent('sleep', { bedPos: decision.meta.bed.position });
+          detailedLogger.logCognition(bot.username, 'Entering bed to sleep', { bedPos: bedBlock.position });
+          bot.sleep(bedBlock).catch(err => logger.warn('AgentLoop', `Sleep failed: ${err.message}`));
+          eventBuffer.addEvent('sleep', { bedPos: bedBlock.position });
+        } else if (senses.isNight()) {
+          logger.info('AgentLoop', 'Night but no bed found — building shelter or staying put');
         }
         break;
+      }
 
       case ACTIONS.CRAFT:
       case 'CRAFT': {
@@ -506,6 +534,106 @@ function createAgent() {
             chat.say(`new mission: ${newGoal}`);
           }
           eventBuffer.addEvent('newGoal', { goal: newGoal });
+        }
+        break;
+      }
+
+      case 'SMELT': {
+        // Find or place furnace, then smelt the indicated raw item
+        const smeltInput = decision.smeltInput || decision.meta?.smeltInput;
+        logger.info('AgentLoop', `Executing SMELT action${smeltInput ? ': ' + smeltInput : ''}`);
+        let furnaceBlock = senses.getNearbyBlock('furnace', 8);
+        if (!furnaceBlock) {
+          // Try to craft and place a furnace if we have enough cobblestone
+          const cobbleCount = inventory.bot?.inventory?.items().filter(i => i.name.includes('cobblestone') || i.name.includes('cobbled')).reduce((s, i) => s + i.count, 0) || 0;
+          if (cobbleCount >= 8) {
+            logger.info('AgentLoop', 'Crafting furnace (have cobblestone)');
+            await inventory.craftItem('furnace', 1);
+          }
+          furnaceBlock = senses.getNearbyBlock('furnace', 8);
+        }
+        if (furnaceBlock) {
+          try {
+            await inventory._navigateWithin(furnaceBlock.position, 3);
+            await bot.lookAt(furnaceBlock.position.offset(0.5, 0.5, 0.5), true);
+            const furnace = await bot.openFurnace(furnaceBlock);
+            if (smeltInput) {
+              const rawItem = bot.inventory?.items().find(i => i.name === smeltInput || i.name.includes(smeltInput));
+              if (rawItem) await furnace.putInput(rawItem.type, null, rawItem.count);
+            }
+            const fuelItem = bot.inventory?.items().find(i => i.name.includes('coal') || i.name.includes('charcoal') || i.name.includes('log') || i.name.includes('plank'));
+            if (fuelItem) await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 8));
+            furnace.close();
+            eventBuffer.addEvent('smelt', { input: smeltInput });
+          } catch (smeltErr) {
+            logger.warn('AgentLoop', `Smelt action failed: ${smeltErr.message}`);
+          }
+        } else {
+          logger.warn('AgentLoop', 'No furnace available for SMELT — wandering to find one');
+          movement.wander(12);
+        }
+        break;
+      }
+
+      case 'EQUIP': {
+        logger.info('AgentLoop', 'Executing EQUIP action — equipping best armor and weapon');
+        await combat.equipBestArmor();
+        await combat.equipBestWeapon();
+        eventBuffer.addEvent('equip', { equipment: senses.getEquipmentSummary() });
+        break;
+      }
+
+      case 'HARVEST': {
+        // Scan for mature crops and harvest + replant them
+        logger.info('AgentLoop', 'Executing HARVEST action — scanning for mature crops');
+        const cropTypes = ['wheat', 'carrots', 'potatoes', 'beetroots', 'nether_wart'];
+        let harvested = 0;
+        for (const cropName of cropTypes) {
+          const cropBlock = senses.getNearbyBlock(cropName, 16);
+          if (cropBlock && cropBlock.metadata === 7) { // metadata 7 = fully grown
+            const success = await inventory.digBlock(cropBlock);
+            if (success) {
+              harvested++;
+              // Replant: plant seeds back if we have them
+              const seedName = cropName === 'wheat' ? 'wheat_seeds' :
+                               cropName === 'carrots' ? 'carrot' :
+                               cropName === 'potatoes' ? 'potato' : null;
+              if (seedName) {
+                const seedItem = bot.inventory?.items().find(i => i.name === seedName);
+                const farmland = bot.blockAt(cropBlock.position.offset(0, -1, 0));
+                if (seedItem && farmland && farmland.name === 'farmland') {
+                  try {
+                    await bot.equip(seedItem, 'hand');
+                    await bot.placeBlock(farmland, new (require('vec3'))(0, 1, 0));
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+        }
+        logger.info('AgentLoop', `Harvested ${harvested} crop blocks`);
+        eventBuffer.addEvent('harvest', { count: harvested });
+        break;
+      }
+
+      case 'CHEST': {
+        // Find nearby chest and deposit overflow inventory
+        const chestBlock = senses.getNearbyBlock('chest', 12);
+        if (chestBlock) {
+          logger.info('AgentLoop', 'Executing CHEST action — depositing overflow items');
+          // Deposit items we have more than 16 of (raw materials, not tools)
+          const depositItems = (agentState.inventory || [])
+            .filter(i => i.count > 16 && !i.name.includes('pickaxe') && !i.name.includes('sword') && !i.name.includes('axe'))
+            .map(i => i.name);
+          if (depositItems.length > 0) {
+            await inventory.openChestAndDeposit(chestBlock, depositItems);
+            eventBuffer.addEvent('depositChest', { items: depositItems });
+          } else {
+            logger.info('AgentLoop', 'No overflow to deposit; checking if we need to withdraw anything');
+          }
+        } else {
+          logger.info('AgentLoop', 'No nearby chest — wandering to find storage');
+          movement.wander(12);
         }
         break;
       }
