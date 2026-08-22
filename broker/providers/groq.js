@@ -3,7 +3,8 @@ const logger = require('../../shared/logger');
 async function queryGroq(apiKey, prompt) {
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
 
-  logger.info('GroqProvider', 'Querying Groq API...');
+  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  logger.info('GroqProvider', `Querying Groq API with model: ${model}...`);
   const t0 = Date.now();
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -13,7 +14,7 @@ async function queryGroq(apiKey, prompt) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: model,
       messages: [{ role: 'user', content: prompt }]
     }),
     signal: AbortSignal.timeout(8000)
@@ -22,13 +23,15 @@ async function queryGroq(apiKey, prompt) {
   const latencyMs = Date.now() - t0;
 
   if (response.status === 429) {
-    const error = new Error('Groq API Rate Limit Exceeded (429)');
+    const errText = await response.text().catch(() => '');
+    const error = new Error(`Groq API Rate Limit Exceeded (429) | ${errText}`);
     error.status = 429;
     throw error;
   }
 
   if (!response.ok) {
-    throw new Error(`Groq API Error: ${response.statusText} (${response.status})`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Groq API Error HTTP ${response.status}: ${response.statusText} | ${errText}`);
   }
 
   const data = await response.json();
@@ -37,7 +40,7 @@ async function queryGroq(apiKey, prompt) {
 
   return {
     text,
-    model: data.model || 'llama-3.3-70b-versatile',
+    model: data.model || model,
     latencyMs,
     usage: {
       inputTokens: data.usage?.prompt_tokens ?? null,

@@ -3,10 +3,11 @@ const logger = require('../../shared/logger');
 async function queryGemini(apiKey, prompt) {
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-  logger.info('GeminiProvider', 'Querying Gemini Flash API...');
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  logger.info('GeminiProvider', `Querying Gemini API with model: ${model}...`);
   const t0 = Date.now();
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -19,13 +20,15 @@ async function queryGemini(apiKey, prompt) {
   const latencyMs = Date.now() - t0;
 
   if (response.status === 429) {
-    const error = new Error('Gemini API Rate Limit Exceeded (429)');
+    const errText = await response.text().catch(() => '');
+    const error = new Error(`Gemini API Rate Limit Exceeded (429) | ${errText}`);
     error.status = 429;
     throw error;
   }
 
   if (!response.ok) {
-    throw new Error(`Gemini API Error: ${response.statusText} (${response.status})`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Gemini API Error HTTP ${response.status}: ${response.statusText} | ${errText}`);
   }
 
   const data = await response.json();
@@ -34,7 +37,7 @@ async function queryGemini(apiKey, prompt) {
 
   return {
     text,
-    model: data.modelVersion || 'gemini-2.5-flash',
+    model: data.modelVersion || model,
     latencyMs,
     usage: {
       inputTokens: data.usageMetadata?.promptTokenCount ?? null,
