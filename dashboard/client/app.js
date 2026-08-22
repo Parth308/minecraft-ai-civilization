@@ -85,7 +85,10 @@
       decisions: renderDecisions,
       costs: renderCosts
     }[state.page];
-    root.innerHTML = fn ? fn() : '';
+    const html = fn ? fn() : '';
+    if (html !== null) {
+      root.innerHTML = html;
+    }
 
     if (state.page === 'overview' || state.page === 'world') {
       const newInput = document.getElementById('chat-input');
@@ -205,6 +208,48 @@
     const actionIcon = ACTION_ICONS[actionName] || '⚡';
     const posStr = targetAgent?.position ? `${targetAgent.position.x}, ${targetAgent.position.y}, ${targetAgent.position.z}` : '—';
 
+    // If world container and iframe already exist in DOM, perform non-destructive HUD update
+    const existingFrame = document.getElementById('world-stream-frame');
+    if (existingFrame && state.page === 'world') {
+      const overlay = document.getElementById('world-stream-overlay-box');
+      if (overlay) {
+        overlay.innerHTML = `
+          <span class="status-pill ${online ? 'ok' : 'err'}"></span>
+          <span>Tracking: <b style="color:var(--green)">${esc(currentTarget)}</b></span>
+          <span style="color:var(--text-faint)">|</span>
+          <span class="num">${posStr}</span>
+        `;
+      }
+      const telemetryBox = document.getElementById('world-telemetry-content');
+      if (telemetryBox && targetAgent) {
+        telemetryBox.innerHTML = `
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div class="action-banner">
+              <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
+              ${d ? sourceBadge(d) : ''}
+            </div>
+            <div class="stat-strip" style="margin-top:0">
+              <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
+              <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
+            </div>
+            <div class="vitals-grid">
+              ${statMeter('Health', '❤️', targetAgent.stats?.health ?? 20, 20, (targetAgent.stats?.health ?? 20) <= 6 ? 'red' : 'green')}
+              ${statMeter('Hunger', '🍖', targetAgent.stats?.hunger ?? 20, 20, (targetAgent.stats?.hunger ?? 20) <= 6 ? 'red' : 'amber')}
+            </div>
+            <div class="thought-bubble" style="margin-top:2px">
+              <span class="thought-tag">💭 THOUGHT PROCESS</span>
+              <div class="thought-content" style="font-size:12px">${esc(d?.reason || 'Navigating world…')}</div>
+            </div>
+          </div>
+        `;
+      }
+      const chatFeedEl = document.getElementById('world-chat-feed');
+      if (chatFeedEl) {
+        chatFeedEl.innerHTML = chatFeed(state.chat.slice(-20));
+      }
+      return null; // Signals render() that in-place DOM update was completed
+    }
+
     return `
       <div class="page-header">
         <div class="page-title">3D World View &amp; Spectator</div>
@@ -234,7 +279,7 @@
         <div class="world-main-grid">
           <!-- 3D Stream Viewport -->
           <div class="world-stream-card">
-            <div class="world-stream-overlay">
+            <div class="world-stream-overlay" id="world-stream-overlay-box">
               <span class="status-pill ${online ? 'ok' : 'err'}"></span>
               <span>Tracking: <b style="color:var(--green)">${esc(currentTarget)}</b></span>
               <span style="color:var(--text-faint)">|</span>
@@ -246,33 +291,31 @@
           <!-- Live Agent HUD & Chat Stream -->
           <div class="world-hud-card">
             <div class="subcard-title">Target Telemetry · ${esc(currentTarget)}</div>
-
-            ${targetAgent ? `
-              <div style="display:flex;flex-direction:column;gap:8px">
-                <div class="action-banner">
-                  <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
-                  ${d ? sourceBadge(d) : ''}
+            <div id="world-telemetry-content">
+              ${targetAgent ? `
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div class="action-banner">
+                    <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
+                    ${d ? sourceBadge(d) : ''}
+                  </div>
+                  <div class="stat-strip" style="margin-top:0">
+                    <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
+                    <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
+                  </div>
+                  <div class="vitals-grid">
+                    ${statMeter('Health', '❤️', targetAgent.stats?.health ?? 20, 20, (targetAgent.stats?.health ?? 20) <= 6 ? 'red' : 'green')}
+                    ${statMeter('Hunger', '🍖', targetAgent.stats?.hunger ?? 20, 20, (targetAgent.stats?.hunger ?? 20) <= 6 ? 'red' : 'amber')}
+                  </div>
+                  <div class="thought-bubble" style="margin-top:2px">
+                    <span class="thought-tag">💭 THOUGHT PROCESS</span>
+                    <div class="thought-content" style="font-size:12px">${esc(d?.reason || 'Navigating world…')}</div>
+                  </div>
                 </div>
-
-                <div class="stat-strip" style="margin-top:0">
-                  <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
-                  <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
-                </div>
-
-                <div class="vitals-grid">
-                  ${statMeter('Health', '❤️', targetAgent.stats?.health ?? 20, 20, (targetAgent.stats?.health ?? 20) <= 6 ? 'red' : 'green')}
-                  ${statMeter('Hunger', '🍖', targetAgent.stats?.hunger ?? 20, 20, (targetAgent.stats?.hunger ?? 20) <= 6 ? 'red' : 'amber')}
-                </div>
-
-                <div class="thought-bubble" style="margin-top:2px">
-                  <span class="thought-tag">💭 THOUGHT PROCESS</span>
-                  <div class="thought-content" style="font-size:12px">${esc(d?.reason || 'Navigating world…')}</div>
-                </div>
-              </div>
-            ` : '<div class="empty-state">Waiting for target data…</div>'}
+              ` : '<div class="empty-state">Waiting for target data…</div>'}
+            </div>
 
             <div class="subcard-title" style="margin-top:6px">In-Game Chat &amp; Operator</div>
-            <div class="chat-feed" id="chat-feed" style="max-height:160px" role="log">${chatFeed(state.chat.slice(-20))}</div>
+            <div class="chat-feed" id="world-chat-feed" style="max-height:160px" role="log">${chatFeed(state.chat.slice(-20))}</div>
             <form class="chat-input-row" id="chat-form" onsubmit="return false;">
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
               <button class="btn btn-send" id="chat-send-btn" type="button">Send</button>
