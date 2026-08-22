@@ -26,14 +26,14 @@ class DynamicRuleEngine {
       id: ruleId,
       patternSituation: situationName,
       action: action,
-      confidence: 0.85,
+      confidence: 0.72, // Soft learned preference that still allows LLM escalation when needed
       reason: `Learned from Broker LLM: ${decisionData.reason || 'Replicated decision'}`,
       hitCount: 1,
       createdAt: new Date().toISOString()
     };
 
     this.learnedRules.push(newRule);
-    logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: 0.85)`);
+    logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: 0.72)`);
 
     // If tactic statement is returned, record it as a durable skill memory
     if (decisionData.tacticLearned && this.memoryClient) {
@@ -49,9 +49,30 @@ class DynamicRuleEngine {
     const candidateActions = [];
 
     for (const rule of this.learnedRules) {
+      let conf = rule.confidence;
+      let targetMeta = {};
+
+      // Context-aware validation for learned rules
+      if (rule.action === 'MINE') {
+        const nearbyBlock = senses.getNearbyBlock('iron_ore', 16) ||
+                            senses.getNearbyBlock('coal_ore', 16) ||
+                            senses.getNearbyBlock('log', 24) ||
+                            senses.getNearbyBlock('stone', 8);
+        if (!nearbyBlock) {
+          conf = 0.10; // No valid target nearby
+        } else {
+          targetMeta = { targetBlock: nearbyBlock };
+        }
+      } else if (rule.action === 'CRAFT') {
+        if (!senses.hasItem('log') && !senses.hasItem('oak_planks') && !senses.hasItem('cobblestone')) {
+          conf = 0.10;
+        }
+      }
+
       candidateActions.push({
         name: rule.action,
-        confidence: rule.confidence,
+        confidence: conf,
+        meta: targetMeta,
         reason: `[Dynamic Learned Rule: ${rule.id}] ${rule.reason}`,
         isDynamic: true
       });

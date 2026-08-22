@@ -360,6 +360,9 @@ function createAgent() {
           if (success) {
             eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
           }
+        } else {
+          logger.info('AgentLoop', 'No mining block in direct vicinity — wandering to scout new terrain');
+          movement.wander(16);
         }
         break;
       }
