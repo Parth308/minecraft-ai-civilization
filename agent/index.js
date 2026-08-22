@@ -389,9 +389,11 @@ function createAgent() {
   });
 
   events.on('playerChat', async ({ username, message }) => {
-    // Capture in recentChat buffer for dashboard
-    agentState.recentChat.push({ username, message, timestamp: new Date().toISOString() });
-    if (agentState.recentChat.length > 50) agentState.recentChat.shift();
+    // Only capture own messages or human/operator messages in recentChat to avoid cross-agent echo duplicates
+    if (username === bot.username || username.toLowerCase() === 'operator' || !username.startsWith('Agent_')) {
+      agentState.recentChat.push({ username, message, timestamp: new Date().toISOString() });
+      if (agentState.recentChat.length > 50) agentState.recentChat.shift();
+    }
 
     eventBuffer.addEvent('playerChat', { username, message });
 

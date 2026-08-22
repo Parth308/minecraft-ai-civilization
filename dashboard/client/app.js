@@ -678,10 +678,20 @@
       case 'chat_history':
         state.chat = data.messages || [];
         break;
-      case 'chat_message':
-        state.chat.push(data);
-        if (state.chat.length > 120) state.chat.shift();
+      case 'chat_message': {
+        const user = (data.username || data.agentUsername || '').trim();
+        const text = (data.message || '').trim();
+        const isDup = state.chat.slice(-10).some(m => {
+          const mUser = (m.username || m.agentUsername || '').trim();
+          const mText = (m.message || '').trim();
+          return mUser === user && mText === text;
+        });
+        if (!isDup) {
+          state.chat.push(data);
+          if (state.chat.length > 120) state.chat.shift();
+        }
         break;
+      }
       default: return;
     }
     setSvc('svc-broker', state.broker?.status === 'ok');

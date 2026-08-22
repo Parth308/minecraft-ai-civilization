@@ -72,11 +72,24 @@ class Aggregator {
       lastSeen: Date.now()
     });
 
+    // Check if we already have an endpoint for this name with a different URL, replace it to avoid duplicate polling
+    for (const [key, ep] of this.agentEndpoints.entries()) {
+      if (ep.name === cleanName && key !== cleanUrl) {
+        this.agentEndpoints.delete(key);
+      }
+    }
+
+    const existing = this.agentEndpoints.get(cleanUrl);
+    this.agentEndpoints.set(cleanUrl, {
+      name: cleanName,
+      url: cleanUrl,
+      dynamic: true,
+      lastSeen: Date.now()
+    });
+
     if (!existing) {
       logger.info('Aggregator', `[Auto-Discovery] Registered new agent: "${cleanName}" at ${cleanUrl}`);
     }
-    // Poll immediately
-    this._pollAgentEndpoint({ name: cleanName, url: cleanUrl });
     return true;
   }
 
@@ -117,7 +130,22 @@ class Aggregator {
   }
 
   pushChat(msg) {
-    const entry = { ...msg, timestamp: msg.timestamp || new Date().toISOString() };
+    const user = (msg.username || msg.agentUsername || 'Unknown').trim();
+    const text = (msg.message || '').trim();
+    if (!text) return;
+    const now = Date.now();
+
+    // Deduplicate: check if same user sent same message within 4 seconds
+    const isDup = this.chatHistory.slice(-15).some(m => {
+      const mUser = (m.username || m.agentUsername || 'Unknown').trim();
+      const mText = (m.message || '').trim();
+      const mTime = new Date(m.timestamp).getTime();
+      return mUser === user && mText === text && Math.abs(now - mTime) < 4000;
+    });
+
+    if (isDup) return; // Drop duplicate echo!
+
+    const entry = { ...msg, username: user, message: text, timestamp: msg.timestamp || new Date().toISOString() };
     this.chatHistory.push(entry);
     if (this.chatHistory.length > 100) this.chatHistory.shift();
     this.broadcast('chat_message', entry);
