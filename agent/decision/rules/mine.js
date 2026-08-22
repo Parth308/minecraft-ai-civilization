@@ -38,13 +38,38 @@ function evaluateMine(senses, stats) {
     }
   }
 
-  // Priority 2: High-value ores (Iron, Coal, Copper, Gold, Diamond) — always mine valuable ores!
+  const hasIronPickOrBetter = senses.hasItem('iron_pickaxe') ||
+                              senses.hasItem('diamond_pickaxe') ||
+                              senses.hasItem('netherite_pickaxe');
+
+  const hasStonePickOrBetter = hasIronPickOrBetter || senses.hasItem('stone_pickaxe');
+
+  // Priority 2: High-value ores with tool tier prerequisites
   if (hasPickaxe && stats.health > 10 && stats.fatigue < 70 && stats.hunger > 20) {
-    const valuableOre = senses.getNearbyBlock('diamond_ore', 20) ||
-                        senses.getNearbyBlock('iron_ore', 16) ||
-                        senses.getNearbyBlock('gold_ore', 16) ||
-                        senses.getNearbyBlock('coal_ore', 16) ||
-                        senses.getNearbyBlock('copper_ore', 16);
+    let valuableOre = null;
+
+    // Diamond, Gold, Redstone, Emerald need Iron+ pickaxe
+    if (hasIronPickOrBetter) {
+      valuableOre = senses.getNearbyBlock('diamond_ore', 20) ||
+                    senses.getNearbyBlock('deepslate_diamond_ore', 20) ||
+                    senses.getNearbyBlock('gold_ore', 16) ||
+                    senses.getNearbyBlock('emerald_ore', 16) ||
+                    senses.getNearbyBlock('redstone_ore', 16);
+    }
+
+    // Iron and Coal can be mined with Stone+ pickaxe
+    if (!valuableOre && hasStonePickOrBetter) {
+      valuableOre = senses.getNearbyBlock('iron_ore', 20) ||
+                    senses.getNearbyBlock('deepslate_iron_ore', 20) ||
+                    senses.getNearbyBlock('copper_ore', 16);
+    }
+
+    // Coal can be mined with any pickaxe
+    if (!valuableOre) {
+      valuableOre = senses.getNearbyBlock('coal_ore', 16) ||
+                    senses.getNearbyBlock('deepslate_coal_ore', 16);
+    }
+
     if (valuableOre) {
       return {
         name: ACTIONS.MINE,
@@ -54,6 +79,7 @@ function evaluateMine(senses, stats) {
       };
     }
   }
+
 
   // Priority 3: Initial Cobblestone gathering (only if we have less than 16 cobblestone)
   if (hasPickaxe && cobbleCount < 16 && stats.health > 12 && stats.fatigue < 70) {
