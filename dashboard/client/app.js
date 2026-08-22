@@ -596,16 +596,21 @@
         <thead><tr>
           <th>Time</th><th>Agent</th><th>Source</th><th>Action</th>
           ${compact ? '' : '<th>Provider / Model</th>'}
+          <th>AI Reasoning &amp; Model Output</th>
           <th>Tokens</th><th>Cost</th><th>Latency</th>
         </tr></thead>
         <tbody>
           ${rows.map(e => `
             <tr>
               <td class="num" style="color:var(--text-faint)">${timeOf(e.ts)}</td>
-              <td>${esc(e.agentId)}</td>
+              <td><b>${esc(e.agentId)}</b></td>
               <td>${sourceBadge(e)}</td>
               <td><b class="mono">${esc(e.action || '—')}</b></td>
-              ${compact ? '' : `<td>${e.provider ? `<span style="color:var(--amber)">${esc(e.provider)}</span>` : '<span style="color:var(--text-faint)">—</span>'} ${e.model ? `<span style="color:var(--text-faint);font-size:11px">${esc(e.model)}</span>` : ''}</td>`}
+              ${compact ? '' : `<td>${e.provider ? `<span style="color:var(--amber)">${esc(e.provider)}</span>` : '<span style="color:var(--text-faint)">—</span>'} ${e.model ? `<div style="color:var(--text-faint);font-size:11px">${esc(e.model.split('/').pop())}</div>` : ''}</td>`}
+              <td style="font-size:12px;max-width:320px;color:var(--text-dim);word-break:break-word">
+                ${esc(e.reason || '—')}
+                ${e.webKnowledgeUsed ? ' <span class="badge badge-cache" style="font-size:9.5px">🌐 Wiki</span>' : ''}
+              </td>
               <td class="num">${e.source === 'llm' ? `${fmtInt(e.inputTokens)}/${fmtInt(e.outputTokens)}` : '—'}</td>
               <td class="num">${e.costUsd > 0 ? fmtCost(e.costUsd) : e.source === 'llm' ? '$0*' : '—'}</td>
               <td class="num">${e.latencyMs ? fmtMs(e.latencyMs) : '—'}</td>

@@ -23,8 +23,10 @@ function evaluateMine(senses, stats) {
                      senses.countItem('birch_planks') +
                      senses.countItem('spruce_planks');
 
-  // Priority 1: Bootstrap wood gathering (< 16 wood materials) — always chop trees first
-  if (logCount + plankCount < 16 && stats.health > 8) {
+  const cobbleCount = senses.countItem('cobblestone') + senses.countItem('cobbled_deepslate');
+
+  // Priority 1: Bootstrap wood gathering (< 8 wood materials) — gather essential wood for crafting
+  if (logCount + plankCount < 8 && stats.health > 8) {
     const tree = senses.getNearbyBlock('log', 32);
     if (tree) {
       return {
@@ -36,28 +38,41 @@ function evaluateMine(senses, stats) {
     }
   }
 
-  // Priority 2: Routine resource mining (ONLY if bot has a pickaxe!)
-  // In Minecraft, mining stone/ore by hand drops NOTHING and wastes time!
-  if (hasPickaxe && stats.health > 12 && stats.fatigue < 70 && stats.hunger > 30) {
-    const targetBlock = senses.getNearbyBlock('iron_ore', 16) ||
+  // Priority 2: High-value ores (Iron, Coal, Copper, Gold, Diamond) — always mine valuable ores!
+  if (hasPickaxe && stats.health > 10 && stats.fatigue < 70 && stats.hunger > 20) {
+    const valuableOre = senses.getNearbyBlock('diamond_ore', 20) ||
+                        senses.getNearbyBlock('iron_ore', 16) ||
+                        senses.getNearbyBlock('gold_ore', 16) ||
                         senses.getNearbyBlock('coal_ore', 16) ||
-                        senses.getNearbyBlock('copper_ore', 16) ||
-                        senses.getNearbyBlock('stone', 12) ||
-                        senses.getNearbyBlock('deepslate', 12);
-    if (targetBlock) {
+                        senses.getNearbyBlock('copper_ore', 16);
+    if (valuableOre) {
       return {
         name: ACTIONS.MINE,
-        confidence: 0.82,
-        targetBlock,
-        reason: `Mining ${targetBlock.name} with pickaxe`
+        confidence: 0.88,
+        targetBlock: valuableOre,
+        reason: `Mining valuable resource: ${valuableOre.name}`
       };
     }
   }
 
+  // Priority 3: Initial Cobblestone gathering (only if we have less than 16 cobblestone)
+  if (hasPickaxe && cobbleCount < 16 && stats.health > 12 && stats.fatigue < 70) {
+    const stoneBlock = senses.getNearbyBlock('stone', 12) || senses.getNearbyBlock('deepslate', 12);
+    if (stoneBlock) {
+      return {
+        name: ACTIONS.MINE,
+        confidence: 0.75,
+        targetBlock: stoneBlock,
+        reason: `Mining stone for tool upgrades (have ${cobbleCount}/16 cobblestone)`
+      };
+    }
+  }
+
+  // Once basic materials are gathered, drop mining confidence so LLM/social/building takes over!
   return {
     name: ACTIONS.MINE,
     confidence: 0.10,
-    reason: hasPickaxe ? 'No mining targets nearby' : 'Cannot mine stone/ores without a pickaxe — find wood first'
+    reason: hasPickaxe ? 'Sufficient stone gathered; ready for higher-level civilization tasks' : 'Cannot mine stone without pickaxe'
   };
 }
 
