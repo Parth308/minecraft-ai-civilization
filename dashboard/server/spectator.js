@@ -101,6 +101,10 @@ class SpectatorManager {
       await this.rcon.send(`gamemode spectator ${SPECTATOR_NAME}`);
       logger.info('Spectator', `Set ${SPECTATOR_NAME} to spectator mode`);
 
+      // Ensure full invisibility and silent no-particle stealth
+      await this.rcon.send(`effect give ${SPECTATOR_NAME} minecraft:invisibility infinite 1 true`);
+      logger.info('Spectator', `Granted permanent silent invisibility to ${SPECTATOR_NAME}`);
+
       // Teleport to first known agent if any
       if (this.onlineAgents.length > 0) {
         const first = this.onlineAgents[0];
