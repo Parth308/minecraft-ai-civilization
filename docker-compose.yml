@@ -112,6 +112,7 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       GROQ_API_KEY: "${GROQ_API_KEY}"
+      GROQ_MODEL: "${GROQ_MODEL:-llama-3.3-70b-versatile}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
       NVIDIA_MODEL: "${NVIDIA_MODEL:-meta/llama-3.1-8b-instruct}"
       CEREBRAS_API_KEY: "${CEREBRAS_API_KEY}"

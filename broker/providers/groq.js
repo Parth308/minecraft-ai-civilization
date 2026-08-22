@@ -3,7 +3,7 @@ const logger = require('../../shared/logger');
 async function queryGroq(apiKey, prompt) {
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
 
-  const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
   logger.info('GroqProvider', `Querying Groq API with model: ${model}...`);
   const t0 = Date.now();
 

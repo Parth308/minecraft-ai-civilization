@@ -119,9 +119,9 @@ class SpectatorManager {
     if (this.viewerStarted || !prismarineViewer || !this.bot) return;
     try {
       this._cleanupViewer();
-      prismarineViewer(this.bot, { port: VIEWER_PORT, firstPerson: false });
+      prismarineViewer(this.bot, { port: VIEWER_PORT, firstPerson: true, viewDistance: 6 });
       this.viewerStarted = true;
-      logger.info('Spectator', `World viewer started on internal port ${VIEWER_PORT}`);
+      logger.info('Spectator', `World viewer started in first-person POV on internal port ${VIEWER_PORT}`);
     } catch (err) {
       logger.error('Spectator', `Failed to start viewer: ${err.message}`);
     }
