@@ -229,7 +229,7 @@
               <span style="color:var(--text-faint)">|</span>
               <span class="num">${posStr}</span>
             </div>
-            <iframe id="world-stream-frame" src="/viewer/agent/${encodeURIComponent(currentTarget)}/" class="world-iframe" title="Minecraft 3D Agent POV Stream"></iframe>
+            <iframe id="world-stream-frame" src="/viewer/" class="world-iframe" title="Minecraft 3D World View"></iframe>
           </div>
 
           <!-- Live Agent HUD & Chat Stream -->
@@ -704,10 +704,6 @@
   window.spectateAgent = function(agentName) {
     if (!agentName) return;
     state.spectateTarget = agentName;
-    const frame = document.getElementById('world-stream-frame');
-    if (frame) {
-      frame.src = `/viewer/agent/${encodeURIComponent(agentName)}/?t=` + Date.now();
-    }
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'spectate_agent', agentId: agentName }));
     }
@@ -717,8 +713,7 @@
   window.reloadWorldViewer = function() {
     const frame = document.getElementById('world-stream-frame');
     if (frame) {
-      const target = state.spectateTarget || 'Agent_Alpha';
-      frame.src = `/viewer/agent/${encodeURIComponent(target)}/?t=` + Date.now();
+      frame.src = '/viewer/?t=' + Date.now();
     }
   };
 
