@@ -31,7 +31,7 @@ class DecisionTree {
       evaluateMine(senses, stats),
       evaluateExplore(senses, stats),
       evaluateTrade(senses, stats),
-      evaluateTalk(senses, stats)
+      evaluateTalk(senses, stats, persona)
     ];
 
     // Include dynamically learned rules

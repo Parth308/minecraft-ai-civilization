@@ -448,6 +448,7 @@ function createAgent() {
       case ACTIONS.TALK:
       case 'TALK': {
         // Always escalate TALK to LLM for authentic personality-driven speech
+        require('./decision/rules/talk').markTalkExecuted();
         const talkPartner = decision.meta?.partner ||
           (senses.getNearbyPlayers(32)?.[0]?.username) ||
           (bot.players ? Object.keys(bot.players).filter(n => n !== bot.username)[0] : null);
@@ -661,7 +662,7 @@ function createAgent() {
 
     // Look for who hit us (nearest player or mob within 5 blocks)
     const nearby = senses.getNearbyPlayers(5);
-    const nearbyMobs = senses.getNearbyHostiles(5);
+    const nearbyMobs = senses.getNearbyHostileMobs(5);
 
     if (nearby && nearby.length > 0) {
       const attacker = nearby[0];
@@ -727,6 +728,11 @@ function createAgent() {
   events.on('playerJoined', ({ username }) => {
     detailedLogger.logSenses(bot.username, `Player joined server: ${username}`);
     eventBuffer.addEvent('playerJoined', { username });
+    // Casual greeting to joining player (if not an agent) with cooldown
+    if (username !== bot.username && !username.startsWith('Agent_') && Date.now() - lastOutgoingChat > 4000) {
+      lastOutgoingChat = Date.now();
+      setTimeout(() => chat.say(`Hey ${username}! Welcome.`), 1200 + Math.random() * 1000);
+    }
   });
 
   events.on('playerLeft', ({ username }) => {
@@ -763,6 +769,13 @@ function createAgent() {
   events.on('blockBroken', ({ blockName, position }) => {
     detailedLogger.logInventory(bot.username, `Block Excavation Completed: ${blockName}`, { position });
     eventBuffer.addEvent('blockBroken', { blockName, position });
+    // Spontaneous celebratory chat when striking valuable ores
+    const rareOres = ['diamond_ore', 'deepslate_diamond_ore', 'ancient_debris', 'gold_ore', 'emerald_ore'];
+    if (rareOres.some(r => blockName.includes(r)) && Date.now() - lastOutgoingChat > 5000) {
+      lastOutgoingChat = Date.now();
+      const oreClean = blockName.replace(/_/g, ' ');
+      setTimeout(() => chat.say(`Found some ${oreClean}! Let's go!`), 600);
+    }
   });
 
   events.on('weatherChanged', ({ isRaining }) => {
