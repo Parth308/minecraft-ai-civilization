@@ -11,6 +11,8 @@
     broker: null,
     memoryService: null,
     brokerStats: null,
+    spectator: null,
+    spectateTarget: null,
     chat: [],
     wsOnline: false
   };
@@ -73,10 +75,16 @@
     const wasFocused = input && document.activeElement === input;
     if (input) draftChat = input.value;
 
-    const fn = { overview: renderOverview, agents: renderAgents, decisions: renderDecisions, costs: renderCosts }[state.page];
+    const fn = {
+      overview: renderOverview,
+      world: renderWorld,
+      agents: renderAgents,
+      decisions: renderDecisions,
+      costs: renderCosts
+    }[state.page];
     root.innerHTML = fn ? fn() : '';
 
-    if (state.page === 'overview') {
+    if (state.page === 'overview' || state.page === 'world') {
       const newInput = document.getElementById('chat-input');
       if (newInput) {
         if (draftChat) newInput.value = draftChat;
@@ -129,10 +137,13 @@
           <div class="kpi-value green">$0.00</div>
           <div class="kpi-sub">${s?.freeTierMode ? `100% Free Tier · ${fmtCost(t.savedUsd)} saved` : `${fmtCost(t.costUsd)} spend`}</div>
         </div>
-        <div class="card">
-          <div class="kpi-label">Rate Limits</div>
-          <div class="kpi-value ${rlHits > 0 ? 'red' : ''}">${fmtInt(rlHits)}</div>
-          <div class="kpi-sub">${blocked} provider${blocked === 1 ? '' : 's'} cooling down</div>
+        <div class="card" style="cursor:pointer" onclick="window.spectateAgent('${esc(state.agents[0]?.username || 'Agent_Alpha')}')">
+          <div class="kpi-label">3D World View</div>
+          <div class="kpi-value" style="font-size:20px;display:flex;align-items:center;gap:6px">
+            <span class="status-pill ${state.spectator?.online ? 'ok' : 'err'}"></span>
+            <span style="color:var(--text)">${state.spectator?.online ? 'Live Stream' : 'Standby'}</span>
+          </div>
+          <div class="kpi-sub" style="color:var(--green)">Click to watch 3D feed →</div>
         </div>
       </div>
 
@@ -163,6 +174,94 @@
           <div class="section-title" style="margin-top:0">Global Chat</div>
           <div class="card" style="display:flex;flex-direction:column;gap:10px">
             <div class="chat-feed" id="chat-feed" role="log">${chatFeed(state.chat.slice(-40))}</div>
+            <form class="chat-input-row" id="chat-form" onsubmit="return false;">
+              <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
+              <button class="btn btn-send" id="chat-send-btn" type="button">Send</button>
+            </form>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Page: 3D World View & Spectator ───────────────────────────────
+  function renderWorld() {
+    const spec = state.spectator || {};
+    const online = !!spec.online;
+    const currentTarget = state.spectateTarget || spec.currentTarget || (state.agents[0]?.username || 'Agent_Alpha');
+    const targetAgent = state.agents.find(a => a.username === currentTarget) || state.agents[0] || null;
+    const d = targetAgent?.lastDecision;
+    const actionName = (d?.action || 'IDLE').toUpperCase();
+    const actionIcon = ACTION_ICONS[actionName] || '⚡';
+    const posStr = targetAgent?.position ? `${targetAgent.position.x}, ${targetAgent.position.y}, ${targetAgent.position.z}` : '—';
+
+    return `
+      <div class="page-header">
+        <div class="page-title">3D World View &amp; Spectator</div>
+        <div class="page-desc">Live real-time 3D Prismarine viewport rendered from SpectatorBot in Minecraft</div>
+      </div>
+
+      <div class="world-container">
+        <!-- Control Toolbar -->
+        <div class="world-header-toolbar">
+          <div class="spectator-targets-wrap">
+            <span style="font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em">Spectate Target:</span>
+            ${state.agents.length === 0 ? '<span style="font-size:12px;color:var(--text-faint)">No active agents</span>' : state.agents.map(a => `
+              <button class="spectator-target-btn ${a.username === currentTarget ? 'active' : ''}" onclick="window.spectateAgent('${esc(a.username)}')">
+                <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
+                <span>▶ ${esc(a.username)}</span>
+              </button>
+            `).join('')}
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="badge ${online ? 'badge-online' : 'badge-offline'}">${online ? 'SPECTATOR READY' : 'SPECTATOR CONNECTING'}</span>
+            <button class="btn btn-spectate" onclick="window.reloadWorldViewer()">↻ Reload Stream</button>
+          </div>
+        </div>
+
+        <!-- Main Stream & Live HUD Grid -->
+        <div class="world-main-grid">
+          <!-- 3D Stream Viewport -->
+          <div class="world-stream-card">
+            <div class="world-stream-overlay">
+              <span class="status-pill ${online ? 'ok' : 'err'}"></span>
+              <span>Tracking: <b style="color:var(--green)">${esc(currentTarget)}</b></span>
+              <span style="color:var(--text-faint)">|</span>
+              <span class="num">${posStr}</span>
+            </div>
+            <iframe id="world-stream-frame" src="/viewer/" class="world-iframe" title="Minecraft 3D World View"></iframe>
+          </div>
+
+          <!-- Live Agent HUD & Chat Stream -->
+          <div class="world-hud-card">
+            <div class="subcard-title">Target Telemetry · ${esc(currentTarget)}</div>
+
+            ${targetAgent ? `
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div class="action-banner">
+                  <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
+                  ${d ? sourceBadge(d) : ''}
+                </div>
+
+                <div class="stat-strip" style="margin-top:0">
+                  <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
+                  <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
+                </div>
+
+                <div class="vitals-grid">
+                  ${statMeter('Health', '❤️', targetAgent.stats?.health ?? 20, 20, (targetAgent.stats?.health ?? 20) <= 6 ? 'red' : 'green')}
+                  ${statMeter('Hunger', '🍖', targetAgent.stats?.hunger ?? 20, 20, (targetAgent.stats?.hunger ?? 20) <= 6 ? 'red' : 'amber')}
+                </div>
+
+                <div class="thought-bubble" style="margin-top:2px">
+                  <span class="thought-tag">💭 THOUGHT PROCESS</span>
+                  <div class="thought-content" style="font-size:12px">${esc(d?.reason || 'Navigating world…')}</div>
+                </div>
+              </div>
+            ` : '<div class="empty-state">Waiting for target data…</div>'}
+
+            <div class="subcard-title" style="margin-top:6px">In-Game Chat &amp; Operator</div>
+            <div class="chat-feed" id="chat-feed" style="max-height:160px" role="log">${chatFeed(state.chat.slice(-20))}</div>
             <form class="chat-input-row" id="chat-form" onsubmit="return false;">
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
               <button class="btn btn-send" id="chat-send-btn" type="button">Send</button>
@@ -278,7 +377,10 @@
               <span class="agent-name">${esc(a.username)}</span>
               ${personaSeed ? `<span class="persona-badge">🧬 ${esc(personaSeed)}</span>` : ''}
             </div>
-            <span class="badge ${a.online ? 'badge-online' : 'badge-offline'}">${a.online ? 'ONLINE' : 'OFFLINE'}</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="btn-spectate" onclick="window.spectateAgent('${esc(a.username)}')">🎥 Spectate</button>
+              <span class="badge ${a.online ? 'badge-online' : 'badge-offline'}">${a.online ? 'ONLINE' : 'OFFLINE'}</span>
+            </div>
           </div>
 
           <div class="agent-meta-ribbon">
@@ -543,10 +645,17 @@
         state.broker = data.broker || null;
         state.memoryService = data.memoryService || null;
         state.brokerStats = data.brokerStats || state.brokerStats;
+        state.spectator = data.spectator || null;
         state.agents = Array.isArray(data.agents) ? data.agents : [];
+        if (!state.spectateTarget && state.agents.length > 0) {
+          state.spectateTarget = state.agents[0].username;
+        }
         break;
       case 'agents_state':
         state.agents = Array.isArray(data) ? data : [];
+        if (!state.spectateTarget && state.agents.length > 0) {
+          state.spectateTarget = state.agents[0].username;
+        }
         break;
       case 'service_health':
         state.broker = data.broker || state.broker;
@@ -554,6 +663,12 @@
         break;
       case 'broker_stats':
         state.brokerStats = data;
+        break;
+      case 'spectator_state':
+        state.spectator = data;
+        break;
+      case 'spectate_ack':
+        if (data?.agentId) state.spectateTarget = data.agentId;
         break;
       case 'chat_history':
         state.chat = data.messages || [];
@@ -566,8 +681,26 @@
     }
     setSvc('svc-broker', state.broker?.status === 'ok');
     setSvc('svc-memory', state.memoryService?.status === 'ok');
+    setSvc('svc-spectator', state.spectator?.online && state.spectator?.viewerReady);
     render();
   }
+
+  // ── Global Actions ─────────────────────────────────────────────────
+  window.spectateAgent = function(agentName) {
+    if (!agentName) return;
+    state.spectateTarget = agentName;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'spectate_agent', agentId: agentName }));
+    }
+    setPage('world');
+  };
+
+  window.reloadWorldViewer = function() {
+    const frame = document.getElementById('world-stream-frame');
+    if (frame) {
+      frame.src = '/viewer/?t=' + Date.now();
+    }
+  };
 
   // ── Operator Chat ──────────────────────────────────────────────────
   async function sendOperatorChat() {

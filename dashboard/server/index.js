@@ -184,8 +184,8 @@ async function boot() {
 
 // Handle prismarine-viewer WS upgrade via the proxy
 server.on('upgrade', (req, socket, head) => {
-  if (req.url.startsWith('/viewer')) {
-    // Let http-proxy-middleware handle WS upgrades for viewer
+  if (req.url.startsWith('/viewer') || req.url.startsWith('/socket.io')) {
+    // Let http-proxy-middleware handle WS upgrades for viewer and socket.io
   } else if (req.url === '/ws' || req.url === '/' || req.url.startsWith('/ws?')) {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
