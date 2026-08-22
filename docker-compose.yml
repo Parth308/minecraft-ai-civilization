@@ -12,6 +12,7 @@ services:
       ONLINE_MODE: "FALSE"
       MEMORY: "2G"
       SPAWN_PROTECTION: "0"
+      SEED: "${MC_SEED:-}"
       ENABLE_RCON: "true"
       RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       RCON_PORT: "25575"
@@ -189,6 +190,40 @@ services:
       BROKER_URL: "http://brain-broker:3001"
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_PORT: "3011"
+    depends_on:
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-gamma:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-gamma
+    expose:
+      - "3012"   # /status endpoint for dashboard
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Gamma"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "shrewd-trader"
+      CONFIDENCE_THRESHOLD: "0.6"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_PORT: "3012"
     depends_on:
       minecraft-server:
         condition: service_started
