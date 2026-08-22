@@ -177,28 +177,22 @@ class ProviderRouter {
   }
 
   getPreferredProviders(taskType = 'REASONING') {
-    // Ultra-fast LPU / low-latency inference providers first
-    let baseOrder = ['Groq', 'Gemini', 'Cerebras', 'Agnes', 'LLM7', 'OpenRouter', 'Nvidia'];
-
-    if (taskType === 'CHAT' || taskType === 'REFLEX' || taskType === 'SOCIAL_CHAT') {
-      baseOrder = ['Groq', 'Cerebras', 'Agnes', 'LLM7', 'Gemini', 'OpenRouter', 'Nvidia'];
-    } else if (taskType === 'REASONING' || taskType === 'EMOTION' || taskType === 'REFLECTION') {
-      baseOrder = ['Gemini', 'Groq', 'Agnes', 'Cerebras', 'LLM7', 'OpenRouter', 'Nvidia'];
-    }
+    // Ultra-fast LPU / high-bandwidth inference providers first
+    const baseOrder = ['Groq', 'LLM7', 'Nvidia', 'Agnes', 'Gemini', 'OpenRouter', 'Cerebras'];
 
     // Filter to configured, non-rate-limited providers
     const active = baseOrder
       .map(name => this.providerMap[name])
       .filter(p => p && p.key && !this.rateLimiter.isBlocked(p.name));
 
-    // Dynamic latency-aware sorting: deprioritize any provider with avgLatency > 5000ms
-    return active.sort((a, b) => {
-      const latA = this.stats[a.name]?.avgLatencyMs || 0;
-      const latB = this.stats[b.name]?.avgLatencyMs || 0;
-      const penaltyA = latA > 5000 ? 10000 : 0;
-      const penaltyB = latB > 5000 ? 10000 : 0;
-      return (latA + penaltyA) - (latB + penaltyB);
-    });
+    if (active.length <= 1) return active;
+
+    // Multi-agent round-robin rotation to distribute load evenly across free tier providers
+    if (this._rrIndex == null) this._rrIndex = 0;
+    this._rrIndex = (this._rrIndex + 1) % active.length;
+
+    // Rotate array starting from the current round-robin index
+    return [...active.slice(this._rrIndex), ...active.slice(0, this._rrIndex)];
   }
 
   async fetchRelevantMemories(agentId, situation) {

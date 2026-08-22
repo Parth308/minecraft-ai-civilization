@@ -201,13 +201,15 @@ function createAgent() {
         timeOfDay: senses.getTimeOfDay()
       });
 
-      // Main Agent Loop (Tick-based)
-      tickInterval = setInterval(async () => {
-        if (inFlightTick) return;
-        inFlightTick = true;
+      // Main Agent Loop (Tick-based with agent-staggered start to prevent API congestion)
+      const staggerDelay = config.username === 'Agent_Alpha' ? 0 : config.username === 'Agent_Beta' ? 350 : 700;
+      setTimeout(() => {
+        tickInterval = setInterval(async () => {
+          if (inFlightTick) return;
+          inFlightTick = true;
 
-        try {
-          // 1. Sync MC stats
+          try {
+            // 1. Sync MC stats
           stats.updateHealth(bot.health);
           stats.updateHungerFromMC(bot.food);
 
