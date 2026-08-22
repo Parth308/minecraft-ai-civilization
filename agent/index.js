@@ -287,6 +287,7 @@ function createAgent() {
           inFlightTick = false;
         }
       }, 1000);
+      }, staggerDelay);
     } catch (spawnErr) {
       logger.error('AgentSpawn', 'Error during agent spawn initialization:', spawnErr);
     }
