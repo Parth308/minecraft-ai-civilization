@@ -3,7 +3,8 @@ const logger = require('../../shared/logger');
 async function queryCerebras(apiKey, prompt) {
   if (!apiKey) throw new Error('CEREBRAS_API_KEY is not configured');
 
-  logger.info('CerebrasProvider', 'Querying Cerebras API...');
+  const model = process.env.CEREBRAS_MODEL || 'llama3.1-8b';
+  logger.info('CerebrasProvider', `Querying Cerebras API with model: ${model}...`);
   const t0 = Date.now();
 
   const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
@@ -13,7 +14,7 @@ async function queryCerebras(apiKey, prompt) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'llama3.1-8b',
+      model: model,
       messages: [{ role: 'user', content: prompt }]
     }),
     signal: AbortSignal.timeout(8000)
@@ -22,13 +23,15 @@ async function queryCerebras(apiKey, prompt) {
   const latencyMs = Date.now() - t0;
 
   if (response.status === 429) {
-    const error = new Error('Cerebras API Rate Limit Exceeded (429)');
+    const errText = await response.text().catch(() => '');
+    const error = new Error(`Cerebras API Rate Limit Exceeded (429) | ${errText}`);
     error.status = 429;
     throw error;
   }
 
   if (!response.ok) {
-    throw new Error(`Cerebras API Error: ${response.statusText} (${response.status})`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Cerebras API Error HTTP ${response.status}: ${response.statusText} | ${errText}`);
   }
 
   const data = await response.json();
