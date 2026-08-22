@@ -158,10 +158,10 @@ function createAgent() {
   const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships, factionManager);
   const builder = new BuilderSkill(bot, inventory, movement);
   const barter = new BarterSkill(bot, inventory, relationships, chat);
-  const reflection = new ReflectionEngine(brainClient, persona, memoryClient, chat);
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
+  const reflection = new ReflectionEngine(brainClient, persona, memoryClient, chat);
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
