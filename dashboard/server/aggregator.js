@@ -65,13 +65,6 @@ class Aggregator {
     const cleanName = (name || 'Agent').trim();
     const existing = this.agentEndpoints.get(cleanUrl);
 
-    this.agentEndpoints.set(cleanUrl, {
-      name: cleanName,
-      url: cleanUrl,
-      dynamic: true,
-      lastSeen: Date.now()
-    });
-
     // Check if we already have an endpoint for this name with a different URL, replace it to avoid duplicate polling
     for (const [key, ep] of this.agentEndpoints.entries()) {
       if (ep.name === cleanName && key !== cleanUrl) {
@@ -79,7 +72,6 @@ class Aggregator {
       }
     }
 
-    const existing = this.agentEndpoints.get(cleanUrl);
     this.agentEndpoints.set(cleanUrl, {
       name: cleanName,
       url: cleanUrl,
