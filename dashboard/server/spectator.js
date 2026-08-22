@@ -58,6 +58,23 @@ class SpectatorManager {
       setTimeout(() => this._startViewer(), 2000);
     });
 
+    // Listen for in-game player and agent chat to stream to dashboard
+    this.bot.on('chat', (username, message) => {
+      if (username === SPECTATOR_NAME) return;
+      logger.info('Spectator', `[World Chat Relay] <${username}>: ${message}`);
+      if (this.onChatCallback) {
+        this.onChatCallback({ username, message, timestamp: new Date().toISOString() });
+      }
+    });
+
+    this.bot.on('messagestr', (message) => {
+      if (message.includes('slain by') || message.includes('fell') || message.includes('drowned') || message.includes('burned') || message.includes('blew up')) {
+        if (this.onMessageCallback) {
+          this.onMessageCallback({ username: 'Server', message, timestamp: new Date().toISOString() });
+        }
+      }
+    });
+
     this.bot.on('error', (err) => {
       logger.error('Spectator', `Bot error: ${err.message}`);
     });

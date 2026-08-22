@@ -168,6 +168,12 @@ async function boot() {
 
   // 3. Start spectator bot (non-blocking — connects to MC when ready)
   spectator = new SpectatorManager(MC_HOST, MC_PORT, MC_VERSION, rcon);
+  spectator.onChatCallback = (chatPayload) => {
+    aggregator.pushChat(chatPayload);
+  };
+  spectator.onMessageCallback = (msgPayload) => {
+    aggregator.pushChat(msgPayload);
+  };
   spectator.start();
 
   // Periodically sync spectator status to aggregator

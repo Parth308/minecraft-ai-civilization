@@ -328,9 +328,10 @@ function createAgent() {
         break;
 
       case ACTIONS.CRAFT:
-        if (decision.meta && decision.meta.itemToCraft) {
-          const item = decision.meta.itemToCraft;
-          const count = decision.meta.count || 1;
+      case 'CRAFT': {
+        const item = decision.itemToCraft || decision.meta?.itemToCraft;
+        const count = decision.meta?.count || 1;
+        if (item) {
           logger.info('AgentLoop', `Executing CRAFT action: ${count}x ${item}`);
           const success = await inventory.craftItem(item, count);
           if (success) {
@@ -338,10 +339,22 @@ function createAgent() {
           }
         }
         break;
+      }
 
       case ACTIONS.MINE:
-        if (decision.meta && decision.meta.targetBlock) {
-          const block = decision.meta.targetBlock;
+      case 'MINE': {
+        const targetResource = decision.targetResource || decision.meta?.targetResource;
+        let block = decision.meta?.targetBlock;
+        if (!block && targetResource) {
+          block = senses.getNearbyBlock(targetResource, 32);
+        }
+        if (!block) {
+          block = senses.getNearbyBlock('iron_ore', 16) ||
+                  senses.getNearbyBlock('coal_ore', 16) ||
+                  senses.getNearbyBlock('log', 24) ||
+                  senses.getNearbyBlock('stone', 8);
+        }
+        if (block) {
           logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
           const success = await inventory.digBlock(block);
           if (success) {
@@ -349,6 +362,7 @@ function createAgent() {
           }
         }
         break;
+      }
 
       case ACTIONS.TALK:
         if (decision.meta && decision.meta.partner) {
