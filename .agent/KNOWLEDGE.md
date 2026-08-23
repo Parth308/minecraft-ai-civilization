@@ -19,7 +19,7 @@ This document serves as the complete technical specification, architectural refe
 - **LLM Provider Pool (Free Tiers & Drivers)**:
   - **Gemini Flash (`gemini-2.5-flash`)**: Primary workhorse for high-intelligence reasoning, multi-step planning (`PLAN`), emotions, and Tier 2 memory consolidation.
   - **NVIDIA NIM (`meta/llama-3.1-70b-instruct` / `meta/llama-3.1-8b-instruct`)**: High-intelligence secondary reasoning & diplomacy engine.
-  - **Groq (`llama-3.3-70b-versatile` / `llama-3.1-8b-instant`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
+  - **Groq (`GROQ_MODEL`, default `llama-3.1-8b-instant`; candidate fallback cascade: `openai/gpt-oss-120b` → `openai/gpt-oss-20b` → `qwen/qwen3.6-27b` → `groq/compound`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction; second-position provider in the reasoning cascade.
   - **Cerebras (`llama3.1-8b` / `llama3.1-70b` / `llama-3.3-70b`)**: Ultra-fast backup provider with candidate fallback (~1,800 tokens/sec).
   - **OpenRouter Free (`meta-llama/llama-3.3-70b-instruct:free`, `meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`)**: Universal failover pool with automatic free model rotation.
   - **Agnes AI (`agnes.js`)**: External conversational reasoning endpoint driver.
@@ -34,6 +34,7 @@ This document serves as the complete technical specification, architectural refe
 - **Dual-Layer Caching Architecture**:
   - **Layer 1**: SHA-256 exact-match state hash cache with 300s TTL (`broker/cache/exactCache.js`).
   - **Layer 2**: Cosine similarity semantic vector cache with $\ge 0.88$ threshold (`broker/cache/semanticCache.js`).
+  - **Agency Bypass**: Both caches are strictly bypassed for `CHAT`, `REFLECTION`, `PLAN`, and anti-stuck-loop escalations (`shouldSkipCache` in `broker/router.js`), so dynamic, social, and planning behavior is never served a stale cached decision.
 - **Memory Architecture & Resiliency**:
   - Sectioned Markdown store (`profile.md`, `relationships.md`, `events.md`, `skills.md`, `recent.md`) with vector indexing (`vectorStore.js`) and two-tier compaction.
   - **Zero-Loss Chunked Retry Queue**: `agent/memory/client.js` buffers memory events in an in-memory queue, draining in 50-item chunks every 15s when `memory-service` comes online.
@@ -63,7 +64,7 @@ This document serves as the complete technical specification, architectural refe
   - `createAgent()`: Instantiates Mineflayer client, loads pathfinder, initializes perception, actuators, stats, persona, goals, social dialogue, event buffer, memory client with retry queue, and launches the 1-second main tick loop.
   - `statusServer`: Runs lightweight HTTP server on `:3010+` serving `/status`, `/health`, and `/personality` (supports live trait hot-reloading).
   - `announceToDashboard()`: Periodically registers agent name and status URL with the Civilization Dashboard (`:3003`).
-  - `executeDecision(decision)`: Translates decision tree output into physical actions (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `CRAFT`, `BUILD`, `TRADE`, `TALK`, `EXPLORE`, `WANDER`).
+  - `executeDecision(decision)`: Translates decision tree output into physical actions (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `CRAFT`, `SMELT`, `EQUIP`, `BUILD`, `TRADE`, `TALK`, `EXPLORE`, `WANDER`, `PLAN`, `HARVEST`, `FARM`, `COOK`, `CHEST`, `CONTRIBUTE`).
 
 ---
 
@@ -217,6 +218,8 @@ This document serves as the complete technical specification, architectural refe
   - **`sleep.js`**: Proposes sleep when night falls and a bed is within range.
   - **`talk.js`**: Proposes social dialogue when other players/bots are nearby, respecting a 45s conversational cooldown.
   - **`trade.js`**: Proposes barter when inventory surplus exists and peers are in vicinity.
+  - **`cooperate.js`**: Proposes `CONTRIBUTE` when the agent participates in an active shared community goal and holds $\ge 4$ of a required contribution item; base confidence `0.65` amplified by loyalty/sociability traits (capped at `0.95`).
+  - **`farm.js`**: Three-tier agricultural evaluator: `HARVEST` mature crops nearby (`0.75+`, boosted when hungry, caution-weighted), then `COOK` raw food near a furnace/smoker with fuel in inventory (`0.72+`), else `FARM` till-and-plant when holding hoe + seeds during daytime (`0.60+`).
 
 ---
 
@@ -246,7 +249,7 @@ This document serves as the complete technical specification, architectural refe
 - **[`broker/providers/`](file:///e:/Projects/minecraft-community/broker/providers/)** — Individual LLM Drivers:
   - **`gemini.js`**: Google Gemini Flash API driver (`gemini-2.5-flash`).
   - **`nvidia.js`**: NVIDIA NIM API driver (`meta/llama-3.1-70b-instruct`).
-  - **`groq.js`**: Groq fast sub-second inference driver (`llama-3.1-8b-instant` / `qwen3.6-27b`).
+  - **`groq.js`**: Groq fast sub-second inference driver with candidate model cascade (`GROQ_MODEL` env → `openai/gpt-oss-120b` → `openai/gpt-oss-20b` → `qwen/qwen3.6-27b` → `groq/compound`).
   - **`cerebras.js`**: Cerebras ultra-fast inference driver (`llama3.1-8b`).
   - **`openrouter.js`**: OpenRouter free & paid fallback driver (`meta-llama/llama-3.1-8b-instruct:free` / `meta-llama/llama-3.2-3b-instruct`).
   - **`agnes.js`**: Agnes AI endpoint driver.
@@ -303,7 +306,7 @@ This document serves as the complete technical specification, architectural refe
 - **[`dashboard/client/`](file:///e:/Projects/minecraft-community/dashboard/client/)**:
   - `index.html`: Responsive multi-view dashboard (Overview, 3D World View, Agents with Scar Badges, Decisions, Chronicle Lore Feed, Costs & Limits).
   - `styles.css`: Cyberpunk visual design system, glassmorphism panels, stat meters, confidence rings, and scrubber controls.
-  - `app.js`: Real-time WebSocket telemetry + Timeline Replay scrubber (step, seek, play/pause historical states) + Chronicle feed.
+  - `app.js`: Real-time WebSocket telemetry + Timeline Replay scrubber (step, seek, play/pause historical states) + Chronicle feed. On the Decisions page, every event renders a task-intent badge — 💬 CHAT / 🗺️ PLAN / 🧠 REASON (LLM-sourced) vs ⚙️ TREE (local rule, $0) — with interactive ALL/CHAT/STRATEGY filter buttons and live per-category counts.
 
 ---
 

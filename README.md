@@ -40,6 +40,9 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
       │  - Dynamic Rule Cache │                                           │  - Dynamic Rule Cache │
       │  - Zero-Loss MemQueue │                                           │  - Zero-Loss MemQueue │
       └──────────┬────────────┘                                           └───────────┬───────────┘
+                 │        (+ Agent_Gamma provisioned by default in                     │
+                 │          docker-compose; scale to more via                          │
+                 │          scripts/spawn-agent.sh — identical stack)                  │
                  │ (Escalations < 0.6 / Fallback on Broker Offline)                   │
                  ▼                                                                    ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -70,6 +73,17 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 │                    Detailed Activity & Simulation Audit Logger (logs/)                          │
 │  - Per-Agent Streams (zero compaction): movement.log, combat.log, inventory.log, chat.log, etc.│
 │  - Universal World Timelines: global_timeline.log & civilization_events.log                     │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                 Civilization Control Dashboard (Port 3003, Healthchecked)                       │
+│  (Observability Plane — polls Broker :3001, Memory Service :3002, Agent status :3010+)          │
+│  - Real-time telemetry aggregator + WebSocket broadcast                                         │
+│  - Decisions page: task-intent badges (💬 CHAT / 🗺️ PLAN / 🧠 REASON vs ⚙️ TREE local rule)     │
+│    with interactive ALL / CHAT / STRATEGY filters                                               │
+│  - Timeline Replay scrubber (step / seek / play-pause historical states)                        │
+│  - Chronicle lore feed · Operator chat via RCON                                                 │
+│  - Embedded SpectatorBot + prismarine-viewer 3D noclip world view                               │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -135,24 +149,30 @@ cp .env.example .env
 Fill in your configuration:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-2.5-flash
 GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=llama-3.1-8b-instant
 NVIDIA_API_KEY=nvapi-...
 NVIDIA_MODEL=meta/llama-3.1-8b-instruct
 CEREBRAS_API_KEY=your_cerebras_key_optional
+CEREBRAS_MODEL=llama3.1-8b
 OPENROUTER_API_KEY=your_openrouter_key_optional
+OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free
 AGNES_API_KEY=your_agnes_key_optional
 AGNES_MODEL=deepseek-v3
 LLM7_API_KEY=unused
 LLM7_MODEL=default
 
-# Embeddings Engine (ollama / gemini / local)
+# Embeddings Engine (ollama / gemini / local / auto)
 EMBEDDING_PROVIDER=ollama
-OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=nomic-embed-text
 
+# Cache
 CACHE_TTL_SECONDS=300
+
+# Dashboard + RCON (must match the Minecraft server's RCON password in docker-compose)
+RCON_PASSWORD=changeme
+DASHBOARD_PORT=3003
 ```
 
 ---
@@ -264,6 +284,17 @@ minecraft-community/
 │   ├── router.js                  # Zero-LLM event-to-section router
 │   └── scheduler.js               # Background soft-cap compaction sweep scheduler
 │
+├── dashboard/                      # Civilization Control Dashboard (Port 3003)
+│   ├── server/
+│   │   ├── routes/                 # Health, agents, chat, memory, ledger & timeline scrubber proxies
+│   │   ├── aggregator.js           # Polls Broker/Memory/Agent endpoints, diffs chat, broadcasts WS snapshots
+│   │   ├── spectator.js            # Embedded SpectatorBot (mineflayer) with OP noclip teleportation
+│   │   ├── rcon.js                 # Zero-dependency Minecraft RCON client
+│   │   └── index.js                # Express REST API + WebSocket server + prismarine-viewer proxy
+│   ├── client/                     # index.html, app.js, styles.css (intent badges, filters, replay scrubber)
+│   ├── package.json                # express, ws, mineflayer, prismarine-viewer, http-proxy-middleware
+│   └── Dockerfile                  # Dashboard container (512MB RAM cap) with /health
+│
 ├── shared/                        # Common Utilities
 │   ├── constants.js               # Enums for actions, stats, and food tiers
 │   ├── detailedLogger.js          # Granular per-agent & universal world audit log engine
@@ -291,8 +322,9 @@ minecraft-community/
 | **Ollama Service** | `1.5 GB` | 1.0 Core | Local `nomic-embed-text` Embedding Engine (Self-Provisioning) |
 | **Central Brain Broker** | `256 MB` | 0.5 Core | Express Gateway + Dual-Layer Cache + Provider Failover |
 | **Central Memory Service** | `256 MB` | 0.5 Core | Sectioned Markdown + Vector Store + Reflection Engine |
+| **Civilization Dashboard** | `512 MB` | 0.5 Core | Telemetry Aggregator + WebSocket + prismarine-viewer 3D World View |
 | **AI Agents (per bot)** | `256 MB` | 0.5 Core | ~80-120MB live RAM footprint per active bot |
-| **Baseline Stack Total** | **~4.5 GB** | — | Leaves **~11.5 GB free for 30+ additional agents!** |
+| **Baseline Stack Total** | **~6.0 GB** | — | Alpha + Beta + Gamma + full service mesh; leaves **~10 GB free for 35+ additional agents!** |
 
 ---
 
