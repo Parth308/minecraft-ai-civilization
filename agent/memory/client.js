@@ -23,34 +23,38 @@ class MemoryClient {
     if (this.pendingQueue.length === 0 || this.isDraining) return true;
     this.isDraining = true;
 
-    const batch = [...this.pendingQueue];
-    logger.debug('MemoryClient', `Attempting to flush ${batch.length} queued events to Memory Service for ${this.agentId}...`);
-
     try {
-      const response = await fetch(`${this.baseUrl}/api/memory/compact`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentId: this.agentId,
-          events: batch
-        })
-      });
+      while (this.pendingQueue.length > 0) {
+        const batch = this.pendingQueue.splice(0, 50);
+        logger.debug('MemoryClient', `Attempting to flush batch of ${batch.length} queued events to Memory Service for ${this.agentId}... (Remaining: ${this.pendingQueue.length})`);
 
-      if (!response.ok) {
-        throw new Error(`Memory Service HTTP ${response.status}: ${response.statusText}`);
+        try {
+          const response = await fetch(`${this.baseUrl}/api/memory/compact`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentId: this.agentId,
+              events: batch
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Memory Service HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          logger.info('MemoryClient', `Successfully flushed ${batch.length} memory events. Pending queue: ${this.pendingQueue.length}`);
+        } catch (err) {
+          // Re-insert failed batch to front of queue
+          this.pendingQueue.unshift(...batch);
+          logger.warn('MemoryClient', `Memory Service unavailable (${err.message}). Kept ${this.pendingQueue.length} events in local retry queue.`);
+          break; // Stop draining this cycle, retry next interval
+        }
       }
-
-      const data = await response.json();
-      // Successfully flushed -> remove flushed batch from pending queue
-      this.pendingQueue.splice(0, batch.length);
-      logger.info('MemoryClient', `Successfully flushed ${batch.length} memory events. Pending queue: ${this.pendingQueue.length}`);
+    } finally {
       this.isDraining = false;
-      return true;
-    } catch (err) {
-      logger.warn('MemoryClient', `Memory Service unavailable (${err.message}). Kept ${this.pendingQueue.length} events in local retry queue.`);
-      this.isDraining = false;
-      return false;
     }
+
+    return this.pendingQueue.length === 0;
   }
 
   async queryMemories(query = '', section = '', limit = 5) {

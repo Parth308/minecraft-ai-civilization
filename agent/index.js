@@ -156,7 +156,8 @@ function createAgent() {
   const brainClient = new BrainClient(config.brokerUrl);
   const factionManager = new FactionAffiliationManager(config.username, persona);
   const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships, factionManager);
-  const builder = new BuilderSkill(bot, inventory, movement);
+  const builder = new BuilderSkill(bot, inventory, movement, goalManager);
+  bot.goalManager = goalManager;
   const barter = new BarterSkill(bot, inventory, relationships, chat);
 
   // Memory components

@@ -3,10 +3,13 @@ const logger = require('../../shared/logger');
 const detailedLogger = require('../../shared/detailedLogger');
 
 class BuilderSkill {
-  constructor(bot, inventoryActuator, movementActuator) {
+  constructor(bot, inventoryActuator, movementActuator, goalManager = null) {
     this.bot = bot;
     this.inventory = inventoryActuator;
     this.movement = movementActuator;
+    this.goalManager = goalManager || bot.goalManager || null;
+    this.cooldownUntil = 0;
+    this.invalidSites = new Set();
   }
 
   get agentId() {
@@ -26,13 +29,28 @@ class BuilderSkill {
   }
 
   async buildShelter(origin = null, width = 3, length = 3, height = 2) {
+    if (Date.now() < this.cooldownUntil) {
+      const remainingSec = Math.ceil((this.cooldownUntil - Date.now()) / 1000);
+      logger.debug('Builder', `Shelter construction is on cooldown for another ${remainingSec}s.`);
+      return false;
+    }
+
     const buildBlocks = this.getAvailableBuildingBlocks();
     if (buildBlocks.length === 0) {
       logger.warn('Builder', 'No building blocks available in inventory to build shelter.');
+      this.cooldownUntil = Date.now() + 30000;
       return false;
     }
 
     const startPos = origin || this.bot.entity.position.floored().offset(2, 0, 2);
+    const siteKey = `${startPos.x},${startPos.y},${startPos.z}`;
+
+    if (this.invalidSites.has(siteKey)) {
+      logger.warn('Builder', `Skipping invalid build site at ${startPos} and applying cooldown.`);
+      this.cooldownUntil = Date.now() + 60000;
+      return false;
+    }
+
     logger.info('Builder', `Starting autonomous shelter construction at ${startPos} (${width}x${length}x${height})...`);
     detailedLogger.logCognition(this.agentId, 'Initiated Autonomous Shelter Construction', { origin: startPos, dimensions: { width, length, height } });
 
@@ -70,10 +88,27 @@ class BuilderSkill {
       }
     }
 
+    if (placedCount === 0) {
+      this.invalidSites.add(siteKey);
+      this.cooldownUntil = Date.now() + 60000;
+      logger.warn('Builder', `Shelter construction failed (0 blocks placed at ${startPos}). Marked site invalid and set 60s cooldown.`);
+      
+      // Clear active build goal if currently set
+      const gm = this.goalManager || this.bot.goalManager;
+      if (gm && gm.currentGoal) {
+        const desc = (gm.currentGoal.description || '').toLowerCase();
+        if (desc.includes('shelter') || desc.includes('build')) {
+          gm.setGoal('Explore surroundings and seek suitable building ground', { previousFailedSite: siteKey });
+        }
+      }
+      return false;
+    }
+
     logger.info('Builder', `Shelter construction complete. Placed ${placedCount} structural blocks.`);
     detailedLogger.logInventory(this.agentId, 'Completed Structure Build', { blocksPlaced: placedCount });
-    return placedCount > 0;
+    return true;
   }
 }
 
 module.exports = BuilderSkill;
+

@@ -107,15 +107,33 @@ class EventObserver extends EventEmitter {
 
     this.bot.on('playerCollect', (collector, collected) => {
       if (collector === this.bot.entity) {
-        const itemName = collected?.metadata?.[7]?.itemId || 'unknown';
+        const metadataItemId = collected?.metadata?.[8]?.itemId ?? collected?.metadata?.[7]?.itemId;
+        const itemName = this.bot.registry?.items?.[metadataItemId]?.name || collected?.name || 'unknown';
         logger.info('Perception', `Collected item: ${itemName}`);
-        this.emit('itemCollected', { item: collected });
+        this.emit('itemCollected', { item: collected, itemName });
+      }
+    });
+
+    this.bot.on('diggingStarted', (block) => {
+      if (block) {
+        this._currentDiggingBlock = {
+          name: block.name,
+          position: block.position?.clone ? block.position.clone() : block.position
+        };
       }
     });
 
     this.bot.on('diggingCompleted', (block) => {
-      logger.info('Perception', `Mined block: ${block.name}`);
-      this.emit('blockBroken', { blockName: block.name, position: block.position });
+      const blockName = (this._currentDiggingBlock && this._currentDiggingBlock.name && this._currentDiggingBlock.name !== 'air')
+        ? this._currentDiggingBlock.name
+        : (block?.name && block.name !== 'air' ? block.name : 'block');
+      logger.info('Perception', `Mined block: ${blockName}`);
+      this.emit('blockBroken', { blockName, position: block.position });
+      this._currentDiggingBlock = null;
+    });
+
+    this.bot.on('diggingAborted', () => {
+      this._currentDiggingBlock = null;
     });
 
     this.bot.on('blockPlaced', (block) => {

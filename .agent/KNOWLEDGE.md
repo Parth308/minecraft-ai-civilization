@@ -107,12 +107,22 @@ This document serves as the complete technical specification, architectural refe
 
 - **[`agent/perception/events.js`](file:///e:/Projects/minecraft-community/agent/perception/events.js)** — `EventObserver` class (EventEmitter):
   - Emits: `agentHurt`, `agentDeath`, `agentRespawn`, `underAttack`, `nearbyAttackSwing` (NEW), `incomingProjectile` (NEW — arrow/fireball/trident within 20m), `agentOnFire` / `agentFireOut` (NEW — 500ms polling), `playerChat`, `playerWhisper`, `playerJoined` (NEW), `playerLeft` (NEW), `itemCollected`, `blockBroken`, `blockPlaced` (NEW), `weatherChanged`, `timeTransition`.
+  - Item collection detection: Resolves item types through `bot.registry.items` using `metadata[8]` / `metadata[7]` payload IDs with fallback to entity name.
+  - Mining block identification: Caches block state on `diggingStarted` so `diggingCompleted` accurately logs the true mined block name instead of post-break `air`.
   - Fire detection: 500ms interval polling `bot.entity.onFire` with debounce.
   - Attacker identification: Uses nearby entity proximity scan as proxy since mineflayer lacks direct hit-source API.
 
 ---
 
-#### 5. Actuation Layer (`agent/actuation/`)
+#### 5. Actuation & Skills Layer (`agent/actuation/`, `agent/skills/`)
+- **[`agent/skills/builder.js`](file:///e:/Projects/minecraft-community/agent/skills/builder.js)** — `BuilderSkill` class:
+  - `buildShelter(origin, width, length, height)`: Scans inventory for building blocks (planks, cobblestone, stone, dirt, wood, brick) and erects perimeter shelter walls with entrance.
+  - **Failure Handling & Cooldown**: If `placedCount === 0`, marks the target site invalid in `invalidSites`, resets active building goals in `GoalManager`, and enforces a 60-second cooldown before shelter building can be re-triggered.
+  - `getAvailableBuildingBlocks()`: Returns valid structural block items from inventory.
+
+- **[`agent/skills/barter.js`](file:///e:/Projects/minecraft-community/agent/skills/barter.js)** — `BarterSkill` class:
+  - `executeTrade(partner, giveItem, giveCount, wantItem, wantCount)`: Coordinates peer-to-peer item exchanges.
+
 - **[`agent/actuation/movement.js`](file:///e:/Projects/minecraft-community/agent/actuation/movement.js)** — `MovementActuator` class:
   - `goto(x, y, z, range=1)`, `gotoBlock(x, y, z)`, `follow(entity, distance=2)`, `fleeFrom(entity, distance=16)` (null-guarded), `wander(radius=15)`, `stop()`, `isMoving()`.
   - `lookAt(x, y, z, force)` / `lookAtEntity(entity)`: Precise head aiming.
@@ -139,7 +149,7 @@ This document serves as the complete technical specification, architectural refe
   - `tossItemToPlayer(itemName, playerEntity, count)`: Faces player before tossing.
   - `openChestAndDeposit(chestBlock, itemNames)`: Navigates to chest first. **Fixed** — was opening at distance.
   - `openChestAndWithdraw(chestBlock, itemNames)`: Navigates to chest first. **Fixed** — was opening at distance.
-  - `craftItem(itemName, count)`: **Fixed** — Auto-searches for crafting table within 8m, navigates to it, passes it to `bot.recipesFor()` for 3×3 recipes (tools, chests, furnaces). Falls back to 2×2 if no table found.
+  - `craftItem(itemName, count)`: Auto-searches for crafting table within 8m, places mobile table if needed, crafts via `bot.craft()`, and automatically recovers workbench. On `missing ingredient` error, automatically invokes `setCraftCooldown(itemName, 30000)`.
   - `listInventory()`: Returns formatted `name x count` strings.
 
 - **[`agent/actuation/chat.js`](file:///e:/Projects/minecraft-community/agent/actuation/chat.js)** — `ChatActuator` class:
@@ -160,7 +170,9 @@ This document serves as the complete technical specification, architectural refe
 - **[`agent/decision/confidence.js`](file:///e:/Projects/minecraft-community/agent/decision/confidence.js)** — `ConfidenceEvaluator` class.
 - **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class.
 - **[`agent/decision/rules/`](file:///e:/Projects/minecraft-community/agent/decision/rules/)**:
-  - `eat.js`, `flee.js`, `fight.js`, `sleep.js`, `mine.js`, `explore.js`, `trade.js`.
+  - `eat.js`, `fight.js`, `sleep.js`, `mine.js`, `explore.js`, `trade.js`, `talk.js`.
+  - `craft.js`: Strict prerequisite verification ensuring all input materials exist in inventory before returning confidence $\ge 0.9$. Integrates recipe cooldown registry (`setCraftCooldown`, `isCraftOnCooldown`).
+  - `flee.js`: Evaluates mortal danger, swarm threshold (3+ hostiles), and **Night-Awareness** (unarmored/unarmed agents prioritize `FLEE` and retreat to shelter during night cycle or light level $\le 7$).
 - **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class:
   - Evaluates static & dynamic rules, escalates to Brain Broker if confidence < 0.6, and gracefully falls back to local rules if Broker is offline.
 - **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class:
@@ -173,7 +185,7 @@ This document serves as the complete technical specification, architectural refe
   - Rolling 20-event buffer triggering callback on overflow.
 - **[`agent/memory/client.js`](file:///e:/Projects/minecraft-community/agent/memory/client.js)** — `MemoryClient` class:
   - `flushBuffer(events)`: Pushes events to local `pendingQueue` and attempts flush.
-  - `drainQueue()`: Automatically retries queued memory flushes every 15s when `memory-service` recovers.
+  - `drainQueue()`: Chunks backlog into max 50-event batches in a loop. On temporary failure, only the failing batch is re-queued, eliminating request size blowups.
   - `queryMemories(query, section, limit)`: Queries `GET /api/memory/query`.
 
 ---
@@ -194,7 +206,7 @@ This document serves as the complete technical specification, architectural refe
 
 ### Central Memory Service (`memory-service/`)
 - **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build with `/health` check.
-- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002`. Exposes `GET /health`, `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`, `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`, `GET /api/ledger`.
+- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002` with 50MB payload parsing limit (`express.json({ limit: '50mb' })`). Exposes `GET /health`, `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`, `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`, `GET /api/ledger`.
 - **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
   - Supports **Ollama (`nomic-embed-text`)**, **Gemini (`text-embedding-004`)**, and **Local N-Gram Fallback** with L2 vector normalization.
 - **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)**: Memory vector store and semantic search.

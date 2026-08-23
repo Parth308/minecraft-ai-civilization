@@ -542,6 +542,15 @@ class InventoryActuator {
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Crafting failed: ${err.message}`);
+      if (err.message && err.message.toLowerCase().includes('missing ingredient')) {
+        try {
+          const { setCraftCooldown } = require('../decision/rules/craft');
+          setCraftCooldown(itemName, 30000);
+          logger.warn('Actuation:Inventory', `Applied 30s craft cooldown for ${itemName} due to missing ingredients.`);
+        } catch (cooldownErr) {
+          // non-blocking
+        }
+      }
       return false;
     }
   }
