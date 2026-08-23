@@ -26,12 +26,14 @@ function parseAgentEndpoints() {
   // Also include explicit single-agent env vars if provided
   if (process.env.AGENT_ALPHA_STATUS_URL) list.push({ name: 'Agent_Alpha', url: process.env.AGENT_ALPHA_STATUS_URL.trim() });
   if (process.env.AGENT_BETA_STATUS_URL)  list.push({ name: 'Agent_Beta',  url: process.env.AGENT_BETA_STATUS_URL.trim() });
+  if (process.env.AGENT_GAMMA_STATUS_URL) list.push({ name: 'Agent_Gamma', url: process.env.AGENT_GAMMA_STATUS_URL.trim() });
 
   // Default fallback candidates if none configured
   if (list.length === 0) {
     list.push(
       { name: 'Agent_Alpha', url: 'http://agent-alpha:3010' },
       { name: 'Agent_Beta',  url: 'http://agent-beta:3011' },
+      { name: 'Agent_Gamma', url: 'http://agent-gamma:3012' },
       { name: 'Agent_Local', url: 'http://localhost:3010' }
     );
   }
