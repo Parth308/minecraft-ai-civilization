@@ -8,6 +8,7 @@ class ReflectionEngine {
     this.memoryClient = memoryClient;
     this.chat = chatActuator;
     this.lastReflectionTime = Date.now();
+    this.allowProfileWrite = false; // Micro-reflection writes ONLY to vector store / diary; never mutates profile.md directly
   }
 
   get agentId() {
@@ -16,7 +17,7 @@ class ReflectionEngine {
 
   async runReflection(recentEvents = [], stats = {}) {
     this.lastReflectionTime = Date.now();
-    logger.info('ReflectionEngine', `Running episodic life reflection for ${this.agentId}...`);
+    logger.info('ReflectionEngine', `[source: agent-diary] Running per-event micro-reflection for ${this.agentId}...`);
 
     const prompt = `You are ${this.agentId}, an autonomous Minecraft player with personality: ${JSON.stringify(this.persona.getPersonaPromptContext ? this.persona.getPersonaPromptContext() : this.persona)}.
 Current Vitals & Emotions: ${JSON.stringify(stats)}
@@ -38,28 +39,100 @@ Reply ONLY with a valid JSON object:
       });
 
       if (response && response.diaryEntry) {
-        logger.info('ReflectionEngine', `[DIARY ENTRY]: "${response.diaryEntry}"`);
+        logger.info('ReflectionEngine', `[source: agent-diary] [DIARY ENTRY]: "${response.diaryEntry}"`);
         detailedLogger.logCognition(this.agentId, 'Authored Episodic Diary Reflection', {
           diary: response.diaryEntry,
           lesson: response.lifeLesson,
-          newGoal: response.newGoal
+          newGoal: response.newGoal,
+          source: 'agent-diary'
         });
 
-        // Store into long-term vector memory
+        // Store into long-term vector memory with source tag
         if (this.memoryClient) {
           this.memoryClient.flushBuffer([{
             type: 'reflection',
-            payload: response,
+            source: 'agent-diary',
+            payload: {
+              ...response,
+              source: 'agent-diary',
+              agentId: this.agentId,
+              timestamp: Date.now()
+            },
             summary: `[diary] ${response.diaryEntry} (Lesson: ${response.lifeLesson})`
           }]);
+        }
+
+        // Cross-Agent Lesson Sharing based on Privacy Preference
+        if (response.lifeLesson) {
+          await this._handleLessonSharing(response);
         }
 
         return response;
       }
     } catch (err) {
-      logger.debug('ReflectionEngine', `Reflection skipped: ${err.message}`);
+      logger.debug('ReflectionEngine', `Micro-reflection skipped: ${err.message}`);
     }
     return null;
+  }
+
+  async _handleLessonSharing(reflectionResponse) {
+    const privacy = this.persona?.privacyPreference || 'ask';
+    const serviceUrl = this.memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+    const lessonText = reflectionResponse.lifeLesson;
+
+    if (privacy === 'public') {
+      logger.info('ReflectionEngine', `[PRIVACY: public] Automatically sharing lesson to civ ledger for ${this.agentId}`);
+      try {
+        await fetch(`${serviceUrl}/api/ledger/lessons`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: this.agentId,
+            lesson: lessonText,
+            isPublic: true,
+            context: { diary: reflectionResponse.diaryEntry, newGoal: reflectionResponse.newGoal },
+            confidence: 0.85
+          })
+        });
+      } catch (err) {
+        logger.debug('ReflectionEngine', `Failed to post shared lesson to ledger: ${err.message}`);
+      }
+    } else if (privacy === 'private') {
+      logger.info('ReflectionEngine', `[PRIVACY: private] ${this.agentId} kept lesson private. Saved to local memory only.`);
+    } else if (privacy === 'ask') {
+      logger.info('ReflectionEngine', `[PRIVACY: ask] ${this.agentId} prompting in-game before sharing lesson.`);
+      this.pendingLesson = {
+        lesson: lessonText,
+        context: { diary: reflectionResponse.diaryEntry, newGoal: reflectionResponse.newGoal },
+        timestamp: Date.now()
+      };
+      if (this.chat && typeof this.chat.say === 'function') {
+        this.chat.say(`I learned something: "${lessonText}" — should I share it with the others?`);
+      }
+    }
+  }
+
+  confirmPendingLessonShare(approved = true) {
+    if (!this.pendingLesson) return false;
+    if (approved) {
+      const serviceUrl = this.memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+      fetch(`${serviceUrl}/api/ledger/lessons`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: this.agentId,
+          lesson: this.pendingLesson.lesson,
+          isPublic: true,
+          context: this.pendingLesson.context,
+          confidence: 0.85
+        })
+      }).catch(() => {});
+      logger.info('ReflectionEngine', `[PRIVACY: ask -> approved] ${this.agentId} shared pending lesson to civ ledger.`);
+    } else {
+      logger.info('ReflectionEngine', `[PRIVACY: ask -> rejected] Pending lesson share discarded.`);
+    }
+    this.pendingLesson = null;
+    return true;
   }
 }
 

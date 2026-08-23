@@ -22,6 +22,13 @@ class DecisionTree {
   async evaluate(senses, statsManager, persona = null, agentState = {}) {
     const stats = statsManager.getSummary();
 
+    if (!this._evalCount) this._evalCount = 0;
+    this._evalCount++;
+    if (this._evalCount % 30 === 0) {
+      const agentId = senses.bot?.username || persona?.agentId || 'Agent';
+      this.dynamicRuleEngine.pollRuleAdjustments(agentId, process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
+    }
+
     const staticCandidates = [
       evaluateFlee(senses, stats),
       evaluateEat(senses, stats),
@@ -60,11 +67,25 @@ class DecisionTree {
     logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
 
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence)) {
-      logger.warn('DecisionTree', `Top action confidence (${topCandidate.confidence}) is below threshold (${this.confidenceEvaluator.threshold}). Triggering Escalation.`);
+      const isResearchNeeded = (
+        topCandidate.name === 'CRAFT' ||
+        topCandidate.name === 'BUILD' ||
+        topCandidate.reason?.toLowerCase().includes('unknown') ||
+        topCandidate.reason?.toLowerCase().includes('recipe') ||
+        topCandidate.reason?.toLowerCase().includes('ingredient') ||
+        topCandidate.reason?.toLowerCase().includes('cooldown') ||
+        topCandidate.reason?.toLowerCase().includes('fail') ||
+        agentState.activeGoal?.toLowerCase().includes('craft') ||
+        agentState.activeGoal?.toLowerCase().includes('build')
+      );
+
+      const taskType = topCandidate.name === 'TALK' ? 'CHAT' : (isResearchNeeded ? 'RESEARCH' : 'REASONING');
+      const taskHint = isResearchNeeded ? 'RESEARCH' : null;
       
       const payload = {
         agentId: senses.bot?.username || persona?.agentId || 'Agent',
-        taskType: topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING',
+        taskType,
+        taskHint,
         topCandidate,
         allCandidates: candidates,
         stats,
@@ -162,12 +183,14 @@ class DecisionTree {
       costUsd: 0,
       latencyMs: 0,
       reason: topCandidate.reason || '',
+      ruleId: topCandidate.ruleId || topCandidate.meta?.ruleId || null,
       meta: topCandidate,
       allCandidates: candidates.map(c => ({
         name: c.name,
         confidence: c.confidence,
         reason: c.reason || '',
-        isDynamic: !!c.isDynamic
+        isDynamic: !!c.isDynamic,
+        ruleId: c.ruleId || c.meta?.ruleId || null
       }))
     };
   }

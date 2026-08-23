@@ -27,6 +27,7 @@ logs_dump/
 *.tar.gz
 *.dump
 *.log.gz
+memory-service/store/civilization/ledger.json
 
 # Markdown files (allow README and agent knowledge base)
 *.md

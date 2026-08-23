@@ -74,17 +74,24 @@ This document serves as the complete technical specification, architectural refe
 
 #### 3. Cognitive & Goal Architecture (`agent/cognition/`)
 - **[`agent/cognition/persona.js`](file:///e:/Projects/minecraft-community/agent/cognition/persona.js)** — `DynamicPersona` class:
-  - Archetypes: `friendly-explorer`, `cautious-builder`, `pragmatic-miner`, `diplomatic-merchant`, `lone-warrior`.
-  - `initializeTraits(seed)`: Initializes traits (`curiosity`, `sociability`, `greed`, `loyalty`, `caution`, `ambition`) based on cognitive seed.
+  - Archetypes: `friendly-explorer` (openness: 0.85, public), `cautious-builder` (openness: 0.50, ask), `shrewd-trader` (openness: 0.90, public), `lone-survivalist` (openness: 0.15, private), `reckless-miner` (openness: 0.40, ask), `zen-gatherer` (openness: 0.75, public), `quirky-tinkerer` (openness: 0.80, public).
+  - `traits`: Includes `openness` (0.0-1.0), `curiosity`, `sociability`, `greed`, `loyalty`, `caution`, `ambition`.
+  - `privacyPreference`: `'public' | 'private' | 'ask'` (overridable via `PRIVACY_PREFERENCE` env, constructor, or `/personality` endpoint).
+  - `setPrivacyPreference(pref)`: Live hot-reload of privacy mode.
   - `evolveFromExperience(eventType, impact)`: Mutes or amplifies traits in response to trauma (betrayals, scams, near-death) or triumph (cooperation, gifts).
-  - `getPersonaPromptContext()`: Formats dynamic persona, traits, and free-will directives for LLM prompts.
+  - `getPersonaPromptContext()`: Formats dynamic persona, traits, privacy preference, and free-will directives for LLM prompts.
 - **[`agent/cognition/goals.js`](file:///e:/Projects/minecraft-community/agent/cognition/goals.js)** — `GoalManager` class:
   - `setGoal(description, details)`: Formulates an emergent short-term objective.
   - `setAspiration(aspiration)`: Establishes a life dream / long-term goal.
   - `markGoalCompleted(outcome)`: Logs goal completion with timestamp and status update.
   - `getGoalContext()`: Returns active goal snapshot.
 - **[`agent/cognition/reflection.js`](file:///e:/Projects/minecraft-community/agent/cognition/reflection.js)** — `ReflectionEngine` class:
-  - `runReflection(recentEvents, stats)`: Prompts Brain Broker for episodic diary reflections, extracts philosophical life lessons, and stores formatted memories into vector store via `MemoryClient`.
+  - **Per-Event Micro-Reflection Architecture**: Runs after significant events (death, night transition, milestones), writes short 2-sentence diary entries tagged with `source: 'agent-diary'` to the central vector store.
+  - **Profile Isolation Guard**: `allowProfileWrite = false` strictly enforces that agent micro-reflections NEVER touch or overwrite `profile.md`.
+  - **Privacy-Aware Cross-Agent Sharing**:
+    - `public`: Automatically broadcasts lessons to civilization ledger via `POST /api/ledger/lessons`.
+    - `private`: Preserves lesson only in private agent memory.
+    - `ask`: Prompts in-game chat for consent (`"I learned something: ... — should I share it?"`), sharing to the shared ledger only upon affirmation (`confirmPendingLessonShare(true)`).
 
 ---
 
@@ -179,11 +186,15 @@ This document serves as the complete technical specification, architectural refe
 - **[`agent/decision/confidence.js`](file:///e:/Projects/minecraft-community/agent/decision/confidence.js)** — `ConfidenceEvaluator` class:
   - Compares evaluated confidence scores against threshold (`0.6`) to determine when LLM escalation is needed.
 - **[`agent/decision/dynamicRules.js`](file:///e:/Projects/minecraft-community/agent/decision/dynamicRules.js)** — `DynamicRuleEngine` class:
-  - Stores learned rules from LLM escalations, evaluates them against current sensory context, and synchronizes dynamic tactics.
+  - `learnRule(situation, decision)`: Learns new dynamic rules from LLM escalations (initial confidence `0.72`).
+  - `decayRules(maxIdleMs=1200000)`: Every 500 ticks, decays unreinforced rules by 10% and prunes rules whose confidence falls below `0.20`.
+  - `reinforceRule(ruleId, outcomeSuccess)`: Asymmetric reinforcement (+0.05 on success, -0.15 on failure).
+  - `seedFromSharedLessons(memoryServiceUrl)`: Pulls public civilization lessons from ledger and seeds initial rules at `0.40` confidence.
+  - `pollRuleAdjustments(agentId, memoryServiceUrl)` & `applyRuleAdjustment(adj)`: Ingests macro-reflection rule weight adjustments (+/- delta) from memory service.
 - **[`agent/decision/escalate.js`](file:///e:/Projects/minecraft-community/agent/decision/escalate.js)** — `EscalationManager` class:
-  - Formats rich situation context (inventory, equipment, position, biome, light, hostiles, goals, persona) and dispatches to `BrainClient`.
+  - Formats rich situation context (inventory, equipment, position, biome, light, hostiles, goals, persona) and dispatches to `BrainClient` (supports `RESEARCH` task mode routing).
 - **[`agent/decision/tree.js`](file:///e:/Projects/minecraft-community/agent/decision/tree.js)** — `DecisionTree` class:
-  - Gathers all static and dynamic rule evaluations, applies persona trait weighting (curiosity, caution, greed, ambition, sociability), sorts by confidence, and escalates to Brain Broker if top confidence < 0.6.
+  - Gathers static and dynamic rule evaluations, forwards active `ruleId`, applies persona trait weighting, and triggers `RESEARCH` task mode escalation when unknown mechanics or repeated recipe failures occur.
 - **[`agent/decision/rules/`](file:///e:/Projects/minecraft-community/agent/decision/rules/)** — Specialized Rule Evaluators:
   - **`craft.js`**: Strict prerequisite ingredient validation ensuring all required items exist in inventory before returning confidence $\ge 0.9$. Integrates recipe cooldown registry (`setCraftCooldown`, `isCraftOnCooldown`).
   - **`eat.js`**: Evaluates hunger ($\le 60\%$) and health ($< 15$) to propose eating comfort, emergency, or desperation food.
@@ -212,10 +223,10 @@ This document serves as the complete technical specification, architectural refe
 - **[`broker/config.js`](file:///e:/Projects/minecraft-community/broker/config.js)**: API keys and port configuration (`GEMINI_API_KEY`, `GROQ_API_KEY`, `NVIDIA_API_KEY`, `CEREBRAS_API_KEY`, `OPENROUTER_API_KEY`, `AGNES_API_KEY`, `LLM7_API_KEY`).
 - **[`broker/index.js`](file:///e:/Projects/minecraft-community/broker/index.js)**: Express REST server on port `3001` exposing `POST /api/escalate` and `GET /health`.
 - **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
-  - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`.
-  - Injects dynamic persona, active goals, environmental context, and free-will directives into prompts.
+  - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`, `RESEARCH`.
+  - **RESEARCH Task Mode**: Automatically executes `WebKnowledgeClient` query before LLM dispatch, injects real Minecraft wiki / mechanic knowledge into prompt context, and executes fallback provider cascade.
   - Executes resilient provider fallback cascade when primary endpoints rate-limit or fail.
-- **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager (tracks rate limits and automatic backoffs).
+- **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager + per-agent task rate limiter (enforces max 1 `RESEARCH` task per agent per 5 minutes).
 - **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)**: SHA-256 state hash cache with 300s TTL.
 - **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)**: Cosine similarity vector cache ($\ge 0.88$).
 - **[`broker/search/webSearch.js`](file:///e:/Projects/minecraft-community/broker/search/webSearch.js)** — `WebKnowledgeClient` class:
@@ -234,7 +245,12 @@ This document serves as the complete technical specification, architectural refe
 ### Central Memory Service (`memory-service/`)
 - **[`memory-service/Dockerfile`](file:///e:/Projects/minecraft-community/memory-service/Dockerfile)**: Docker container build with `/health` check.
 - **[`memory-service/config.js`](file:///e:/Projects/minecraft-community/memory-service/config.js)**: Memory store file paths, embedding provider configuration, and compaction schedules.
-- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002` with 50MB payload parsing limit (`express.json({ limit: '50mb' })`). Exposes `GET /health`, `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`, `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`, `GET /api/ledger`.
+- **[`memory-service/index.js`](file:///e:/Projects/minecraft-community/memory-service/index.js)**: Express REST server on port `3002` with 50MB payload parsing limit (`express.json({ limit: '50mb' })`). Exposes:
+  - `GET /health`
+  - `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`
+  - `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`
+  - `GET /api/ledger`, `GET /api/ledger/lessons`, `POST /api/ledger/lessons`
+  - `POST /api/rules/adjust`, `GET /api/rules/adjust/:agentId`
 - **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
   - Supports **Ollama (`nomic-embed-text`)**, **Gemini (`text-embedding-004`)**, and **Local N-Gram Fallback** with L2 vector normalization.
 - **[`memory-service/store/vectorStore.js`](file:///e:/Projects/minecraft-community/memory-service/store/vectorStore.js)**: Memory vector store and semantic search.
@@ -243,9 +259,10 @@ This document serves as the complete technical specification, architectural refe
 - **[`memory-service/sections/compactor.js`](file:///e:/Projects/minecraft-community/memory-service/sections/compactor.js)**: Two-tier compaction engine.
 - **[`memory-service/scheduler.js`](file:///e:/Projects/minecraft-community/memory-service/scheduler.js)**: Background compaction sweep scheduler.
 - **[`memory-service/reflection/engine.js`](file:///e:/Projects/minecraft-community/memory-service/reflection/engine.js)** — `GenerativeReflectionEngine` class:
-  - `runReflection(agentId)`: Synthesizes high-level reflections, worldviews, and social insights into `profile.md`.
+  - **Periodic Macro-Reflection Architecture**: Sole authorized writer to `profile.md` (tagged with `source: 'macro-reflection'`), synthesizing worldview and high-level insights across history, skills, and relationships.
+  - **Prose-to-Weight Feedback Loop**: Runs structured extraction pass converting prose realizations into numeric rule adjustments (`POST /api/rules/adjust`).
 - **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class:
-  - Records emergent currencies, settlements, and factions.
+  - Records emergent currencies, settlements, factions, and `sharedLessons` (public pool with per-agent privacy opt-in).
 
 ---
 

@@ -94,7 +94,10 @@ const statusServer = http.createServer((req, res) => {
         if (currentPersona && parsed.archetype) {
           currentPersona.archetype = parsed.archetype;
         }
-        logger.info('AgentStatus', `Updated live personality for ${config.username}: ${JSON.stringify(currentPersona?.traits)}`);
+        if (currentPersona && parsed.privacyPreference) {
+          currentPersona.setPrivacyPreference(parsed.privacyPreference);
+        }
+        logger.info('AgentStatus', `Updated live personality for ${config.username}: ${JSON.stringify(currentPersona?.traits)} (Privacy: ${currentPersona?.privacyPreference})`);
         res.writeHead(200);
         res.end(JSON.stringify({ success: true, persona: currentPersona?.getPersonaPromptContext ? currentPersona.getPersonaPromptContext() : currentPersona }));
       } catch (e) {
@@ -245,6 +248,9 @@ function createAgent() {
         timeOfDay: senses.getTimeOfDay()
       });
 
+      // Seed dynamic rules from civilization shared lessons
+      decisionTree.dynamicRuleEngine.seedFromSharedLessons(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
+
       // Main Agent Loop (Tick-based with agent-staggered start to prevent API congestion)
       const staggerDelay = config.username === 'Agent_Alpha' ? 0 : config.username === 'Agent_Beta' ? 350 : 700;
       setTimeout(() => {
@@ -346,304 +352,343 @@ function createAgent() {
 
   // Action executor based on decision tree output
   async function executeDecision(decision) {
-    switch (decision.action) {
-      case ACTIONS.EAT:
-        logger.info('AgentLoop', 'Executing EAT action');
-        await inventory.eatFood(stats.health, stats.hunger);
-        eventBuffer.addEvent('eatFood', { health: stats.health, hunger: stats.hunger });
-        break;
+    let actionSuccess = true;
+    try {
+      switch (decision.action) {
+        case ACTIONS.EAT:
+          logger.info('AgentLoop', 'Executing EAT action');
+          await inventory.eatFood(stats.health, stats.hunger);
+          eventBuffer.addEvent('eatFood', { health: stats.health, hunger: stats.hunger });
+          break;
 
-      case ACTIONS.FLEE:
-      case 'FLEE': {
-        // Resolve threat: prefer rule meta, else auto-pick nearest hostile from senses
-        let fleeThreat = decision.meta?.threat;
-        if (!fleeThreat) {
-          const nearHostiles = senses.getNearbyHostileMobs(16);
-          fleeThreat = nearHostiles.length > 0 ? nearHostiles[0] : null;
-        }
-        if (fleeThreat) {
-          logger.info('AgentLoop', `Executing FLEE from ${fleeThreat.name || 'threat'}`);
-          movement.fleeFrom(fleeThreat);
-          eventBuffer.addEvent('flee', { threat: fleeThreat.name || 'hostile' });
-        } else {
-          // Generic flee — run away from current position
-          movement.wander(20);
-        }
-        break;
-      }
-
-      case ACTIONS.FIGHT:
-      case 'FIGHT': {
-        // Resolve target: prefer rule meta, else auto-pick nearest hostile
-        let fightTarget = decision.meta?.target;
-        if (!fightTarget) {
-          const nearHostiles = senses.getNearbyHostileMobs(12);
-          fightTarget = nearHostiles.length > 0 ? nearHostiles[0] : null;
-        }
-        if (fightTarget) {
-          logger.info('AgentLoop', `Executing FIGHT vs ${fightTarget.name || fightTarget.mobType || 'hostile'}`);
-          await combat.equipBestWeapon();
-          combat.attack(fightTarget);
-          eventBuffer.addEvent('fight', { target: fightTarget.name || 'hostile' });
-        } else {
-          logger.debug('AgentLoop', 'FIGHT requested but no hostile in range');
-        }
-        break;
-      }
-
-      case ACTIONS.SLEEP:
-      case 'SLEEP': {
-        // Use meta.bed if provided by rule engine, else search for one
-        const bedBlock = decision.meta?.bed || senses.getNearbyBed(20);
-        if (bedBlock) {
-          logger.info('AgentLoop', 'Executing SLEEP action');
-          detailedLogger.logCognition(bot.username, 'Entering bed to sleep', { bedPos: bedBlock.position });
-          bot.sleep(bedBlock).catch(err => logger.warn('AgentLoop', `Sleep failed: ${err.message}`));
-          eventBuffer.addEvent('sleep', { bedPos: bedBlock.position });
-        } else if (senses.isNight()) {
-          logger.info('AgentLoop', 'Night but no bed found — building shelter or staying put');
-        }
-        break;
-      }
-
-      case ACTIONS.CRAFT:
-      case 'CRAFT': {
-        const item = decision.itemToCraft || decision.meta?.itemToCraft;
-        const count = decision.meta?.count || 1;
-        if (item) {
-          logger.info('AgentLoop', `Executing CRAFT action: ${count}x ${item}`);
-          const success = await inventory.craftItem(item, count);
-          if (success) {
-            eventBuffer.addEvent('craftItem', { item, count });
+        case ACTIONS.FLEE:
+        case 'FLEE': {
+          // Resolve threat: prefer rule meta, else auto-pick nearest hostile from senses
+          let fleeThreat = decision.meta?.threat;
+          if (!fleeThreat) {
+            const nearHostiles = senses.getNearbyHostileMobs(16);
+            fleeThreat = nearHostiles.length > 0 ? nearHostiles[0] : null;
           }
-        }
-        break;
-      }
-
-      case ACTIONS.MINE:
-      case 'MINE': {
-        const targetResource = decision.targetResource || decision.meta?.targetResource;
-        let block = decision.meta?.targetBlock;
-        if (!block && targetResource) {
-          block = senses.getNearbyBlock(targetResource, 32);
-        }
-        if (!block) {
-          block = senses.getNearbyBlock('iron_ore', 16) ||
-                  senses.getNearbyBlock('coal_ore', 16) ||
-                  senses.getNearbyBlock('log', 24) ||
-                  senses.getNearbyBlock('stone', 8);
-        }
-        if (block) {
-          logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
-          const success = await inventory.digBlock(block);
-          if (success) {
-            eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
+          if (fleeThreat) {
+            logger.info('AgentLoop', `Executing FLEE from ${fleeThreat.name || 'threat'}`);
+            movement.fleeFrom(fleeThreat);
+            eventBuffer.addEvent('flee', { threat: fleeThreat.name || 'hostile' });
+            actionSuccess = true;
+          } else {
+            // Generic flee — run away from current position
+            movement.wander(20);
+            actionSuccess = false;
           }
-        } else {
-          logger.info('AgentLoop', 'No mining block in direct vicinity — wandering to scout new terrain');
-          movement.wander(16);
+          break;
         }
-        break;
-      }
 
-      case ACTIONS.TALK:
-      case 'TALK': {
-        // Always escalate TALK to LLM for authentic personality-driven speech
-        require('./decision/rules/talk').markTalkExecuted();
-        const talkPartner = decision.meta?.partner ||
-          (senses.getNearbyPlayers(32)?.[0]?.username) ||
-          (bot.players ? Object.keys(bot.players).filter(n => n !== bot.username)[0] : null);
-        const talkSubject = decision.reason || `What's on your mind as ${persona.title || 'a settler'}?`;
-        logger.info('AgentLoop', `Executing autonomous TALK${talkPartner ? ` with ${talkPartner}` : ' (shout to world)'}`);
-        const talkReply = await dialogueEngine.processIncomingChat(
-          talkPartner || 'World',
-          talkSubject,
-          {
-            currentTask: decision.action,
-            currentGoal: agentState.activeGoal,
-            stats: stats.getSummary(),
-            inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ')
+        case ACTIONS.FIGHT:
+        case 'FIGHT': {
+          // Resolve target: prefer rule meta, else auto-pick nearest hostile
+          let fightTarget = decision.meta?.target;
+          if (!fightTarget) {
+            const nearHostiles = senses.getNearbyHostileMobs(12);
+            fightTarget = nearHostiles.length > 0 ? nearHostiles[0] : null;
           }
-        );
-        if (talkReply && Date.now() - lastOutgoingChat > 2000) {
-          lastOutgoingChat = Date.now();
-          chatCooldowns.set(talkPartner || 'World', Date.now());
-          setTimeout(() => chat.say(talkReply), 400 + Math.random() * 800);
-        }
-        eventBuffer.addEvent('autonomousTalk', { partner: talkPartner, message: talkReply });
-        break;
-      }
-
-      case ACTIONS.BUILD:
-      case 'BUILD': {
-        const buildType = decision.buildType || 'shelter';
-        logger.info('AgentLoop', `Executing autonomous BUILD action: ${buildType}`);
-        const didBuild = await builder.buildShelter();
-        if (didBuild && Date.now() - lastOutgoingChat > 3000) {
-          lastOutgoingChat = Date.now();
-          chat.say(`just finished building a ${buildType}!`);
-        }
-        eventBuffer.addEvent('buildShelter', { buildType });
-        break;
-      }
-
-      case ACTIONS.TRADE:
-      case 'TRADE': {
-        // Parse LLM's freeform trade offer: e.g. '4x oak_planks for 2x iron_ingot from Agent_Alpha'
-        const offer = decision.tradeOffer || '';
-        const partnerMatch = offer.match(/from (\S+)/i);
-        const tradePartner = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
-        const giveMatch = offer.match(/(\d+)x ([\w_]+) for/i);
-        const wantMatch = offer.match(/for (\d+)x ([\w_]+)/i);
-        const giveItem = giveMatch?.[2] || 'oak_planks';
-        const giveCount = parseInt(giveMatch?.[1] || '4');
-        const wantItem = wantMatch?.[2] || 'cobblestone';
-        const wantCount = parseInt(wantMatch?.[1] || '4');
-        if (tradePartner) {
-          logger.info('AgentLoop', `Executing TRADE with ${tradePartner}: ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
-          await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
-          eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer });
-        } else {
-          // Broadcast trade desire to world if no partner specified
-          if (Date.now() - lastOutgoingChat > 3000) {
-            lastOutgoingChat = Date.now();
-            chat.say(`anyone want to trade? ${offer || 'I have stuff to offer'}`);
+          if (fightTarget) {
+            logger.info('AgentLoop', `Executing FIGHT vs ${fightTarget.name || fightTarget.mobType || 'hostile'}`);
+            await combat.equipBestWeapon();
+            combat.attack(fightTarget);
+            eventBuffer.addEvent('fight', { target: fightTarget.name || 'hostile' });
+            actionSuccess = true;
+          } else {
+            logger.debug('AgentLoop', 'FIGHT requested but no hostile in range');
+            actionSuccess = false;
           }
+          break;
         }
-        break;
-      }
 
-      case ACTIONS.EXPLORE:
-      case 'EXPLORE':
-      case ACTIONS.WANDER:
-      case 'WANDER': {
-        // Pick a direction based on ambition — ambitious agents explore further
-        const exploreDist = Math.round(16 + (persona.traits?.ambition || 0.5) * 24);
-        logger.info('AgentLoop', `Executing ${decision.action} action (range: ${exploreDist} blocks)`);
-        movement.wander(exploreDist);
-        break;
-      }
-
-      case 'PLAN': {
-        // LLM set a new long-term goal
-        const newGoal = decision.newGoal;
-        if (newGoal && typeof goalManager.setGoal === 'function') {
-          goalManager.setGoal(newGoal);
-          agentState.activeGoal = newGoal;
-          logger.info('AgentLoop', `Agent set new PLAN goal: ${newGoal}`);
-          if (Date.now() - lastOutgoingChat > 3000) {
-            lastOutgoingChat = Date.now();
-            chat.say(`new mission: ${newGoal}`);
+        case ACTIONS.SLEEP:
+        case 'SLEEP': {
+          // Use meta.bed if provided by rule engine, else search for one
+          const bedBlock = decision.meta?.bed || senses.getNearbyBed(20);
+          if (bedBlock) {
+            logger.info('AgentLoop', 'Executing SLEEP action');
+            detailedLogger.logCognition(bot.username, 'Entering bed to sleep', { bedPos: bedBlock.position });
+            bot.sleep(bedBlock).catch(err => logger.warn('AgentLoop', `Sleep failed: ${err.message}`));
+            eventBuffer.addEvent('sleep', { bedPos: bedBlock.position });
+            actionSuccess = true;
+          } else if (senses.isNight()) {
+            logger.info('AgentLoop', 'Night but no bed found — building shelter or staying put');
+            actionSuccess = false;
           }
-          eventBuffer.addEvent('newGoal', { goal: newGoal });
+          break;
         }
-        break;
-      }
 
-      case 'SMELT': {
-        // Find or place furnace, then smelt the indicated raw item
-        const smeltInput = decision.smeltInput || decision.meta?.smeltInput;
-        logger.info('AgentLoop', `Executing SMELT action${smeltInput ? ': ' + smeltInput : ''}`);
-        let furnaceBlock = senses.getNearbyBlock('furnace', 8);
-        if (!furnaceBlock) {
-          // Try to craft and place a furnace if we have enough cobblestone
-          const cobbleCount = inventory.bot?.inventory?.items().filter(i => i.name.includes('cobblestone') || i.name.includes('cobbled')).reduce((s, i) => s + i.count, 0) || 0;
-          if (cobbleCount >= 8) {
-            logger.info('AgentLoop', 'Crafting furnace (have cobblestone)');
-            await inventory.craftItem('furnace', 1);
-          }
-          furnaceBlock = senses.getNearbyBlock('furnace', 8);
-        }
-        if (furnaceBlock) {
-          try {
-            await inventory._navigateWithin(furnaceBlock.position, 3);
-            await bot.lookAt(furnaceBlock.position.offset(0.5, 0.5, 0.5), true);
-            const furnace = await bot.openFurnace(furnaceBlock);
-            if (smeltInput) {
-              const rawItem = bot.inventory?.items().find(i => i.name === smeltInput || i.name.includes(smeltInput));
-              if (rawItem) await furnace.putInput(rawItem.type, null, rawItem.count);
-            }
-            const fuelItem = bot.inventory?.items().find(i => i.name.includes('coal') || i.name.includes('charcoal') || i.name.includes('log') || i.name.includes('plank'));
-            if (fuelItem) await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 8));
-            furnace.close();
-            eventBuffer.addEvent('smelt', { input: smeltInput });
-          } catch (smeltErr) {
-            logger.warn('AgentLoop', `Smelt action failed: ${smeltErr.message}`);
-          }
-        } else {
-          logger.warn('AgentLoop', 'No furnace available for SMELT — wandering to find one');
-          movement.wander(12);
-        }
-        break;
-      }
-
-      case 'EQUIP': {
-        logger.info('AgentLoop', 'Executing EQUIP action — equipping best armor and weapon');
-        await combat.equipBestArmor();
-        await combat.equipBestWeapon();
-        eventBuffer.addEvent('equip', { equipment: senses.getEquipmentSummary() });
-        break;
-      }
-
-      case 'HARVEST': {
-        // Scan for mature crops and harvest + replant them
-        logger.info('AgentLoop', 'Executing HARVEST action — scanning for mature crops');
-        const cropTypes = ['wheat', 'carrots', 'potatoes', 'beetroots', 'nether_wart'];
-        let harvested = 0;
-        for (const cropName of cropTypes) {
-          const cropBlock = senses.getNearbyBlock(cropName, 16);
-          if (cropBlock && cropBlock.metadata === 7) { // metadata 7 = fully grown
-            const success = await inventory.digBlock(cropBlock);
+        case ACTIONS.CRAFT:
+        case 'CRAFT': {
+          const item = decision.itemToCraft || decision.meta?.itemToCraft;
+          const count = decision.meta?.count || 1;
+          if (item) {
+            logger.info('AgentLoop', `Executing CRAFT action: ${count}x ${item}`);
+            const success = await inventory.craftItem(item, count);
             if (success) {
-              harvested++;
-              // Replant: plant seeds back if we have them
-              const seedName = cropName === 'wheat' ? 'wheat_seeds' :
-                               cropName === 'carrots' ? 'carrot' :
-                               cropName === 'potatoes' ? 'potato' : null;
-              if (seedName) {
-                const seedItem = bot.inventory?.items().find(i => i.name === seedName);
-                const farmland = bot.blockAt(cropBlock.position.offset(0, -1, 0));
-                if (seedItem && farmland && farmland.name === 'farmland') {
-                  try {
-                    await bot.equip(seedItem, 'hand');
-                    await bot.placeBlock(farmland, new (require('vec3'))(0, 1, 0));
-                  } catch (_) {}
+              eventBuffer.addEvent('craftItem', { item, count });
+              actionSuccess = true;
+            } else {
+              actionSuccess = false;
+            }
+          } else {
+            actionSuccess = false;
+          }
+          break;
+        }
+
+        case ACTIONS.MINE:
+        case 'MINE': {
+          const targetResource = decision.targetResource || decision.meta?.targetResource;
+          let block = decision.meta?.targetBlock;
+          if (!block && targetResource) {
+            block = senses.getNearbyBlock(targetResource, 32);
+          }
+          if (!block) {
+            block = senses.getNearbyBlock('iron_ore', 16) ||
+                    senses.getNearbyBlock('coal_ore', 16) ||
+                    senses.getNearbyBlock('log', 24) ||
+                    senses.getNearbyBlock('stone', 8);
+          }
+          if (block) {
+            logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
+            const success = await inventory.digBlock(block);
+            if (success) {
+              eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
+              actionSuccess = true;
+            } else {
+              actionSuccess = false;
+            }
+          } else {
+            logger.info('AgentLoop', 'No mining block in direct vicinity — wandering to scout new terrain');
+            movement.wander(16);
+            actionSuccess = false;
+          }
+          break;
+        }
+
+        case ACTIONS.TALK:
+        case 'TALK': {
+          // Always escalate TALK to LLM for authentic personality-driven speech
+          require('./decision/rules/talk').markTalkExecuted();
+          const talkPartner = decision.meta?.partner ||
+            (senses.getNearbyPlayers(32)?.[0]?.username) ||
+            (bot.players ? Object.keys(bot.players).filter(n => n !== bot.username)[0] : null);
+          const talkSubject = decision.reason || `What's on your mind as ${persona.title || 'a settler'}?`;
+          logger.info('AgentLoop', `Executing autonomous TALK${talkPartner ? ` with ${talkPartner}` : ' (shout to world)'}`);
+          const talkReply = await dialogueEngine.processIncomingChat(
+            talkPartner || 'World',
+            talkSubject,
+            {
+              currentTask: decision.action,
+              currentGoal: agentState.activeGoal,
+              stats: stats.getSummary(),
+              inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ')
+            }
+          );
+          if (talkReply && Date.now() - lastOutgoingChat > 2000) {
+            lastOutgoingChat = Date.now();
+            chatCooldowns.set(talkPartner || 'World', Date.now());
+            setTimeout(() => chat.say(talkReply), 400 + Math.random() * 800);
+          }
+          eventBuffer.addEvent('autonomousTalk', { partner: talkPartner, message: talkReply });
+          actionSuccess = !!talkReply;
+          break;
+        }
+
+        case ACTIONS.BUILD:
+        case 'BUILD': {
+          const buildType = decision.buildType || 'shelter';
+          logger.info('AgentLoop', `Executing autonomous BUILD action: ${buildType}`);
+          const didBuild = await builder.buildShelter();
+          if (didBuild && Date.now() - lastOutgoingChat > 3000) {
+            lastOutgoingChat = Date.now();
+            chat.say(`just finished building a ${buildType}!`);
+          }
+          eventBuffer.addEvent('buildShelter', { buildType });
+          actionSuccess = !!didBuild;
+          break;
+        }
+
+        case ACTIONS.TRADE:
+        case 'TRADE': {
+          // Parse LLM's freeform trade offer: e.g. '4x oak_planks for 2x iron_ingot from Agent_Alpha'
+          const offer = decision.tradeOffer || '';
+          const partnerMatch = offer.match(/from (\S+)/i);
+          const tradePartner = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
+          const giveMatch = offer.match(/(\d+)x ([\w_]+) for/i);
+          const wantMatch = offer.match(/for (\d+)x ([\w_]+)/i);
+          const giveItem = giveMatch?.[2] || 'oak_planks';
+          const giveCount = parseInt(giveMatch?.[1] || '4');
+          const wantItem = wantMatch?.[2] || 'cobblestone';
+          const wantCount = parseInt(wantMatch?.[1] || '4');
+          if (tradePartner) {
+            logger.info('AgentLoop', `Executing TRADE with ${tradePartner}: ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
+            await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
+            eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer });
+          } else {
+            // Broadcast trade desire to world if no partner specified
+            if (Date.now() - lastOutgoingChat > 3000) {
+              lastOutgoingChat = Date.now();
+              chat.say(`anyone want to trade? ${offer || 'I have stuff to offer'}`);
+            }
+          }
+          actionSuccess = true;
+          break;
+        }
+
+        case ACTIONS.EXPLORE:
+        case 'EXPLORE':
+        case ACTIONS.WANDER:
+        case 'WANDER': {
+          // Pick a direction based on ambition — ambitious agents explore further
+          const exploreDist = Math.round(16 + (persona.traits?.ambition || 0.5) * 24);
+          logger.info('AgentLoop', `Executing ${decision.action} action (range: ${exploreDist} blocks)`);
+          movement.wander(exploreDist);
+          actionSuccess = true;
+          break;
+        }
+
+        case 'PLAN': {
+          // LLM set a new long-term goal
+          const newGoal = decision.newGoal;
+          if (newGoal && typeof goalManager.setGoal === 'function') {
+            goalManager.setGoal(newGoal);
+            agentState.activeGoal = newGoal;
+            logger.info('AgentLoop', `Agent set new PLAN goal: ${newGoal}`);
+            if (Date.now() - lastOutgoingChat > 3000) {
+              lastOutgoingChat = Date.now();
+              chat.say(`new mission: ${newGoal}`);
+            }
+            eventBuffer.addEvent('newGoal', { goal: newGoal });
+          }
+          actionSuccess = true;
+          break;
+        }
+
+        case 'SMELT': {
+          // Find or place furnace, then smelt the indicated raw item
+          const smeltInput = decision.smeltInput || decision.meta?.smeltInput;
+          logger.info('AgentLoop', `Executing SMELT action${smeltInput ? ': ' + smeltInput : ''}`);
+          let furnaceBlock = senses.getNearbyBlock('furnace', 8);
+          if (!furnaceBlock) {
+            // Try to craft and place a furnace if we have enough cobblestone
+            const cobbleCount = inventory.bot?.inventory?.items().filter(i => i.name.includes('cobblestone') || i.name.includes('cobbled')).reduce((s, i) => s + i.count, 0) || 0;
+            if (cobbleCount >= 8) {
+              await inventory.craftItem('furnace', 1);
+              const table = senses.getNearbyBlock('crafting_table', 4);
+              if (table) {
+                const placePos = table.position.offset(1, 0, 0);
+                const refBlock = bot.blockAt(placePos.offset(0, -1, 0));
+                if (refBlock && refBlock.name !== 'air') {
+                  await inventory.placeBlock('furnace', refBlock, new (require('vec3'))(0, 1, 0));
+                  furnaceBlock = senses.getNearbyBlock('furnace', 6);
                 }
               }
             }
           }
-        }
-        logger.info('AgentLoop', `Harvested ${harvested} crop blocks`);
-        eventBuffer.addEvent('harvest', { count: harvested });
-        break;
-      }
-
-      case 'CHEST': {
-        // Find nearby chest and deposit overflow inventory
-        const chestBlock = senses.getNearbyBlock('chest', 12);
-        if (chestBlock) {
-          logger.info('AgentLoop', 'Executing CHEST action — depositing overflow items');
-          // Deposit items we have more than 16 of (raw materials, not tools)
-          const depositItems = (agentState.inventory || [])
-            .filter(i => i.count > 16 && !i.name.includes('pickaxe') && !i.name.includes('sword') && !i.name.includes('axe'))
-            .map(i => i.name);
-          if (depositItems.length > 0) {
-            await inventory.openChestAndDeposit(chestBlock, depositItems);
-            eventBuffer.addEvent('depositChest', { items: depositItems });
-          } else {
-            logger.info('AgentLoop', 'No overflow to deposit; checking if we need to withdraw anything');
+          if (furnaceBlock && smeltInput) {
+            try {
+              const furnace = await bot.openFurnace(furnaceBlock);
+              const rawItem = bot.inventory?.items().find(i => i.name === smeltInput);
+              const fuelItem = bot.inventory?.items().find(i => i.name === 'coal' || i.name === 'charcoal' || i.name.includes('plank') || i.name.includes('log'));
+              if (rawItem && fuelItem) {
+                await furnace.putInput(rawItem.type, null, Math.min(rawItem.count, 8));
+                await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 2));
+                logger.info('AgentLoop', `Loaded furnace: ${rawItem.name} + ${fuelItem.name}`);
+                eventBuffer.addEvent('smeltItem', { input: smeltInput });
+                actionSuccess = true;
+              }
+              furnace.close();
+            } catch (fErr) {
+              logger.warn('AgentLoop', `Furnace interaction failed: ${fErr.message}`);
+              actionSuccess = false;
+            }
           }
-        } else {
-          logger.info('AgentLoop', 'No nearby chest — wandering to find storage');
-          movement.wander(12);
+          break;
         }
-        break;
-      }
 
-      case ACTIONS.IDLE:
-      default:
-        // Do nothing
-        break;
+        case 'EQUIP': {
+          logger.info('AgentLoop', 'Executing auto-EQUIP best weapon & armor');
+          await combat.equipBestArmor();
+          await combat.equipBestWeapon();
+          eventBuffer.addEvent('equip', { equipment: senses.getEquipmentSummary() });
+          actionSuccess = true;
+          break;
+        }
+
+        case 'HARVEST': {
+          logger.info('AgentLoop', 'Executing HARVEST action — scanning for mature crops');
+          const cropTypes = ['wheat', 'carrots', 'potatoes', 'beetroots', 'nether_wart'];
+          let harvested = 0;
+          for (const cropName of cropTypes) {
+            const cropBlock = senses.getNearbyBlock(cropName, 16);
+            if (cropBlock && cropBlock.metadata === 7) {
+              const success = await inventory.digBlock(cropBlock);
+              if (success) {
+                harvested++;
+                const seedName = cropName === 'wheat' ? 'wheat_seeds' :
+                                 cropName === 'carrots' ? 'carrot' :
+                                 cropName === 'potatoes' ? 'potato' : null;
+                if (seedName) {
+                  const seedItem = bot.inventory?.items().find(i => i.name === seedName);
+                  const farmland = bot.blockAt(cropBlock.position.offset(0, -1, 0));
+                  if (seedItem && farmland && farmland.name === 'farmland') {
+                    try {
+                      await bot.equip(seedItem, 'hand');
+                      await bot.placeBlock(farmland, new (require('vec3'))(0, 1, 0));
+                    } catch (_) {}
+                  }
+                }
+              }
+            }
+          }
+          logger.info('AgentLoop', `Harvested ${harvested} crop blocks`);
+          eventBuffer.addEvent('harvest', { count: harvested });
+          actionSuccess = harvested > 0;
+          break;
+        }
+
+        case 'CHEST': {
+          // Find nearby chest and deposit overflow inventory
+          const chestBlock = senses.getNearbyBlock('chest', 12);
+          if (chestBlock) {
+            logger.info('AgentLoop', 'Executing CHEST action — depositing overflow items');
+            const depositItems = (agentState.inventory || [])
+              .filter(i => i.count > 16 && !i.name.includes('pickaxe') && !i.name.includes('sword') && !i.name.includes('axe'))
+              .map(i => i.name);
+            if (depositItems.length > 0) {
+              await inventory.openChestAndDeposit(chestBlock, depositItems);
+              eventBuffer.addEvent('depositChest', { items: depositItems });
+              actionSuccess = true;
+            } else {
+              logger.info('AgentLoop', 'No overflow to deposit; checking if we need to withdraw anything');
+              actionSuccess = false;
+            }
+          } else {
+            logger.info('AgentLoop', 'No nearby chest — wandering to find storage');
+            movement.wander(12);
+            actionSuccess = false;
+          }
+          break;
+        }
+
+        case ACTIONS.IDLE:
+        default:
+          // Do nothing
+          break;
+      }
+    } catch (execErr) {
+      logger.error('AgentLoop', `Error executing ${decision.action}:`, execErr);
+      actionSuccess = false;
+    } finally {
+      // Reinforce or penalize dynamic rule if the action originated from a dynamic rule
+      const activeRuleId = decision.ruleId || decision.meta?.ruleId;
+      if (activeRuleId && decisionTree?.dynamicRuleEngine) {
+        decisionTree.dynamicRuleEngine.reinforceRule(activeRuleId, actionSuccess);
+      }
     }
   }
 
@@ -797,6 +842,16 @@ function createAgent() {
 
     // Ignore our own echoes
     if (username === bot.username) return;
+
+    // Check if answering an 'ask' consent prompt for lesson sharing
+    if (reflection.pendingLesson) {
+      const lower = (message || '').toLowerCase();
+      if (lower.includes('yes') || lower.includes('share') || lower.includes('sure') || lower.includes('approve') || lower.includes('ok') || lower.includes('pls')) {
+        reflection.confirmPendingLessonShare(true);
+      } else if (lower.includes('no') || lower.includes('dont') || lower.includes('secret') || lower.includes('keep')) {
+        reflection.confirmPendingLessonShare(false);
+      }
+    }
 
     // Handle operator/debug commands (! prefix)
     if (message.startsWith(config.prefix)) {

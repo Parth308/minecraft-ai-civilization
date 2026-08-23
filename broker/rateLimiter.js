@@ -8,6 +8,7 @@ const logger = require('../shared/logger');
 class RateLimiter {
   constructor() {
     this.providerCooldowns = new Map(); // providerName -> timestamp when unblocked
+    this.agentTaskCooldowns = new Map(); // `${agentId}:${taskType}` -> timestamp when unblocked
 
     // Observability counters (cumulative since process start)
     this.stats = {}; // providerName -> { hits, lastHitAt }
@@ -16,6 +17,18 @@ class RateLimiter {
   isBlocked(providerName) {
     const unblockTime = this.providerCooldowns.get(providerName) || 0;
     return Date.now() < unblockTime;
+  }
+
+  isAgentTaskBlocked(agentId, taskType) {
+    const key = `${agentId}:${taskType}`;
+    const unblockTime = this.agentTaskCooldowns.get(key) || 0;
+    return Date.now() < unblockTime;
+  }
+
+  markAgentTaskCooldown(agentId, taskType, cooldownMs = 300000) {
+    const key = `${agentId}:${taskType}`;
+    this.agentTaskCooldowns.set(key, Date.now() + cooldownMs);
+    logger.info('RateLimiter', `Agent ${agentId} task '${taskType}' set on cooldown for ${cooldownMs / 1000}s`);
   }
 
   markRateLimited(providerName, cooldownMs = 60000) {

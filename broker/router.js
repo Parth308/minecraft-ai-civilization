@@ -209,7 +209,7 @@ class ProviderRouter {
   }
 
   async processEscalation(situationPayload) {
-    const taskType = situationPayload.taskType || 'REASONING';
+    const taskType = situationPayload.taskType || (situationPayload.taskHint === 'RESEARCH' ? 'RESEARCH' : 'REASONING');
     const agentId = situationPayload.agentId || 'unknown';
 
     // Exact and semantic cache checks (skipped for social chat and reflection to maintain dynamic free will)
@@ -241,9 +241,24 @@ class ProviderRouter {
 
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
 
-    // Live Web Knowledge Search
+    // Live Web Knowledge Search & Research Task Mode
     let webFacts = null;
-    if (taskType === 'REASONING' || taskType === 'REFLECTION') {
+    if (taskType === 'RESEARCH') {
+      const searchQuery = situationPayload.researchQuery ||
+                          situationPayload.topCandidate?.reason ||
+                          situationPayload.topCandidate?.name ||
+                          situationPayload.activeGoal ||
+                          'minecraft recipes crafting mechanics';
+      
+      if (!this.rateLimiter.isAgentTaskBlocked(agentId, 'RESEARCH')) {
+        logger.info('Router', `[RESEARCH] WebKnowledgeClient invoked for query '${searchQuery}' by agent ${agentId} BEFORE hitting LLM provider`);
+        webFacts = await this.webKnowledge.searchKnowledge(searchQuery);
+        this.rateLimiter.markAgentTaskCooldown(agentId, 'RESEARCH', 300000); // Max 1 RESEARCH call per agent per 5 minutes
+      } else {
+        logger.info('Router', `[RESEARCH] Agent ${agentId} RESEARCH is on 5m rate-limit cooldown. Checking knowledge cache.`);
+        webFacts = await this.webKnowledge.searchKnowledge(searchQuery); // Resolves from memory cache if query was seen
+      }
+    } else if (taskType === 'REASONING' || taskType === 'REFLECTION') {
       const searchQuery = situationPayload.topCandidate?.reason ||
                           situationPayload.topCandidate?.name ||
                           situationPayload.activeGoal ||

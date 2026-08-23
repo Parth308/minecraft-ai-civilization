@@ -134,18 +134,59 @@ app.get('/api/memory/sections/:agentId/:section', (req, res) => {
   res.json({ agentId, section, content });
 });
 
+const CivilizationLedger = require('./store/civilization/ledger');
+const ledger = new CivilizationLedger();
+
 // Civilization ledger (for dashboard ledger panel)
 app.get('/api/ledger', (req, res) => {
-  const ledgerPath = path.join(__dirname, 'store/civilization/ledger.json');
-  if (!fs.existsSync(ledgerPath)) {
-    return res.json({ currencies: [], settlements: [], factions: [], laws: [], updatedAt: null });
+  res.json(ledger.getLedger());
+});
+
+// Shared Lessons Endpoints
+app.get('/api/ledger/lessons', (req, res) => {
+  res.json({ count: ledger.getSharedLessons().length, sharedLessons: ledger.getSharedLessons() });
+});
+
+app.post('/api/ledger/lessons', (req, res) => {
+  const { agentId, lesson, isPublic, context, confidence } = req.body;
+  if (!agentId || !lesson) {
+    return res.status(400).json({ error: 'agentId and lesson string required' });
   }
-  try {
-    const data = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to read ledger', detail: err.message });
+  const result = ledger.recordLesson(agentId, lesson, isPublic, context, confidence);
+  res.json(result);
+});
+
+// Rule adjustments queue per agent (Feedback loop from macro reflection prose -> numeric weights)
+const pendingRuleAdjustments = new Map(); // agentId -> Array of adjustments
+
+app.post('/api/rules/adjust', (req, res) => {
+  const { agentId, ruleType, situationPattern, recommendedConfidenceDelta, reason } = req.body;
+  if (!agentId || !ruleType || typeof recommendedConfidenceDelta !== 'number') {
+    return res.status(400).json({ error: 'agentId, ruleType, and numeric recommendedConfidenceDelta required' });
   }
+  if (!pendingRuleAdjustments.has(agentId)) {
+    pendingRuleAdjustments.set(agentId, []);
+  }
+  const adj = {
+    id: `adj_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+    agentId,
+    ruleType,
+    situationPattern: situationPattern || 'general',
+    recommendedConfidenceDelta: Math.max(-0.3, Math.min(0.3, recommendedConfidenceDelta)),
+    reason: reason || 'Macro reflection rule weight adjustment',
+    createdAt: new Date().toISOString()
+  };
+  pendingRuleAdjustments.get(agentId).push(adj);
+  logger.info('MemoryService', `[RULE ADJUST QUEUE] Stored adjustment for ${agentId}: ${ruleType} (${adj.recommendedConfidenceDelta})`);
+  res.json({ success: true, adjustment: adj });
+});
+
+app.get('/api/rules/adjust/:agentId', (req, res) => {
+  const { agentId } = req.params;
+  const list = pendingRuleAdjustments.get(agentId) || [];
+  // Clear returned adjustments to prevent double-application
+  pendingRuleAdjustments.set(agentId, []);
+  res.json({ agentId, count: list.length, adjustments: list });
 });
 
 app.listen(config.port, () => {

@@ -3,49 +3,56 @@ const logger = require('../../shared/logger');
 const ARCHETYPES = {
   'friendly-explorer': {
     title: 'Adventurous Pioneer',
-    traits: { curiosity: 0.95, sociability: 0.75, greed: 0.35, loyalty: 0.80, caution: 0.35, ambition: 0.85 },
+    traits: { curiosity: 0.95, sociability: 0.75, greed: 0.35, loyalty: 0.80, caution: 0.35, ambition: 0.85, openness: 0.85 },
+    defaultPrivacy: 'public',
     motto: 'Every mountain holds a secret, every horizon is an invitation.',
     speakingStyle: 'Enthusiastic, energetic, and curious about new terrain.',
     favoriteItem: 'compass'
   },
   'cautious-builder': {
     title: 'Meticulous Architect',
-    traits: { curiosity: 0.45, sociability: 0.60, greed: 0.40, loyalty: 0.90, caution: 0.90, ambition: 0.70 },
+    traits: { curiosity: 0.45, sociability: 0.60, greed: 0.40, loyalty: 0.90, caution: 0.90, ambition: 0.70, openness: 0.50 },
+    defaultPrivacy: 'ask',
     motto: 'Shelter and fortifications first; civilization stands on strong foundations.',
     speakingStyle: 'Methodical, practical, and safety-conscious.',
     favoriteItem: 'oak_planks'
   },
   'shrewd-trader': {
     title: 'Shrewd Merchant',
-    traits: { curiosity: 0.65, sociability: 0.90, greed: 0.90, loyalty: 0.45, caution: 0.65, ambition: 0.85 },
+    traits: { curiosity: 0.65, sociability: 0.90, greed: 0.90, loyalty: 0.45, caution: 0.65, ambition: 0.85, openness: 0.90 },
+    defaultPrivacy: 'public',
     motto: 'Everything has a price, and profit belongs to the cunning.',
     speakingStyle: 'Clever, negotiating, and focused on value exchange.',
     favoriteItem: 'emerald'
   },
   'lone-survivalist': {
     title: 'Lone Survivalist',
-    traits: { curiosity: 0.75, sociability: 0.25, greed: 0.30, loyalty: 0.50, caution: 0.80, ambition: 0.60 },
+    traits: { curiosity: 0.75, sociability: 0.25, greed: 0.30, loyalty: 0.50, caution: 0.80, ambition: 0.60, openness: 0.15 },
+    defaultPrivacy: 'private',
     motto: 'I trust my hands, my blade, and the wilderness.',
     speakingStyle: 'Short, rugged, concise, and self-reliant.',
     favoriteItem: 'stone_sword'
   },
   'reckless-miner': {
     title: 'Deep Cavern Miner',
-    traits: { curiosity: 0.90, sociability: 0.40, greed: 0.85, loyalty: 0.60, caution: 0.25, ambition: 0.95 },
+    traits: { curiosity: 0.90, sociability: 0.40, greed: 0.85, loyalty: 0.60, caution: 0.25, ambition: 0.95, openness: 0.40 },
+    defaultPrivacy: 'ask',
     motto: 'The deepest depths contain diamonds; fear is for surface dwellers.',
     speakingStyle: 'Brave, ambitious, and obsessed with digging deeper.',
     favoriteItem: 'iron_pickaxe'
   },
   'zen-gatherer': {
     title: 'Zen Gatherer',
-    traits: { curiosity: 0.60, sociability: 0.85, greed: 0.20, loyalty: 0.95, caution: 0.65, ambition: 0.50 },
+    traits: { curiosity: 0.60, sociability: 0.85, greed: 0.20, loyalty: 0.95, caution: 0.65, ambition: 0.50, openness: 0.75 },
+    defaultPrivacy: 'public',
     motto: 'Nurture the land, plant crops, and harmony will follow.',
     speakingStyle: 'Peaceful, observant, and warm.',
     favoriteItem: 'wheat_seeds'
   },
   'quirky-tinkerer': {
     title: 'Quirky Tinkerer',
-    traits: { curiosity: 0.95, sociability: 0.70, greed: 0.50, loyalty: 0.70, caution: 0.40, ambition: 0.75 },
+    traits: { curiosity: 0.95, sociability: 0.70, greed: 0.50, loyalty: 0.70, caution: 0.40, ambition: 0.75, openness: 0.80 },
+    defaultPrivacy: 'public',
     motto: 'What happens if I combine these items in a crafting table?',
     speakingStyle: 'Playful, spontaneous, and experimental.',
     favoriteItem: 'redstone'
@@ -103,6 +110,9 @@ class DynamicPersona {
     // Initialize traits with unique random variance (±0.12)
     this.traits = this._initializeTraitsWithVariance(arch.traits);
 
+    // Privacy Preference: 'public' | 'private' | 'ask'
+    this.privacyPreference = process.env.PRIVACY_PREFERENCE || arch.defaultPrivacy || 'ask';
+
     // Random individuality markers
     const hashVal = this._hashCode(agentId + (Math.random() * 1000).toFixed(0));
     this.quirk = QUIRKS[Math.abs(hashVal) % QUIRKS.length];
@@ -113,6 +123,15 @@ class DynamicPersona {
 
     this.rebellionDisposition = Math.min(0.95, Math.max(0.1, (Math.random() * 0.5 + (this.traits.curiosity * 0.4))));
     this.worldviewSummary = `I am ${agentId} (${this.title}), with a ${this.temperament} disposition. Motto: "${this.innerMotto}" Quirk: ${this.quirk}.`;
+  }
+
+  setPrivacyPreference(pref) {
+    if (['public', 'private', 'ask'].includes(pref)) {
+      this.privacyPreference = pref;
+      logger.info('Persona', `Updated privacy preference for ${this.agentId} to '${pref}'`);
+      return true;
+    }
+    return false;
   }
 
   _initializeTraitsWithVariance(baseTraits) {
@@ -167,6 +186,7 @@ class DynamicPersona {
       quirk: this.quirk,
       speakingStyle: this.speakingStyle,
       favoriteItem: this.favoriteItem,
+      privacyPreference: this.privacyPreference,
       rebellionDisposition: this.rebellionDisposition.toFixed(2),
       traits: this.traits,
       worldview: this.worldviewSummary,

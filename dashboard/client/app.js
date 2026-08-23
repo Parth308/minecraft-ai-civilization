@@ -423,6 +423,8 @@
     const personaTitle = personaObj.title || personaObj.seed || (typeof a.persona === 'string' ? a.persona : 'Pioneer');
     const temperament = personaObj.temperament || null;
     const quirk = personaObj.quirk || null;
+    const privacyPref = personaObj.privacyPreference || 'ask';
+    const privacyIcon = privacyPref === 'public' ? '🌐' : (privacyPref === 'private' ? '🔒' : '❓');
 
     return `
       <div class="card agent-card">
@@ -433,6 +435,7 @@
               <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
               <span class="agent-name">${esc(a.username)}</span>
               <span class="persona-badge" title="${esc(personaObj.seed || '')}">🧬 ${esc(personaTitle)}</span>
+              <span class="badge badge-neutral" style="font-size:11px" title="Civ Knowledge Privacy Mode">${privacyIcon} ${esc(privacyPref.toUpperCase())}</span>
               ${temperament ? `<span class="badge badge-neutral" style="font-size:11px">🎭 ${esc(temperament)}</span>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
