@@ -80,15 +80,30 @@ const TEMPERAMENTS = [
 ];
 
 class DynamicPersona {
-  constructor(agentId, seed = 'friendly-explorer') {
+  constructor(agentId, seed = 'random') {
     this.agentId = agentId;
+    this.seed = seed;
 
-    // Pick archetype: if 'random', pick purely random from available archetypes
+    // True procedural random mode
+    if (!seed || seed === 'random' || seed === 'procedural') {
+      const procedural = this._generateProceduralPersona(agentId);
+      this.archetypeKey = 'procedural';
+      this.title = procedural.title;
+      this.traits = procedural.traits;
+      this.privacyPreference = process.env.PRIVACY_PREFERENCE || procedural.defaultPrivacy;
+      this.speakingStyle = procedural.speakingStyle;
+      this.favoriteItem = procedural.favoriteItem;
+      this.innerMotto = procedural.motto;
+      this.temperament = procedural.temperament;
+      this.quirk = procedural.quirk;
+      this.rebellionDisposition = procedural.rebellionDisposition;
+      this.worldviewSummary = `I am ${agentId} (${this.title}), with a ${this.temperament} disposition. Motto: "${this.innerMotto}" Quirk: ${this.quirk}.`;
+      return;
+    }
+
+    // Template archetype fallback if a specific named seed was explicitly requested
     let archetypeKey = seed;
-    const keys = Object.keys(ARCHETYPES);
-    if (!archetypeKey || archetypeKey === 'random') {
-      archetypeKey = keys[Math.floor(Math.random() * keys.length)];
-    } else if (!ARCHETYPES[archetypeKey]) {
+    if (!ARCHETYPES[archetypeKey]) {
       if (agentId.toLowerCase().includes('beta')) {
         archetypeKey = 'cautious-builder';
       } else if (agentId.toLowerCase().includes('gamma')) {
@@ -98,13 +113,24 @@ class DynamicPersona {
       } else if (agentId.toLowerCase().includes('alpha')) {
         archetypeKey = 'friendly-explorer';
       } else {
-        archetypeKey = keys[Math.floor(Math.random() * keys.length)];
+        const procedural = this._generateProceduralPersona(agentId);
+        this.archetypeKey = 'procedural';
+        this.title = procedural.title;
+        this.traits = procedural.traits;
+        this.privacyPreference = process.env.PRIVACY_PREFERENCE || procedural.defaultPrivacy;
+        this.speakingStyle = procedural.speakingStyle;
+        this.favoriteItem = procedural.favoriteItem;
+        this.innerMotto = procedural.motto;
+        this.temperament = procedural.temperament;
+        this.quirk = procedural.quirk;
+        this.rebellionDisposition = procedural.rebellionDisposition;
+        this.worldviewSummary = `I am ${agentId} (${this.title}), with a ${this.temperament} disposition. Motto: "${this.innerMotto}" Quirk: ${this.quirk}.`;
+        return;
       }
     }
 
     this.archetypeKey = archetypeKey;
     const arch = ARCHETYPES[archetypeKey] || ARCHETYPES['friendly-explorer'];
-    this.seed = `${archetypeKey}`;
     this.title = arch.title;
 
     // Initialize traits with unique random variance (±0.12)
@@ -123,6 +149,104 @@ class DynamicPersona {
 
     this.rebellionDisposition = Math.min(0.95, Math.max(0.1, (Math.random() * 0.5 + (this.traits.curiosity * 0.4))));
     this.worldviewSummary = `I am ${agentId} (${this.title}), with a ${this.temperament} disposition. Motto: "${this.innerMotto}" Quirk: ${this.quirk}.`;
+  }
+
+  _generateProceduralPersona(agentId) {
+    // 1. Roll 7 completely independent continuous traits (0.08 to 0.96)
+    const traits = {
+      curiosity: Number((0.10 + Math.random() * 0.85).toFixed(2)),
+      sociability: Number((0.10 + Math.random() * 0.85).toFixed(2)),
+      greed: Number((0.10 + Math.random() * 0.85).toFixed(2)),
+      loyalty: Number((0.10 + Math.random() * 0.85).toFixed(2)),
+      caution: Number((0.10 + Math.random() * 0.85).toFixed(2)),
+      ambition: Number((0.10 + Math.random() * 0.85).toFixed(2)),
+      openness: Number((0.10 + Math.random() * 0.85).toFixed(2))
+    };
+
+    // 2. Determine dominant and secondary traits to formulate emergent title
+    const sortedTraits = Object.entries(traits).sort((a, b) => b[1] - a[1]);
+    const dominant = sortedTraits[0][0];
+    const secondary = sortedTraits[1][0];
+
+    const ADJECTIVES = {
+      curiosity: ['Inquisitive', 'Restless', 'Visionary', 'Adventurous'],
+      sociability: ['Charismatic', 'Gregarious', 'Diplomatic', 'Warm'],
+      greed: ['Shrewd', 'Calculating', 'Resourceful', 'Opportunistic'],
+      loyalty: ['Steadfast', 'Devoted', 'Honorable', 'Vigilant'],
+      caution: ['Methodical', 'Prudent', 'Defensive', 'Guarded'],
+      ambition: ['Relentless', 'Audacious', 'Driven', 'Ambitious'],
+      openness: ['Candid', 'Expressive', 'Unfiltered', 'Altruistic']
+    };
+
+    const NOUNS = {
+      curiosity: ['Pathfinder', 'Pioneer', 'Wanderer', 'Seeker'],
+      sociability: ['Envoy', 'Mediator', 'Companion', 'Orator'],
+      greed: ['Merchant', 'Prospector', 'Broker', 'Scavenger'],
+      loyalty: ['Guardian', 'Champion', 'Protector', 'Vanguard'],
+      caution: ['Architect', 'Survivor', 'Sentinel', 'Strategist'],
+      ambition: ['Conqueror', 'Innovator', 'Pillar', 'Mastermind'],
+      openness: ['Herald', 'Sage', 'Storyteller', 'Scholar']
+    };
+
+    const adjPool = ADJECTIVES[secondary] || ADJECTIVES.ambition;
+    const nounPool = NOUNS[dominant] || NOUNS.curiosity;
+    const title = `${adjPool[Math.floor(Math.random() * adjPool.length)]} ${nounPool[Math.floor(Math.random() * nounPool.length)]}`;
+
+    // 3. Emergent Speaking Style
+    let speakingStyle = '';
+    if (traits.sociability > 0.65) {
+      speakingStyle = traits.curiosity > 0.6 ? 'Enthusiastic, inquisitive, and eager to collaborate.' : 'Warm, gregarious, and conversational.';
+    } else if (traits.sociability < 0.35) {
+      speakingStyle = traits.caution > 0.6 ? 'Curt, guarded, and focused strictly on self-preservation.' : 'Laconic, pragmatic, and independent.';
+    } else {
+      speakingStyle = traits.greed > 0.65 ? 'Calculating, transactional, and direct.' : 'Thoughtful, balanced, and observant.';
+    }
+
+    // 4. Emergent Privacy Preference derived from continuous openness
+    const defaultPrivacy = traits.openness >= 0.60 ? 'public' : (traits.openness <= 0.35 ? 'private' : 'ask');
+
+    // 5. Emergent Favorite Item
+    const ITEM_POOLS = {
+      curiosity: ['compass', 'spyglass', 'map', 'feather'],
+      sociability: ['cookie', 'apple', 'poppy', 'emerald'],
+      greed: ['emerald', 'gold_ingot', 'diamond', 'raw_iron'],
+      loyalty: ['iron_sword', 'shield', 'banner', 'golden_apple'],
+      caution: ['oak_planks', 'torch', 'stone_bricks', 'bread'],
+      ambition: ['diamond_pickaxe', 'iron_pickaxe', 'redstone', 'bucket'],
+      openness: ['written_book', 'clock', 'wheat_seeds', 'glowstone_dust']
+    };
+    const favPool = ITEM_POOLS[dominant] || ['compass'];
+    const favoriteItem = favPool[Math.floor(Math.random() * favPool.length)];
+
+    // 6. Emergent Motto
+    const MOTTOS = {
+      curiosity: ['Every horizon hides what words cannot describe.', 'The unknown is the only territory worth exploring.'],
+      sociability: ['Together we build what no lone hand could ever craft.', 'Trust is the strongest armor in this world.'],
+      greed: ['Value is created by those who seize opportunity.', 'A full chest is the only true security.'],
+      loyalty: ['Stand with your comrades and you will never fall.', 'Honor outlasts every stone wall.'],
+      caution: ['Measure twice, reinforce thrice, survive always.', 'Only fools build without looking at the sky.'],
+      ambition: ['Leave a mark on this world that cannot be excavated.', 'Deeper, stronger, higher — never settle.'],
+      openness: ['Knowledge shared is power multiplied.', 'Speak truth and the world will answer in kind.']
+    };
+    const mottoPool = MOTTOS[dominant] || MOTTOS.curiosity;
+    const motto = mottoPool[Math.floor(Math.random() * mottoPool.length)];
+
+    const hashVal = this._hashCode(agentId + (Math.random() * 1000).toFixed(0));
+    const quirk = QUIRKS[Math.abs(hashVal) % QUIRKS.length];
+    const temperament = TEMPERAMENTS[Math.abs(hashVal >> 2) % TEMPERAMENTS.length];
+    const rebellionDisposition = Number(Math.min(0.95, Math.max(0.1, (Math.random() * 0.4 + (traits.curiosity * 0.4) + (1 - traits.loyalty) * 0.2)).toFixed(2)));
+
+    return {
+      title,
+      traits,
+      defaultPrivacy,
+      speakingStyle,
+      favoriteItem,
+      motto,
+      quirk,
+      temperament,
+      rebellionDisposition
+    };
   }
 
   setPrivacyPreference(pref) {

@@ -74,7 +74,11 @@ This document serves as the complete technical specification, architectural refe
 
 #### 3. Cognitive & Goal Architecture (`agent/cognition/`)
 - **[`agent/cognition/persona.js`](file:///e:/Projects/minecraft-community/agent/cognition/persona.js)** — `DynamicPersona` class:
-  - Archetypes: `friendly-explorer` (openness: 0.85, public), `cautious-builder` (openness: 0.50, ask), `shrewd-trader` (openness: 0.90, public), `lone-survivalist` (openness: 0.15, private), `reckless-miner` (openness: 0.40, ask), `zen-gatherer` (openness: 0.75, public), `quirky-tinkerer` (openness: 0.80, public).
+  - **Truly Procedural Multi-Dimensional Persona Generation (`PERSONALITY_SEED=random`)**:
+    - Rolls 7 completely independent continuous traits in `[0.10, 0.95]`: `curiosity`, `sociability`, `greed`, `loyalty`, `caution`, `ambition`, `openness`.
+    - Synthesizes emergent procedural titles from dominant/secondary trait pairings (e.g. *Charismatic Herald*, *Restless Guardian*, *Honorable Strategist*, *Audacious Tycoon*, *Reckless Pathfinder*).
+    - Procedurally derives speaking style, favorite items, life mottos, and privacy preferences (`public` if openness $\ge 0.60$, `private` if openness $\le 0.35$, else `ask`).
+  - **Archetype Templates**: Supports named archetypes (`friendly-explorer`, `cautious-builder`, `shrewd-trader`, `lone-survivalist`, `reckless-miner`, `zen-gatherer`, `quirky-tinkerer`).
   - `traits`: Includes `openness` (0.0-1.0), `curiosity`, `sociability`, `greed`, `loyalty`, `caution`, `ambition`.
   - `privacyPreference`: `'public' | 'private' | 'ask'` (overridable via `PRIVACY_PREFERENCE` env, constructor, or `/personality` endpoint).
   - `setPrivacyPreference(pref)`: Live hot-reload of privacy mode.
