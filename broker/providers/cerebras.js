@@ -38,8 +38,20 @@ async function queryCerebras(apiKey, prompt) {
         throw error;
       }
 
+      if (response.status === 402 || response.status === 401) {
+        const errText = await response.text().catch(() => '');
+        const error = new Error(`Cerebras API Payment/Auth Error (${response.status}) | ${errText}`);
+        error.status = response.status;
+        throw error;
+      }
+
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
+        if (errText.includes('payment_required')) {
+          const error = new Error(`Cerebras API Payment Required | ${errText}`);
+          error.status = 402;
+          throw error;
+        }
         lastError = new Error(`Cerebras API Error HTTP ${response.status}: ${response.statusText} | ${errText}`);
         continue;
       }

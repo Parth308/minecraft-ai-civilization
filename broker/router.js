@@ -351,6 +351,8 @@ class ProviderRouter {
         this._recordProviderFailure(provider.name, err);
         if (err.status === 429) {
           this.rateLimiter.markRateLimited(provider.name, 60000);
+        } else if (err.status === 401 || err.status === 402 || err.message?.includes('payment_required') || err.message?.includes('Payment required')) {
+          this.rateLimiter.markRateLimited(provider.name, 3600000); // 1 hour cooldown for payment/auth exhausted providers
         }
         lastError = err;
       }
