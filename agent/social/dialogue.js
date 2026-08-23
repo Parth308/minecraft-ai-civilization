@@ -41,6 +41,26 @@ class SocialDialogueEngine {
         this.goalManager.setGoal(response.newGoal);
       }
 
+      // Shared Goal Recruitment Evaluation
+      const lower = message.toLowerCase();
+      if ((lower.includes('shared goal') || lower.includes('community project') || lower.includes('let\'s build') || lower.includes('need volunteers')) &&
+          civContext.activeSharedGoals && civContext.activeSharedGoals.length > 0) {
+        const tr = this.persona.traits || {};
+        const isSociallyInclined = (tr.sociability || 0.5) >= 0.40 || (tr.loyalty || 0.5) >= 0.50;
+        const hasCapacity = (this.goalManager.personalGoalLoad || 1) < 2;
+
+        if (isSociallyInclined && hasCapacity) {
+          const targetGoal = civContext.activeSharedGoals[0];
+          if (targetGoal && targetGoal.id !== this.goalManager.activeSharedGoalId) {
+            await this.goalManager.joinSharedGoal(targetGoal.id);
+            logger.info('SocialDialogue', `[SHARED GOAL RECRUITMENT] ${this.persona.agentId} joined "${targetGoal.description}" invited by ${sender}`);
+            if (!response.chatMessage) {
+              response.chatMessage = `Count me in, ${sender}! I'll contribute to "${targetGoal.description}".`;
+            }
+          }
+        }
+      }
+
       // Diplomatic actions (War, Treaties, Currencies)
       if (this.factionManager) {
         if (response.warTarget) {

@@ -17,6 +17,85 @@
     wsOnline: false
   };
 
+  const replayState = {
+    active: false,
+    events: [],
+    currentIndex: 0,
+    isPlaying: false,
+    playInterval: null,
+    speedMs: 1200
+  };
+
+  window.toggleReplayMode = async () => {
+    replayState.active = !replayState.active;
+    if (replayState.active) {
+      await window.fetchTimelineEvents();
+    } else {
+      if (replayState.playInterval) clearInterval(replayState.playInterval);
+      replayState.isPlaying = false;
+    }
+    render();
+  };
+
+  window.fetchTimelineEvents = async (agentId = null) => {
+    try {
+      const url = agentId ? `/api/timeline?agentId=${encodeURIComponent(agentId)}` : '/api/timeline';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        replayState.events = data.events || [];
+        replayState.currentIndex = Math.max(0, replayState.events.length - 1);
+        if (replayState.events.length > 0) {
+          window.seekTimeline(replayState.currentIndex);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load timeline:', err);
+    }
+  };
+
+  window.seekTimeline = (index) => {
+    if (!replayState.events || replayState.events.length === 0) return;
+    const clamped = Math.max(0, Math.min(index, replayState.events.length - 1));
+    replayState.currentIndex = clamped;
+    const ev = replayState.events[clamped];
+    if (ev) {
+      // Replay telemetry into target agent or chat feed
+      if (ev.speaker && ev.message) {
+        state.chat = [...state.chat, { sender: ev.speaker, message: ev.message, timestamp: ev.timestamp }];
+      }
+      if (ev.agentId && ev.action) {
+        const ag = state.agents.find(a => a.username === ev.agentId);
+        if (ag) {
+          ag.latestDecision = { action: ev.action, reason: ev.reason || 'Replaying past action', source: ev.source || 'tree' };
+        }
+      }
+    }
+    render();
+  };
+
+  window.stepTimeline = (delta) => {
+    window.seekTimeline(replayState.currentIndex + delta);
+  };
+
+  window.toggleReplayPlayback = () => {
+    replayState.isPlaying = !replayState.isPlaying;
+    if (replayState.isPlaying) {
+      replayState.playInterval = setInterval(() => {
+        if (replayState.currentIndex >= replayState.events.length - 1) {
+          clearInterval(replayState.playInterval);
+          replayState.isPlaying = false;
+          render();
+          return;
+        }
+        window.stepTimeline(1);
+      }, replayState.speedMs);
+    } else {
+      if (replayState.playInterval) clearInterval(replayState.playInterval);
+    }
+    render();
+  };
+
   const root = document.getElementById('page-root');
 
   // ── Formatting helpers ────────────────────────────────────────────
@@ -83,6 +162,7 @@
       world: renderWorld,
       agents: renderAgents,
       decisions: renderDecisions,
+      chronicle: renderChronicle,
       costs: renderCosts
     }[state.page];
     const html = fn ? fn() : '';
@@ -322,6 +402,39 @@
             </form>
           </div>
         </div>
+
+        <!-- Timeline Replay Scrubber -->
+        <div class="card timeline-scrubber-card" style="margin-top:12px;padding:12px 16px;background:rgba(18,18,24,0.85);border:1px solid ${replayState.active ? '#f59e0b' : 'rgba(255,255,255,0.08)'}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:12px;font-weight:700;letter-spacing:.05em;color:${replayState.active ? '#f59e0b' : 'var(--text-dim)'}">
+                ${replayState.active ? '📼 TIMELINE REPLAY MODE' : '🔴 LIVE OBSERVATION'}
+              </span>
+              <button class="btn btn-spectate" style="font-size:11px;padding:2px 8px" onclick="window.toggleReplayMode()">
+                ${replayState.active ? 'Exit Replay' : 'Load Historical Replay'}
+              </button>
+            </div>
+            ${replayState.active ? `
+              <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+                <button class="btn btn-send" style="padding:2px 10px;font-size:11px" onclick="window.toggleReplayPlayback()">
+                  ${replayState.isPlaying ? '⏸ Pause' : '▶ Play'}
+                </button>
+                <button class="btn btn-spectate" style="padding:2px 8px;font-size:11px" onclick="window.stepTimeline(-1)">◀ Prev</button>
+                <button class="btn btn-spectate" style="padding:2px 8px;font-size:11px" onclick="window.stepTimeline(1)">Next ▶</button>
+                <span class="num" style="color:var(--amber);font-weight:600">${replayState.events.length > 0 ? `Step ${replayState.currentIndex + 1}/${replayState.events.length}` : 'No events'}</span>
+              </div>
+            ` : '<span style="font-size:11px;color:var(--text-faint)">Streaming real-time telemetry</span>'}
+          </div>
+
+          ${replayState.active ? `
+            <input type="range" min="0" max="${Math.max(0, replayState.events.length - 1)}" value="${replayState.currentIndex}" oninput="window.seekTimeline(parseInt(this.value, 10))" style="width:100%;cursor:pointer;accent-color:#f59e0b" />
+            <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--text-faint)">
+              <span>${replayState.events[0]?.timestamp ? timeOf(replayState.events[0].timestamp) : 'Start'}</span>
+              <span style="color:#f59e0b;font-weight:600">${replayState.events[replayState.currentIndex] ? `${esc(replayState.events[replayState.currentIndex].category || 'event')} · ${timeOf(replayState.events[replayState.currentIndex].timestamp || replayState.events[replayState.currentIndex]._parsedTs)}` : 'Scrub timeline'}</span>
+              <span>${replayState.events[replayState.events.length - 1]?.timestamp ? timeOf(replayState.events[replayState.events.length - 1].timestamp) : 'Latest'}</span>
+            </div>
+          ` : ''}
+        </div>
       </div>`;
   }
 
@@ -425,6 +538,8 @@
     const quirk = personaObj.quirk || null;
     const privacyPref = personaObj.privacyPreference || 'ask';
     const privacyIcon = privacyPref === 'public' ? '🌐' : (privacyPref === 'private' ? '🔒' : '❓');
+    const scarCount = personaObj.scarCount || (Array.isArray(personaObj.scarHistory) ? personaObj.scarHistory.length : 0);
+    const scarSummary = personaObj.scarSummary || (scarCount > 0 ? `Scarred by ${scarCount} death${scarCount > 1 ? 's' : ''} — grown more cautious, less ambitious` : null);
 
     return `
       <div class="card agent-card">
@@ -436,6 +551,7 @@
               <span class="agent-name">${esc(a.username)}</span>
               <span class="persona-badge" title="${esc(personaObj.seed || '')}">🧬 ${esc(personaTitle)}</span>
               <span class="badge badge-neutral" style="font-size:11px" title="Civ Knowledge Privacy Mode">${privacyIcon} ${esc(privacyPref.toUpperCase())}</span>
+              ${scarCount > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);font-size:11px" title="${esc(scarSummary)}">🩸 ${scarCount} SCAR${scarCount > 1 ? 'S' : ''}</span>` : ''}
               ${temperament ? `<span class="badge badge-neutral" style="font-size:11px">🎭 ${esc(temperament)}</span>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
@@ -454,6 +570,12 @@
             ${quirk ? `<span class="meta-chip" style="color:var(--lime);font-style:italic">✨ ${esc(quirk)}</span>` : ''}
           </div>
         </div>
+
+        ${scarSummary ? `
+        <div style="background:rgba(239,68,68,0.1);border-left:3px solid #ef4444;padding:4px 10px;font-size:11px;color:#fca5a5;margin:4px 0 2px 0;display:flex;align-items:center;gap:6px">
+          <span>🩸</span>
+          <span><b>PSYCHOLOGICAL SCAR:</b> ${esc(scarSummary)}</span>
+        </div>` : ''}
 
         <!-- Goal Ribbon -->
         <div class="agent-goal-box">
@@ -682,6 +804,69 @@
         <div class="card"><div class="kpi-label">Fallbacks</div><div class="kpi-value ${s.caches.fallbacks > 0 ? 'red' : ''}">${fmtInt(s.caches.fallbacks)}</div><div class="kpi-sub">provider unavailable</div></div>
         <div class="card"><div class="kpi-label">Broker Uptime</div><div class="kpi-value mono" style="font-size:18px">${t.startedAt ? new Date(t.startedAt).toLocaleString('en-US') : '—'}</div></div>
       </div>`;
+  }
+
+  // ── Page: Chronicle ───────────────────────────────────────────────
+  let cachedChronicle = [];
+  async function fetchChronicle() {
+    try {
+      const r = await fetch('/api/dashboard/chronicle');
+      if (r.ok) {
+        const d = await r.json();
+        cachedChronicle = d.chronicle || [];
+      }
+    } catch (_) {}
+  }
+  setInterval(fetchChronicle, 5000);
+  fetchChronicle();
+
+  function renderChronicle() {
+    const EVENT_ICONS = {
+      treaty_signed: '📜',
+      treaty_ratified: '📜',
+      territory_claimed: '🏛️',
+      shared_goal_proposed: '🌟',
+      shared_goal_joined: '🤝',
+      shared_goal_completed: '🏆',
+      wisdom_shared: '💡',
+      lesson_shared: '💡',
+      milestone: '⭐'
+    };
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Civilization Chronicle &amp; Lore</div>
+        <div class="page-desc">The living story of the world — emergent treaties, territorial claims, shared achievements, and cultural philosophy</div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        ${cachedChronicle.length === 0 ? '<div class="empty-state">The world is young. No historical chronicle entries recorded yet…</div>' : `
+          <div style="display:flex;flex-direction:column;gap:12px">
+            ${cachedChronicle.map(entry => {
+              const icon = EVENT_ICONS[entry.eventType] || '📜';
+              const agents = Array.isArray(entry.relatedAgents) ? entry.relatedAgents.join(', ') : (entry.relatedAgents || 'Civilization');
+              return `
+                <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-left:4px solid var(--accent, #6366f1);border-radius:6px;padding:12px 16px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font-size:16px">${icon}</span>
+                      <span style="font-weight:700;font-size:14px;color:var(--text-bright, #f1f5f9)">${esc(entry.headline)}</span>
+                    </div>
+                    <span class="num" style="font-size:11px;color:var(--text-faint)">${new Date(entry.timestamp).toLocaleTimeString('en-US')}</span>
+                  </div>
+                  <div style="font-size:13px;color:var(--text-dim, #cbd5e1);line-height:1.45;margin-bottom:6px">${esc(entry.detail)}</div>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-faint)">
+                    <span>Actors:</span>
+                    <span class="badge badge-neutral" style="font-size:10px">${esc(agents)}</span>
+                    <span style="margin-left:auto;text-transform:uppercase;letter-spacing:.04em;font-size:10px;color:var(--text-faint)">${esc(entry.eventType || 'event')}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+    `;
   }
 
   // ── Chat feed ─────────────────────────────────────────────────────

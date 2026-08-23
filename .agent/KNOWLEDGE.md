@@ -254,6 +254,10 @@ This document serves as the complete technical specification, architectural refe
   - `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`
   - `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`
   - `GET /api/ledger`, `GET /api/ledger/lessons`, `POST /api/ledger/lessons`
+  - `GET /api/ledger/trades`, `POST /api/ledger/trades`
+  - `GET /api/ledger/territory`, `GET /api/ledger/territory/all`, `POST /api/ledger/territory/claim`
+  - `GET /api/ledger/shared-goals`, `POST /api/ledger/shared-goals/propose`, `POST /api/ledger/shared-goals/join`, `POST /api/ledger/shared-goals/contribute`
+  - `GET /api/ledger/chronicle`, `POST /api/ledger/chronicle`
   - `POST /api/rules/adjust`, `GET /api/rules/adjust/:agentId`
 - **[`memory-service/embeddings/client.js`](file:///e:/Projects/minecraft-community/memory-service/embeddings/client.js)** — `EmbeddingClient` class:
   - Supports **Ollama (`nomic-embed-text`)**, **Gemini (`text-embedding-004`)**, and **Local N-Gram Fallback** with L2 vector normalization.
@@ -266,7 +270,11 @@ This document serves as the complete technical specification, architectural refe
   - **Periodic Macro-Reflection Architecture**: Sole authorized writer to `profile.md` (tagged with `source: 'macro-reflection'`), synthesizing worldview and high-level insights across history, skills, and relationships.
   - **Prose-to-Weight Feedback Loop**: Runs structured extraction pass converting prose realizations into numeric rule adjustments (`POST /api/rules/adjust`).
 - **[`memory-service/store/civilization/ledger.js`](file:///e:/Projects/minecraft-community/memory-service/store/civilization/ledger.js)** — `CivilizationLedger` class:
-  - Records emergent currencies, settlements, factions, and `sharedLessons` (public pool with per-agent privacy opt-in).
+  - **Emergent Economics & Trade**: `recordTrade()` logs market transactions with calculated fairness score.
+  - **Spatial Sovereignty**: `claimTerritory()` with radius-based collision rejection, `getTerritoryAt()`, `getTerritoryClaims()`.
+  - **Coordinated Community Projects**: `createSharedGoal()`, `joinSharedGoal()`, `contributeToSharedGoal()` tracking collaborative milestones.
+  - **Living Chronicle & Lore Feed**: `addChronicleEntry()`, `getChronicle()`, `recordTreaty()` auto-generating evocative historical chronicles across treaties, territorial settlements, and communal victories.
+  - **Shared Lessons**: Public lore discovery pool with per-agent privacy opt-in (`public`, `private`, `ask`).
 
 ---
 
@@ -275,30 +283,24 @@ This document serves as the complete technical specification, architectural refe
 - **[`dashboard/package.json`](file:///e:/Projects/minecraft-community/dashboard/package.json)**: `express`, `ws`, `mineflayer`, `prismarine-viewer`, `http-proxy-middleware`.
 - **[`dashboard/server/index.js`](file:///e:/Projects/minecraft-community/dashboard/server/index.js)**: Express REST server on port `3003` + WebSocket server on `/ws` + reverse proxy for `prismarine-viewer` on `/viewer`.
 - **[`dashboard/server/aggregator.js`](file:///e:/Projects/minecraft-community/dashboard/server/aggregator.js)**: Polls Brain Broker (5s), Memory Service (5s), Agent status endpoints (2s), diffs chat, and broadcasts WebSocket snapshots.
-- **[`dashboard/server/spectator.js`](file:///e:/Projects/minecraft-community/dashboard/server/spectator.js)**: Embedded `SpectatorBot` mineflayer client. On spawn, automatically configures OP + spectator mode via RCON, runs `prismarine-viewer` on internal port 3004, and enables instantaneous noclip teleporting (`/tp SpectatorBot <AgentName>`) when switching camera between agents.
+- **[`dashboard/server/spectator.js`](file:///e:/Projects/minecraft-community/dashboard/server/spectator.js)**: Embedded `SpectatorBot` mineflayer client with OP and spectator noclip teleportation.
 - **[`dashboard/server/rcon.js`](file:///e:/Projects/minecraft-community/dashboard/server/rcon.js)**: Zero-dependency Minecraft RCON client implementation.
 - **[`dashboard/server/routes/`](file:///e:/Projects/minecraft-community/dashboard/server/routes/)**:
   - `health.js`: Health metrics and response times for all microservices.
-  - `agents.js`: Snapshot and details for all active agents.
+  - `agents.js`: Snapshot, trait scar summaries (`scarHistory`, `scarCount`), and details for all active agents.
   - `chat.js`: Relays chat history and enables browser-based operator chat messages via `/tellraw` with `[Operator]` prefix.
   - `memory.js`: Memory query and raw section retrieval proxies.
-  - `ledger.js`: Civilization ledger proxy.
+  - `ledger.js`: Civilization ledger & chronicle feed proxy (`/api/dashboard/chronicle`).
+  - `timeline.js`: Historical timeline scrubber route (`GET /api/timeline?agentId=&from=&to=`).
 - **[`dashboard/client/`](file:///e:/Projects/minecraft-community/dashboard/client/)**:
-  - `index.html`: Responsive 3-column cyberpunk observation UI (Service health, Agent cards with dynamic confidence rings & stat meters, World view iframe with spectate switcher, Live world chat & operator input, Decision tree rule ranking, Markdown memory viewer, Civilization ledger).
-  - `styles.css`: Cyberpunk visual design system, glassmorphism panels, CSS grid layout, responsive breakpoints, stat bars, confidence meters, and status indicators.
-  - `app.js`: Zero-build ES module frontend with auto-reconnecting WebSocket telemetry.
-
----
-
-### Ops & Orchestration Scripts (`scripts/`)
-- **[`docker-compose.yml`](file:///e:/Projects/minecraft-community/docker-compose.yml)**: Orchestrates Paper Server (2.5GB limit + RCON enabled on port 25575), Ollama (`nomic-embed-text`, 1.5GB limit), Memory Service (256MB limit), Brain Broker (256MB limit), Dashboard (512MB limit, port 3003), Agent Alpha (256MB limit, status port 3010), Agent Beta (256MB limit, status port 3011), Agent Gamma (256MB limit, status port 3012).
-- **[`scripts/spawn-agent.sh`](file:///e:/Projects/minecraft-community/scripts/spawn-agent.sh)**: Spawns new dynamic agent containers with custom names and personalities.
-- **[`scripts/benchmark-resources.sh`](file:///e:/Projects/minecraft-community/scripts/benchmark-resources.sh)**: Measures live container footprints and projects max agent scaling capacity on a 16GB RAM VPS.
+  - `index.html`: Responsive multi-view dashboard (Overview, 3D World View, Agents with Scar Badges, Decisions, Chronicle Lore Feed, Costs & Limits).
+  - `styles.css`: Cyberpunk visual design system, glassmorphism panels, stat meters, confidence rings, and scrubber controls.
+  - `app.js`: Real-time WebSocket telemetry + Timeline Replay scrubber (step, seek, play/pause historical states) + Chronicle feed.
 
 ---
 
 ### Shared Utilities (`shared/`)
 - **[`shared/detailedLogger.js`](file:///e:/Projects/minecraft-community/shared/detailedLogger.js)** — `DetailedAuditLogger` class:
-  - Logs granular streams to `logs/agents/<agentId>/` (`movement.log`, `combat.log`, `inventory.log`, `chat_and_social.log`, `cognition_and_decisions.log`, `senses_and_environment.log`) and `logs/world/` (`global_timeline.log`, `civilization_events.log`).
+  - Logs granular streams to `logs/agents/<agentId>/` and `logs/world/` (`global_timeline.log`, `civilization_events.log`).
 - **[`shared/logger.js`](file:///e:/Projects/minecraft-community/shared/logger.js)**: Standardized formatted console logging with timestamps and tags.
-- **[`shared/constants.js`](file:///e:/Projects/minecraft-community/shared/constants.js)**: Action enum (`EAT`, `FLEE`, `FIGHT`, `SLEEP`, `MINE`, `CRAFT`, `BUILD`, `TRADE`, `TALK`, `EXPLORE`, `WANDER`, `IDLE`) and stat ranges.
+- **[`shared/constants.js`](file:///e:/Projects/minecraft-community/shared/constants.js)**: Action enum and `SCARCE_RESOURCES` tier (`emerald`, `diamond`, `ancient_debris`, `netherite_scrap`, `gold_ingot`, `iron_ingot`) with scarcity weights and base values.

@@ -9,6 +9,36 @@ class FactionAffiliationManager {
     this.secretBases = []; // Private hidden coordinate locations
     this.recognizedCurrencies = []; // Currencies the bot personally chooses to accept
     this.enemiesAndTargets = []; // Factions or agents marked for war/raids
+    this.permittedTerritories = new Set(); // Agent IDs who granted building permission
+    this.pendingTerritoryRequest = null;
+  }
+
+  requestTerritoryPermission(targetAgentId, purpose = 'structure', chatActuator = null) {
+    this.pendingTerritoryRequest = { targetAgentId, purpose, timestamp: Date.now() };
+    const msg = `Hey ${targetAgentId}, may I have permission to build a ${purpose} near your territory?`;
+    if (chatActuator && typeof chatActuator.say === 'function') {
+      chatActuator.say(msg);
+    }
+    logger.info('Factions', `[TERRITORY REQUEST] ${this.agentId} requested permission from ${targetAgentId} for '${purpose}'`);
+    return msg;
+  }
+
+  handleTerritoryPermissionResponse(sender, isApproved) {
+    if (this.pendingTerritoryRequest && this.pendingTerritoryRequest.targetAgentId.toLowerCase() === sender.toLowerCase()) {
+      if (isApproved) {
+        this.permittedTerritories.add(sender);
+        logger.info('Factions', `[TERRITORY GRANTED] ${sender} granted building permission to ${this.agentId}`);
+      } else {
+        logger.info('Factions', `[TERRITORY DENIED] ${sender} denied building permission to ${this.agentId}`);
+      }
+      this.pendingTerritoryRequest = null;
+      return isApproved;
+    }
+    return false;
+  }
+
+  hasPermissionFor(ownerAgentId) {
+    return this.permittedTerritories.has(ownerAgentId);
   }
 
   recordSecretBase(name, coords, notes = '') {

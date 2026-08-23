@@ -20,6 +20,10 @@ class CivilizationLedger {
         factions: [],
         laws: [],
         sharedLessons: [],
+        trades: [],
+        territoryClaims: [],
+        sharedGoals: [],
+        chronicleEntries: [],
         updatedAt: new Date().toISOString()
       };
       fs.writeFileSync(LEDGER_PATH, JSON.stringify(initial, null, 2), 'utf-8');
@@ -31,16 +35,213 @@ class CivilizationLedger {
     try {
       const data = JSON.parse(fs.readFileSync(LEDGER_PATH, 'utf-8'));
       if (!Array.isArray(data.sharedLessons)) data.sharedLessons = [];
+      if (!Array.isArray(data.trades)) data.trades = [];
+      if (!Array.isArray(data.territoryClaims)) data.territoryClaims = [];
+      if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
+      if (!Array.isArray(data.chronicleEntries)) data.chronicleEntries = [];
       return data;
     } catch (err) {
       logger.error('CivLedger', 'Failed to read ledger file', err);
-      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [] };
+      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], trades: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [] };
     }
   }
 
   saveLedger(data) {
     data.updatedAt = new Date().toISOString();
     fs.writeFileSync(LEDGER_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  addChronicleEntry(headline, detail, relatedAgents = [], eventType = 'milestone') {
+    const data = this.getLedger();
+    if (!Array.isArray(data.chronicleEntries)) data.chronicleEntries = [];
+    const entry = {
+      id: `chron_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      headline,
+      detail,
+      relatedAgents: Array.isArray(relatedAgents) ? relatedAgents : [relatedAgents],
+      eventType,
+      timestamp: new Date().toISOString()
+    };
+    data.chronicleEntries.push(entry);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[CHRONICLE] 📜 "${headline}"`);
+    detailedLogger.logCivilizationMilestone('chronicle_entry', headline, entry);
+    return entry;
+  }
+
+  getChronicle(limit = 100) {
+    const entries = this.getLedger().chronicleEntries || [];
+    return entries.slice().reverse().slice(0, limit);
+  }
+
+  createSharedGoal(creatorAgentId, description, requiredAgents = 2, requiredContributions = [{ item: 'cobblestone', count: 16 }], location = null) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
+
+    const goal = {
+      id: `sgoal_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      creator: creatorAgentId,
+      description,
+      requiredAgents: Math.max(2, requiredAgents),
+      participants: [creatorAgentId],
+      requiredContributions: Array.isArray(requiredContributions) ? requiredContributions : [{ item: 'cobblestone', count: 16 }],
+      contributions: {},
+      location: location || { x: 0, y: 64, z: 0 },
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+    data.sharedGoals.push(goal);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[SHARED GOAL PROPOSED] ${creatorAgentId} proposed collaborative goal: "${description}" (${goal.id})`);
+    detailedLogger.logCivilizationMilestone('shared_goal_proposed', `Shared goal proposed by ${creatorAgentId}`, goal);
+    this.addChronicleEntry(`The Grand Undertaking: "${description}" Proposed`, `Agent ${creatorAgentId} rallied the community to coordinate on a shared goal requiring ${goal.requiredAgents} agents.`, [creatorAgentId], 'shared_goal_proposed');
+    return { success: true, goal };
+  }
+
+  joinSharedGoal(goalId, agentId) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
+    const goal = data.sharedGoals.find(g => g.id === goalId && g.status === 'active');
+    if (!goal) return { success: false, reason: 'Active shared goal not found' };
+
+    if (!goal.participants.includes(agentId)) {
+      goal.participants.push(agentId);
+      this.saveLedger(data);
+      logger.info('CivLedger', `[SHARED GOAL JOINED] ${agentId} joined shared goal: "${goal.description}"`);
+      detailedLogger.logCivilizationMilestone('shared_goal_joined', `${agentId} joined goal ${goalId}`, { goalId, agentId });
+      this.addChronicleEntry(`Reinforcements Arrive: ${agentId} Joins "${goal.description}"`, `${agentId} joined ${goal.creator}'s collaborative project.`, [agentId, goal.creator], 'shared_goal_joined');
+    }
+    return { success: true, goal };
+  }
+
+  contributeToSharedGoal(goalId, agentId, itemName, count = 1) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
+    const goal = data.sharedGoals.find(g => g.id === goalId && g.status === 'active');
+    if (!goal) return { success: false, reason: 'Active shared goal not found' };
+
+    if (!goal.participants.includes(agentId)) {
+      goal.participants.push(agentId);
+    }
+    if (!goal.contributions[agentId]) {
+      goal.contributions[agentId] = [];
+    }
+
+    const existingItem = goal.contributions[agentId].find(i => i.item === itemName);
+    if (existingItem) {
+      existingItem.count += count;
+    } else {
+      goal.contributions[agentId].push({ item: itemName, count });
+    }
+
+    // Check if goal requirements are fulfilled
+    let allFulfilled = true;
+    for (const req of goal.requiredContributions) {
+      let delivered = 0;
+      for (const p of Object.values(goal.contributions)) {
+        const found = p.find(i => i.item === req.item);
+        if (found) delivered += found.count;
+      }
+      if (delivered < req.count) {
+        allFulfilled = false;
+        break;
+      }
+    }
+
+    if (allFulfilled && goal.participants.length >= goal.requiredAgents) {
+      goal.status = 'completed';
+      goal.completedAt = new Date().toISOString();
+      logger.info('CivLedger', `[SHARED GOAL COMPLETED] 🎉 Shared goal "${goal.description}" fully achieved by ${goal.participants.join(', ')}!`);
+      detailedLogger.logCivilizationMilestone('shared_goal_completed', `Goal "${goal.description}" completed!`, goal);
+      this.addChronicleEntry(`Civilization Milestone: "${goal.description}" Accomplished!`, `Through coordinated collaboration, ${goal.participants.join(' and ')} successfully finished "${goal.description}"!`, goal.participants, 'shared_goal_completed');
+    }
+
+    this.saveLedger(data);
+    logger.info('CivLedger', `[SHARED GOAL CONTRIBUTION] ${agentId} contributed ${count}x ${itemName} to "${goal.description}" (Status: ${goal.status})`);
+    return { success: true, goal, completed: goal.status === 'completed' };
+  }
+
+  getSharedGoals() {
+    return this.getLedger().sharedGoals || [];
+  }
+
+  claimTerritory(agentId, origin, radius = 20, structureType = 'shelter') {
+    if (!agentId || !origin || typeof origin.x !== 'number' || typeof origin.z !== 'number') {
+      return { success: false, reason: 'Invalid agentId or origin coordinates' };
+    }
+    const data = this.getLedger();
+    if (!Array.isArray(data.territoryClaims)) data.territoryClaims = [];
+
+    // Check spatial collision with existing claims
+    for (const existing of data.territoryClaims) {
+      if (existing.agentId === agentId) continue; // Agent expanding own claim or contiguous build
+      const dist = Math.hypot(existing.origin.x - origin.x, existing.origin.z - origin.z);
+      const minDistance = (existing.radius || 20) + radius;
+      if (dist < minDistance) {
+        logger.warn('CivLedger', `[TERRITORY CONFLICT] ${agentId} build at (${origin.x}, ${origin.z}) encroaches on ${existing.agentId}'s claim (Distance: ${Math.round(dist)}m < required ${minDistance}m)`);
+        return {
+          success: false,
+          conflict: true,
+          owner: existing.agentId,
+          existingClaim: existing,
+          distance: Math.round(dist),
+          requiredDistance: minDistance
+        };
+      }
+    }
+
+    const claim = {
+      id: `claim_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      agentId,
+      origin: { x: Math.round(origin.x), y: Math.round(origin.y || 64), z: Math.round(origin.z) },
+      radius,
+      structureType,
+      claimedAt: new Date().toISOString()
+    };
+    data.territoryClaims.push(claim);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[TERRITORY CLAIMED] ${agentId} claimed ${structureType} at (${claim.origin.x}, ${claim.origin.y}, ${claim.origin.z}) [Radius: ${radius}m]`);
+    detailedLogger.logCivilizationMilestone('territory_claimed', `Territory claimed by ${agentId}`, claim);
+    this.addChronicleEntry(`Territorial Settlement: ${agentId} Founds ${structureType}`, `Agent ${agentId} staked territorial sovereignty over coordinates (${claim.origin.x}, ${claim.origin.y}, ${claim.origin.z}) with a boundary radius of ${radius}m.`, [agentId], 'territory_claimed');
+    return { success: true, claim };
+  }
+
+  getTerritoryAt(x, y, z) {
+    const claims = this.getTerritoryClaims();
+    for (const c of claims) {
+      const dist = Math.hypot(c.origin.x - x, c.origin.z - z);
+      if (dist <= (c.radius || 20)) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  getTerritoryClaims() {
+    return this.getLedger().territoryClaims || [];
+  }
+
+  recordTrade(agentA, agentB, itemsGiven, itemsReceived, fairnessScore = 1.0) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.trades)) data.trades = [];
+    const entry = {
+      id: `trade_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      agentA,
+      agentB,
+      itemsGiven,
+      itemsReceived,
+      fairnessScore: typeof fairnessScore === 'number' ? Number(fairnessScore.toFixed(2)) : 1.0,
+      timestamp: new Date().toISOString()
+    };
+    data.trades.push(entry);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[TRADE RECORDED] ${agentA} <-> ${agentB}: ${JSON.stringify(itemsGiven)} for ${JSON.stringify(itemsReceived)} (Fairness: ${entry.fairnessScore})`);
+    detailedLogger.logCivilizationMilestone('trade_executed', `Trade between ${agentA} and ${agentB}`, entry);
+    return { saved: true, trade: entry };
+  }
+
+  getTrades() {
+    return this.getLedger().trades || [];
   }
 
   recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8) {
@@ -60,11 +261,31 @@ class CivilizationLedger {
       this.saveLedger(data);
       logger.info('CivLedger', `[SHARED LESSON] ${agentId} publicly shared hard-won lesson: "${lesson}"`);
       detailedLogger.logCivilizationMilestone('lesson_shared', `Lesson shared publicly by ${agentId}`, { lesson, confidence });
+      this.addChronicleEntry(`Emergent Wisdom: ${agentId} Shares Philosophy`, `A foundational lesson was entered into global civilization knowledge: "${lesson}"`, [agentId], 'wisdom_shared');
       return { saved: true, sharedPublicly: true, lesson: entry };
     } else {
       logger.info('CivLedger', `[PRIVATE LESSON] ${agentId} opted to keep lesson private. Not saved to public ledger.`);
       return { saved: true, sharedPublicly: false, reason: 'Stored in private agent memory only' };
     }
+  }
+
+  recordTreaty(proposer, target, treatyType, honorsStatus = true) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.laws)) data.laws = [];
+    const lawEntry = {
+      id: `treaty_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      proposer,
+      target,
+      treatyType,
+      honorsStatus,
+      timestamp: new Date().toISOString()
+    };
+    data.laws.push(lawEntry);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[TREATY RATIFIED] ${proposer} and ${target} established ${treatyType} (Honors: ${honorsStatus})`);
+    detailedLogger.logCivilizationMilestone('treaty_ratified', `Treaty ratified between ${proposer} and ${target}`, lawEntry);
+    const chronicle = this.addChronicleEntry(`Diplomatic Accord: ${proposer} & ${target} Sign ${treatyType}`, `An official accord (${treatyType}) was established between ${proposer} and ${target}.`, [proposer, target], 'treaty_signed');
+    return { success: true, treaty: lawEntry, chronicle };
   }
 
   getSharedLessons() {

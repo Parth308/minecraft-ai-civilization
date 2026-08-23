@@ -675,6 +675,22 @@ function createAgent() {
           break;
         }
 
+        case 'CONTRIBUTE': {
+          const meta = decision.meta || {};
+          logger.info('AgentLoop', `Executing CONTRIBUTE action towards shared goal ${meta.goalId} (${meta.count}x ${meta.item})`);
+          if (meta.location) {
+            await movement.goto(meta.location.x, meta.location.y, meta.location.z, 3);
+          }
+          if (meta.item && meta.count) {
+            await inventory.dropItem(meta.item, meta.count);
+            await goalManager.contributeToSharedGoal(meta.goalId, meta.item, meta.count);
+            chat.say(`Delivered ${meta.count}x ${meta.item} towards our shared project!`);
+            eventBuffer.addEvent('sharedGoalContribution', { goalId: meta.goalId, item: meta.item, count: meta.count });
+            actionSuccess = true;
+          }
+          break;
+        }
+
         case ACTIONS.IDLE:
         default:
           // Do nothing
@@ -786,12 +802,12 @@ function createAgent() {
     eventBuffer.addEvent('playerLeft', { username });
   });
 
-  events.on('agentDeath', ({ position }) => {
+  events.on('agentDeath', ({ position, cause }) => {
     stats.addHappiness(-50);
     stats.addAnger(30);
-    detailedLogger.logCombat(bot.username, 'AGENT DIED', { deathPosition: position });
-    persona.evolveFromExperience('near_death', 1.0);
-    eventBuffer.addEvent('death', { position });
+    detailedLogger.logCombat(bot.username, 'AGENT DIED', { deathPosition: position, cause });
+    persona.evolveFromExperience('death', { cause: cause || 'mortal wound / hazard' });
+    eventBuffer.addEvent('death', { position, cause, scarSummary: persona.getScarSummary() });
   });
 
   events.on('agentRespawn', () => {

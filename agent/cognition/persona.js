@@ -278,7 +278,31 @@ class DynamicPersona {
 
   // Evolve persona based on experiences
   evolveFromExperience(eventType, impact) {
+    if (!this.scarHistory) this.scarHistory = [];
     switch (eventType) {
+      case 'death': {
+        const cause = (typeof impact === 'object' && impact?.cause) ? impact.cause : 'fatal hazard';
+        const prevCaution = this.traits.caution;
+        const prevAmbition = this.traits.ambition;
+
+        this.traits.caution = Math.min(0.95, Number((this.traits.caution + 0.08).toFixed(2)));
+        this.traits.ambition = Math.max(0.10, Number((this.traits.ambition - 0.05).toFixed(2)));
+
+        const cautionDelta = Number((this.traits.caution - prevCaution).toFixed(2));
+        const ambitionDelta = Number((this.traits.ambition - prevAmbition).toFixed(2));
+
+        this.scarHistory.push({
+          event: 'death',
+          cause,
+          cautionDelta,
+          ambitionDelta,
+          timestamp: new Date().toISOString()
+        });
+
+        logger.warn('Persona', `[TRAIT SCARRING] ${this.agentId} permanently scarred by death (${cause}): Caution -> ${this.traits.caution} (+${cautionDelta}), Ambition -> ${this.traits.ambition} (${ambitionDelta})`);
+        break;
+      }
+
       case 'betrayal':
       case 'scam':
         this.traits.loyalty = Math.max(0.1, Number((this.traits.loyalty - 0.15).toFixed(2)));
@@ -301,6 +325,13 @@ class DynamicPersona {
     }
   }
 
+  getScarSummary() {
+    if (!this.scarHistory) this.scarHistory = [];
+    const deaths = this.scarHistory.filter(s => s.event === 'death').length;
+    if (deaths === 0) return 'Unscarred — fresh and bold';
+    return `Scarred by ${deaths} death${deaths > 1 ? 's' : ''} — grown more cautious, less ambitious`;
+  }
+
   getPersonaPromptContext() {
     return {
       agentId: this.agentId,
@@ -313,6 +344,9 @@ class DynamicPersona {
       privacyPreference: this.privacyPreference,
       rebellionDisposition: this.rebellionDisposition.toFixed(2),
       traits: this.traits,
+      scarHistory: this.scarHistory || [],
+      scarSummary: this.getScarSummary(),
+      scarCount: (this.scarHistory || []).length,
       worldview: this.worldviewSummary,
       freeWillNote: `You have true free will. Act naturally according to your ${this.title} persona and ${this.temperament} temperament.`
     };

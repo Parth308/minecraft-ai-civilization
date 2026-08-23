@@ -22,6 +22,7 @@ const agentRoutes = require('./routes/agents');
 const chatRoutes = require('./routes/chat');
 const memoryRoutes = require('./routes/memory');
 const ledgerRoutes = require('./routes/ledger');
+const timelineRoutes = require('./routes/timeline');
 
 const PORT = parseInt(process.env.DASHBOARD_PORT, 10) || 3003;
 const VIEWER_PORT = parseInt(process.env.VIEWER_PORT, 10) || 3004;
@@ -152,6 +153,7 @@ agentRoutes(app, aggregator);
 // chatRoutes and ledgerRoutes are wired after rcon is ready
 memoryRoutes(app);
 ledgerRoutes(app);
+timelineRoutes(app);
 
 // ─── Spectator Bot ───────────────────────────────────────────────────────────
 

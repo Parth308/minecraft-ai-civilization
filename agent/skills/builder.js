@@ -3,11 +3,12 @@ const logger = require('../../shared/logger');
 const detailedLogger = require('../../shared/detailedLogger');
 
 class BuilderSkill {
-  constructor(bot, inventoryActuator, movementActuator, goalManager = null) {
+  constructor(bot, inventoryActuator, movementActuator, goalManager = null, memoryServiceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002') {
     this.bot = bot;
     this.inventory = inventoryActuator;
     this.movement = movementActuator;
     this.goalManager = goalManager || bot.goalManager || null;
+    this.memoryServiceUrl = memoryServiceUrl;
     this.cooldownUntil = 0;
     this.invalidSites = new Set();
   }
@@ -28,6 +29,39 @@ class BuilderSkill {
     );
   }
 
+  async checkTerritoryAt(x, y, z) {
+    try {
+      const res = await fetch(`${this.memoryServiceUrl}/api/ledger/territory?x=${x}&y=${y}&z=${z}`);
+      if (res.ok) return await res.json();
+    } catch (_) {}
+    return { claimed: false, claim: null };
+  }
+
+  async findUnclaimedBuildSite(preferredPos, searchRadius = 60) {
+    // Check preferred position first
+    const initCheck = await this.checkTerritoryAt(preferredPos.x, preferredPos.y, preferredPos.z);
+    if (!initCheck.claimed || initCheck.claim?.agentId === this.agentId) {
+      return preferredPos;
+    }
+
+    logger.info('Builder', `Preferred site at (${preferredPos.x}, ${preferredPos.z}) is claimed by ${initCheck.claim.agentId}. Searching for non-overlapping boundary...`);
+    
+    // Spiral offset search outward
+    for (let rad = 30; rad <= searchRadius; rad += 25) {
+      const angles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, Math.PI / 4, (5 * Math.PI) / 4];
+      for (const angle of angles) {
+        const cx = Math.round(preferredPos.x + Math.cos(angle) * rad);
+        const cz = Math.round(preferredPos.z + Math.sin(angle) * rad);
+        const check = await this.checkTerritoryAt(cx, preferredPos.y, cz);
+        if (!check.claimed || check.claim?.agentId === this.agentId) {
+          logger.info('Builder', `Discovered unclaimed territory plot at (${cx}, ${preferredPos.y}, ${cz})`);
+          return new Vec3(cx, preferredPos.y, cz);
+        }
+      }
+    }
+    return preferredPos.offset(40, 0, 40);
+  }
+
   async buildShelter(origin = null, width = 3, length = 3, height = 2) {
     if (Date.now() < this.cooldownUntil) {
       const remainingSec = Math.ceil((this.cooldownUntil - Date.now()) / 1000);
@@ -42,7 +76,9 @@ class BuilderSkill {
       return false;
     }
 
-    const startPos = origin || this.bot.entity.position.floored().offset(2, 0, 2);
+    let rawPos = origin || this.bot.entity.position.floored().offset(2, 0, 2);
+    // Find unclaimed territory to prevent overlapping structures
+    const startPos = await this.findUnclaimedBuildSite(rawPos);
     const siteKey = `${startPos.x},${startPos.y},${startPos.z}`;
 
     if (this.invalidSites.has(siteKey)) {
@@ -106,6 +142,23 @@ class BuilderSkill {
 
     logger.info('Builder', `Shelter construction complete. Placed ${placedCount} structural blocks.`);
     detailedLogger.logInventory(this.agentId, 'Completed Structure Build', { blocksPlaced: placedCount });
+
+    // Register territory claim in central civilization ledger
+    try {
+      await fetch(`${this.memoryServiceUrl}/api/ledger/territory/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: this.agentId,
+          origin: { x: startPos.x, y: startPos.y, z: startPos.z },
+          radius: 20,
+          structureType: 'shelter'
+        })
+      });
+    } catch (claimErr) {
+      logger.debug('Builder', `Failed to register territory claim: ${claimErr.message}`);
+    }
+
     return true;
   }
 }

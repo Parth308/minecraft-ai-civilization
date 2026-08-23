@@ -26,5 +26,14 @@ module.exports = {
     EXPLORE: 'EXPLORE',
     BUILD: 'BUILD',
     TALK: 'TALK'
+  },
+  SCARCE_RESOURCES: {
+    emerald: { scarcityWeight: 2.8, baseValue: 50 },
+    diamond: { scarcityWeight: 3.5, baseValue: 90 },
+    ancient_debris: { scarcityWeight: 5.0, baseValue: 150 },
+    netherite_scrap: { scarcityWeight: 5.0, baseValue: 160 },
+    gold_ingot: { scarcityWeight: 1.8, baseValue: 30 },
+    iron_ingot: { scarcityWeight: 1.4, baseValue: 20 },
+    lapis_lazuli: { scarcityWeight: 1.5, baseValue: 18 }
   }
 };

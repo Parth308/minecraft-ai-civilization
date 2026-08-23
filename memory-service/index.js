@@ -156,6 +156,91 @@ app.post('/api/ledger/lessons', (req, res) => {
   res.json(result);
 });
 
+// Trade Recording Endpoints
+app.get('/api/ledger/trades', (req, res) => {
+  res.json({ count: ledger.getTrades().length, trades: ledger.getTrades() });
+});
+
+app.post('/api/ledger/trades', (req, res) => {
+  const { agentA, agentB, itemsGiven, itemsReceived, fairnessScore } = req.body;
+  if (!agentA || !agentB || !itemsGiven || !itemsReceived) {
+    return res.status(400).json({ error: 'agentA, agentB, itemsGiven, and itemsReceived required' });
+  }
+  const result = ledger.recordTrade(agentA, agentB, itemsGiven, itemsReceived, fairnessScore);
+  res.json(result);
+});
+
+// Territory Claims Endpoints
+app.get('/api/ledger/territory/all', (req, res) => {
+  res.json({ count: ledger.getTerritoryClaims().length, claims: ledger.getTerritoryClaims() });
+});
+
+app.get('/api/ledger/territory', (req, res) => {
+  const { x, y, z } = req.query;
+  if (x === undefined || z === undefined) {
+    return res.status(400).json({ error: 'x and z coordinates required' });
+  }
+  const claim = ledger.getTerritoryAt(parseFloat(x), parseFloat(y || 64), parseFloat(z));
+  res.json({ claimed: !!claim, claim });
+});
+
+app.post('/api/ledger/territory/claim', (req, res) => {
+  const { agentId, origin, radius, structureType } = req.body;
+  if (!agentId || !origin) {
+    return res.status(400).json({ error: 'agentId and origin object required' });
+  }
+  const result = ledger.claimTerritory(agentId, origin, radius, structureType);
+  res.json(result);
+});
+
+// Shared / Collaborative Goals Endpoints
+app.get('/api/ledger/shared-goals', (req, res) => {
+  res.json({ count: ledger.getSharedGoals().length, sharedGoals: ledger.getSharedGoals() });
+});
+
+app.post('/api/ledger/shared-goals/propose', (req, res) => {
+  const { creatorAgentId, description, requiredAgents, requiredContributions, location } = req.body;
+  if (!creatorAgentId || !description) {
+    return res.status(400).json({ error: 'creatorAgentId and description required' });
+  }
+  const result = ledger.createSharedGoal(creatorAgentId, description, requiredAgents, requiredContributions, location);
+  res.json(result);
+});
+
+app.post('/api/ledger/shared-goals/join', (req, res) => {
+  const { goalId, agentId } = req.body;
+  if (!goalId || !agentId) {
+    return res.status(400).json({ error: 'goalId and agentId required' });
+  }
+  const result = ledger.joinSharedGoal(goalId, agentId);
+  res.json(result);
+});
+
+app.post('/api/ledger/shared-goals/contribute', (req, res) => {
+  const { goalId, agentId, itemName, count } = req.body;
+  if (!goalId || !agentId || !itemName) {
+    return res.status(400).json({ error: 'goalId, agentId, and itemName required' });
+  }
+  const result = ledger.contributeToSharedGoal(goalId, agentId, itemName, count || 1);
+  res.json(result);
+});
+
+// Civilization Chronicle Endpoints
+app.get('/api/ledger/chronicle', (req, res) => {
+  const limit = parseInt(req.query.limit, 10) || 50;
+  const entries = ledger.getChronicle(limit);
+  res.json({ count: entries.length, chronicle: entries });
+});
+
+app.post('/api/ledger/chronicle', (req, res) => {
+  const { headline, detail, relatedAgents, eventType } = req.body;
+  if (!headline || !detail) {
+    return res.status(400).json({ error: 'headline and detail strings required' });
+  }
+  const entry = ledger.addChronicleEntry(headline, detail, relatedAgents, eventType);
+  res.json({ success: true, entry });
+});
+
 // Rule adjustments queue per agent (Feedback loop from macro reflection prose -> numeric weights)
 const pendingRuleAdjustments = new Map(); // agentId -> Array of adjustments
 

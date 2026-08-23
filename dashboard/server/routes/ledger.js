@@ -11,6 +11,16 @@ function ledgerRoutes(app) {
       res.status(503).json({ error: `Memory service unavailable: ${err.message}` });
     }
   });
+
+  app.get('/api/dashboard/chronicle', async (req, res) => {
+    try {
+      const r = await fetch(`${MEMORY_URL}/api/ledger/chronicle`);
+      const data = await r.json();
+      res.json(data);
+    } catch (err) {
+      res.status(503).json({ error: `Memory service unavailable: ${err.message}` });
+    }
+  });
 }
 
 module.exports = ledgerRoutes;
