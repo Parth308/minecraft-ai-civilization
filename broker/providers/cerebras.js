@@ -5,9 +5,9 @@ async function queryCerebras(apiKey, prompt) {
 
   const candidateModels = [
     process.env.CEREBRAS_MODEL,
-    'llama3.1-8b',
-    'llama-3.3-70b',
-    'llama3.1-70b'
+    'gpt-oss-120b',
+    'gemma-4-31b',
+    'llama3.1-8b'
   ].filter(Boolean);
 
   let lastError = null;

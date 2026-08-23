@@ -5,11 +5,11 @@ async function queryOpenRouter(apiKey, prompt) {
 
   const candidateModels = [
     process.env.OPENROUTER_MODEL,
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'meta-llama/llama-3.1-8b-instruct:free',
-    'google/gemma-2-9b-it:free',
-    'mistralai/mistral-7b-instruct:free',
-    'qwen/qwen-2.5-72b-instruct:free'
+    'nvidia/nemotron-3-nano-30b-a3b:free',
+    'liquid/lfm-2.5-2.6b:free',
+    'nvidia/nemotron-3.5-lightning:free',
+    'google/gemma-4-31b-it:free',
+    'google/gemma-4-26b-a4b-it:free'
   ].filter(Boolean);
 
   let lastError = null;
