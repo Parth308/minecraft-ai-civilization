@@ -9,6 +9,7 @@ const evaluateTrade = require('./rules/trade');
 const evaluateTalk = require('./rules/talk');
 const evaluateCooperate = require('./rules/cooperate');
 const evaluateFarm = require('./rules/farm');
+const buildAffordances = require('../perception/affordances');
 const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
 const EscalationManager = require('./escalate');
@@ -137,6 +138,8 @@ class DecisionTree {
         lightLevel: senses.getLightLevel ? senses.getLightLevel() : 15,
         isUnderground: senses.isUnderground ? senses.isUnderground() : false,
         recentEvents: (agentState.recentDecisions || []).slice(-5).map(d => `${d.action}(${d.source})`).join(' → '),
+        lastActionResult: agentState.lastActionResult || null,
+        affordances: buildAffordances.build(senses.bot, senses, stats),
         persona: persona?.getPersonaPromptContext ? persona.getPersonaPromptContext() : (persona || {})
       };
 
@@ -173,6 +176,7 @@ class DecisionTree {
         tacticLearned: escalationResult.tacticLearned || null,
         chatMessage: escalationResult.chatMessage || null,
         newGoal: escalationResult.newGoal || null,
+        steps: escalationResult.steps || null,
         targetResource: escalationResult.targetResource || null,
         buildType: escalationResult.buildType || null,
         tradeOffer: escalationResult.tradeOffer || null,

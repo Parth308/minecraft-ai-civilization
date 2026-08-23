@@ -1,6 +1,6 @@
 const logger = require('../../shared/logger');
 
-async function queryGroq(apiKey, prompt) {
+async function queryGroq(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
 
   const candidateModels = [
@@ -17,16 +17,20 @@ async function queryGroq(apiKey, prompt) {
   for (const model of candidateModels) {
     try {
       logger.info('GroqProvider', `Querying Groq API with model: ${model}...`);
+      const requestBody = {
+        model: model,
+        messages: [{ role: 'user', content: prompt }]
+      };
+      if (options.jsonMode) {
+        requestBody.response_format = { type: 'json_object' };
+      }
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: prompt }]
-        }),
+        body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(8000)
       });
 

@@ -142,6 +142,25 @@ function createAgent() {
 
   bot.loadPlugin(pathfinder);
 
+  // Community plugins: collectblock is CommonJS; auto-eat v5 is ESM-only (dynamic import).
+  try {
+    const collectBlock = require('mineflayer-collectblock');
+    bot.loadPlugin(collectBlock.plugin);
+  } catch (cbErr) {
+    logger.warn('Agent', `mineflayer-collectblock unavailable: ${cbErr.message}`);
+  }
+  import('mineflayer-auto-eat')
+    .then(async (autoEatModule) => {
+      bot.loadPlugin(autoEatModule.loader);
+      bot.autoEat.setOpts({ priority: 'foodPoints', bannedFood: ['rotten_flesh', 'spider_eye', 'poisonous_potato'] });
+      bot.autoEat.enableAuto();
+      logger.info('Agent', 'AutoEat plugin active (foodPoints priority, hazardous foods banned).');
+    })
+    .catch((aeErr) => {
+      logger.warn('Agent', `mineflayer-auto-eat unavailable (${aeErr.message}) — legacy eat logic remains.`);
+    });
+
+
   // Components instantiation
   const senses = new Senses(bot);
   const events = new EventObserver(bot);
@@ -182,9 +201,67 @@ function createAgent() {
   const PLAYER_CHAT_COOLDOWN_MS = 1800; // min 1.8s between replies to player
   let lastOutgoingChat = 0;             // global outgoing chat throttle
 
+  const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
+
+  function hasIronPickOrBetter() {
+    return senses.hasItem('iron_pickaxe') || senses.hasItem('diamond_pickaxe') || senses.hasItem('netherite_pickaxe');
+  }
+
+  function preflightValidateDecision(decision) {
+    if (!decision || decision.escalated !== true) return decision;
+
+    if (decision.action === 'MINE' && decision.targetResource && IRON_PLUS_ORES.includes(decision.targetResource)) {
+      if (!hasIronPickOrBetter()) {
+        logger.warn('AgentLoop', `[PRE-FLIGHT] MINE ${decision.targetResource} rejected — requires iron pickaxe+. Falling back to local target chain.`);
+        delete decision.targetResource;
+      }
+    }
+    if (decision.action === 'SLEEP' && !decision.meta?.bed && !senses.isNight()) {
+      logger.warn('AgentLoop', '[PRE-FLIGHT] SLEEP rejected — not night. Overriding to WANDER.');
+      decision.action = 'WANDER';
+    }
+    if (decision.action === 'TRADE') {
+      const nearbyPlayers = senses.getNearbyPlayers ? senses.getNearbyPlayers(32) : [];
+      if (nearbyPlayers.length === 0 && !(decision.tradeOffer || '').match(/from \S+/i)) {
+        logger.warn('AgentLoop', '[PRE-FLIGHT] TRADE rejected — no players in range. Falling back.');
+        decision.action = decision.allCandidates?.[0]?.name || 'WANDER';
+      }
+    }
+    return decision;
+  }
+
+  function planStepToDecision(stepText) {
+    const t = String(stepText || '').toLowerCase();
+    if (!t) return null;
+    const reason = `Plan step: ${stepText}`;
+
+    const craftMatch = t.match(/craft\s+(?:\d+\s+)?([\w_]+)/);
+    if (craftMatch) return { action: 'CRAFT', itemToCraft: craftMatch[1], reason };
+
+    const smeltMatch = t.match(/smelt\s+(?:\d+\s+)?([\w_]+)/);
+    if (smeltMatch) return { action: 'SMELT', smeltInput: smeltMatch[1], reason };
+
+    if (/mine|dig|chop|collect/.test(t)) {
+      const oreMatch = t.match(/(iron|gold|diamond|coal|emerald|redstone|copper)[\s_]?ore/);
+      if (oreMatch) return { action: 'MINE', targetResource: `${oreMatch[1]}_ore`, reason };
+      if (/log|wood|tree/.test(t)) return { action: 'MINE', targetResource: 'oak_log', reason };
+      if (/cobble|stone/.test(t)) return { action: 'MINE', targetResource: 'stone', reason };
+      return { action: 'MINE', reason };
+    }
+    if (/eat|food|hunger/.test(t)) return { action: 'EAT', reason };
+    if (/build|shelter|house|wall|tower/.test(t)) return { action: 'BUILD', buildType: 'shelter', reason };
+    if (/harvest/.test(t)) return { action: 'HARVEST', reason };
+    if (/farm|plant|till/.test(t)) return { action: 'FARM', reason };
+    if (/sleep|bed/.test(t)) return { action: 'SLEEP', reason };
+    if (/chest|deposit|store/.test(t)) return { action: 'CHEST', reason };
+    if (/equip|armor|armour|weapon/.test(t)) return { action: 'EQUIP', reason };
+    if (/smelt/.test(t)) return { action: 'SMELT', reason };
+    if (/explore|travel|head|find|go to|walk/.test(t)) return { action: 'EXPLORE', reason };
+    return null;
+  }
+
   // Random human-like idle behaviours
-  function doRandomHumanBehaviour() {
-    const r = Math.random();
+  function doRandomHumanBehaviour() {    const r = Math.random();
     if (r < 0.15) {
       // Jump
       bot.setControlState('jump', true);
@@ -268,8 +345,39 @@ function createAgent() {
           // 2. Run local stats decay tick
           statsDecay.tick();
 
+          if (goalManager.getActivePlan()) {
+            const plan = goalManager.getActivePlan();
+            const stepText = goalManager.getCurrentPlanStep();
+            const planDecision = planStepToDecision(stepText);
+
+            if (!planDecision) {
+              goalManager.advancePlan();
+            } else {
+              logger.info('AgentLoop', `[PLAN ${plan.idx + 1}/${plan.steps.length}] "${stepText}"`);
+              const beforeOk = agentState.lastActionResult;
+              await executeDecision({ ...planDecision, escalated: false, source: 'plan' });
+              const outcome = agentState.lastActionResult;
+
+              if (outcome && outcome !== beforeOk && outcome.ok === false) {
+                goalManager.failCurrentStep();
+                if (plan.consecutiveFailures >= 2) {
+                  goalManager.clearPlan('2 consecutive failures');
+                }
+              } else {
+                goalManager.advancePlan();
+                if (!goalManager.getActivePlan()) {
+                  goalManager.markGoalCompleted('plan steps complete');
+                }
+              }
+
+              detailedLogger.logCognition(bot.username, `Plan tick: ${stepText}`, { ok: outcome ? outcome.ok : null });
+              return; // finally still resets inFlightTick
+            }
+          }
+
           // 3. Evaluate Decision Tree (with full agentState context for LLM)
           const decision = await decisionTree.evaluate(senses, stats, persona, agentState);
+          preflightValidateDecision(decision);
 
           // ── Update live state for /status endpoint ──────────────────────
           agentState.stats       = stats.getSummary();
@@ -355,6 +463,7 @@ function createAgent() {
   // Action executor based on decision tree output
   async function executeDecision(decision) {
     let actionSuccess = true;
+    let execErrorDetail = null;
     try {
       switch (decision.action) {
         case ACTIONS.EAT:
@@ -456,7 +565,18 @@ function createAgent() {
           }
           if (block) {
             logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
-            const success = await inventory.digBlock(block);
+            let success = false;
+            if (bot.collectBlock && typeof bot.collectBlock.collect === 'function') {
+              try {
+                await bot.collectBlock.collect([block]);
+                success = true;
+              } catch (cbErr) {
+                logger.debug('AgentLoop', `collectBlock failed (${cbErr.message}) — falling back to digBlock`);
+              }
+            }
+            if (!success) {
+              success = await inventory.digBlock(block);
+            }
             if (success) {
               eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
               actionSuccess = true;
@@ -554,7 +674,6 @@ function createAgent() {
         }
 
         case 'PLAN': {
-          // LLM set a new long-term goal
           const newGoal = decision.newGoal;
           if (newGoal && typeof goalManager.setGoal === 'function') {
             goalManager.setGoal(newGoal);
@@ -565,6 +684,9 @@ function createAgent() {
               chat.say(`new mission: ${newGoal}`);
             }
             eventBuffer.addEvent('newGoal', { goal: newGoal });
+          }
+          if (Array.isArray(decision.steps) && decision.steps.length > 0 && typeof goalManager.setPlan === 'function') {
+            goalManager.setPlan(decision.steps);
           }
           actionSuccess = true;
           break;
@@ -693,12 +815,18 @@ function createAgent() {
     } catch (execErr) {
       logger.error('AgentLoop', `Error executing ${decision.action}:`, execErr);
       actionSuccess = false;
+      execErrorDetail = execErr.message;
     } finally {
       // Reinforce or penalize dynamic rule if the action originated from a dynamic rule
       const activeRuleId = decision.ruleId || decision.meta?.ruleId;
       if (activeRuleId && decisionTree?.dynamicRuleEngine) {
         decisionTree.dynamicRuleEngine.reinforceRule(activeRuleId, actionSuccess);
       }
+      agentState.lastActionResult = {
+        action: decision.action,
+        ok: actionSuccess,
+        detail: actionSuccess ? '' : (execErrorDetail || 'action reported failure')
+      };
     }
   }
 

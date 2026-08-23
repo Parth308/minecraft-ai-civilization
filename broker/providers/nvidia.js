@@ -1,11 +1,21 @@
 const logger = require('../../shared/logger');
 
-async function queryNvidia(apiKey, prompt) {
+async function queryNvidia(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('NVIDIA_API_KEY is not configured');
 
   const model = process.env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct';
   logger.info('NvidiaProvider', `Querying NVIDIA NIM API with model: ${model}...`);
   const t0 = Date.now();
+
+  const requestBody = {
+    model: model,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.6,
+    max_tokens: 1024
+  };
+  if (options.jsonMode) {
+    requestBody.response_format = { type: 'json_object' };
+  }
 
   const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
     method: 'POST',
@@ -13,12 +23,7 @@ async function queryNvidia(apiKey, prompt) {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.6,
-      max_tokens: 1024
-    }),
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(8000)
   });
 

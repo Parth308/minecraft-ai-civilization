@@ -20,7 +20,10 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "minecraft-data": "^3.113.2",
     "mineflayer": "^4.20.1",
+    "mineflayer-auto-eat": "^5.0.3",
+    "mineflayer-collectblock": "^1.6.0",
     "mineflayer-pathfinder": "^2.4.5",
     "vec3": "^0.1.10"
   }

@@ -1,6 +1,6 @@
 const logger = require('../../shared/logger');
 
-async function queryOpenRouter(apiKey, prompt) {
+async function queryOpenRouter(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('OPENROUTER_API_KEY is not configured');
 
   const candidateModels = [
@@ -18,6 +18,13 @@ async function queryOpenRouter(apiKey, prompt) {
   for (const model of candidateModels) {
     try {
       logger.info('OpenRouterProvider', `Querying OpenRouter API with model: ${model}...`);
+      const requestBody = {
+        model: model,
+        messages: [{ role: 'user', content: prompt }]
+      };
+      if (options.jsonMode) {
+        requestBody.response_format = { type: 'json_object' };
+      }
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -26,10 +33,7 @@ async function queryOpenRouter(apiKey, prompt) {
           'HTTP-Referer': 'https://github.com/Parth308/minecraft-ai-civilization',
           'X-Title': 'Minecraft AI Civilization'
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: prompt }]
-        }),
+        body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(8000)
       });
 

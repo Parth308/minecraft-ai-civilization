@@ -13,6 +13,7 @@ class GoalManager {
     this.lifeAspiration = `Thrive autonomously as a ${persona.seed} and build my personal legacy.`;
     this.activeSharedGoalId = null;
     this.personalGoals = [this.currentGoal];
+    this.activePlan = null;
   }
 
   get personalGoalLoad() {
@@ -40,6 +41,47 @@ class GoalManager {
     logger.info('Goals', `[GOAL ACCOMPLISHED] ${this.agentId}: "${this.currentGoal.description}" (${outcome})`);
     this.currentGoal.status = 'completed';
     this.currentGoal.completedAt = new Date().toISOString();
+  }
+
+  setPlan(steps) {
+    const clean = (steps || []).map(s => String(s).trim()).filter(Boolean).slice(0, 8);
+    if (clean.length === 0) return false;
+    this.activePlan = { steps: clean, idx: 0, consecutiveFailures: 0, createdAt: new Date().toISOString() };
+    logger.info('Goals', `[NEW PLAN] ${this.agentId}: ${clean.length} steps — ${clean.map((s, i) => `${i + 1}. ${s}`).join(' | ')}`);
+    return true;
+  }
+
+  getActivePlan() {
+    return this.activePlan;
+  }
+
+  getCurrentPlanStep() {
+    if (!this.activePlan || this.activePlan.idx >= this.activePlan.steps.length) return null;
+    return this.activePlan.steps[this.activePlan.idx];
+  }
+
+  advancePlan() {
+    if (!this.activePlan) return null;
+    this.activePlan.idx += 1;
+    this.activePlan.consecutiveFailures = 0;
+    if (this.activePlan.idx >= this.activePlan.steps.length) {
+      logger.info('Goals', `[PLAN COMPLETE] ${this.agentId} finished all ${this.activePlan.steps.length} steps.`);
+      this.activePlan = null;
+      return null;
+    }
+    return this.getCurrentPlanStep();
+  }
+
+  failCurrentStep() {
+    if (!this.activePlan) return;
+    this.activePlan.consecutiveFailures += 1;
+    logger.warn('Goals', `[PLAN STEP FAILED x${this.activePlan.consecutiveFailures}] ${this.agentId}: "${this.getCurrentPlanStep()}"`);
+  }
+
+  clearPlan(reason = '') {
+    if (!this.activePlan) return;
+    logger.info('Goals', `[PLAN ABANDONED] ${this.agentId} cleared plan at step ${this.activePlan.idx + 1}/${this.activePlan.steps.length}${reason ? ` (${reason})` : ''}`);
+    this.activePlan = null;
   }
 
   async proposeSharedGoal(description, requiredAgents = 2, requiredContributions = [{ item: 'cobblestone', count: 16 }], location = null, memoryServiceUrl = 'http://localhost:3002') {

@@ -1,6 +1,6 @@
 const logger = require('../../shared/logger');
 
-async function queryCerebras(apiKey, prompt) {
+async function queryCerebras(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('CEREBRAS_API_KEY is not configured');
 
   const candidateModels = [
@@ -16,16 +16,20 @@ async function queryCerebras(apiKey, prompt) {
   for (const model of candidateModels) {
     try {
       logger.info('CerebrasProvider', `Querying Cerebras API with model: ${model}...`);
+      const requestBody = {
+        model: model,
+        messages: [{ role: 'user', content: prompt }]
+      };
+      if (options.jsonMode) {
+        requestBody.response_format = { type: 'json_object' };
+      }
       const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: 'user', content: prompt }]
-        }),
+        body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(8000)
       });
 

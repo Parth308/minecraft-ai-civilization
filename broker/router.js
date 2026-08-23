@@ -219,6 +219,19 @@ class ProviderRouter {
     }
   }
 
+  async fetchRelevantSkills(agentId, situation) {
+    try {
+      const query = situation.name || '';
+      const response = await fetch(`${this.memoryServiceUrl}/api/memory/query?agentId=${agentId || 'Agent_Alpha'}&query=${encodeURIComponent(query)}&limit=3&section=skills`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.memories || [];
+    } catch (err) {
+      logger.debug('Router', `Skill query skipped: ${err.message}`);
+      return [];
+    }
+  }
+
   async processEscalation(situationPayload) {
     const taskType = situationPayload.taskType || (situationPayload.taskHint === 'RESEARCH' ? 'RESEARCH' : 'REASONING');
     const agentId = situationPayload.agentId || 'unknown';
@@ -258,6 +271,7 @@ class ProviderRouter {
     }
 
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
+    const skills = await this.fetchRelevantSkills(situationPayload.agentId, situationPayload.topCandidate || {});
 
     // Live Web Knowledge Search & Research Task Mode
     let webFacts = null;
@@ -299,14 +313,17 @@ class ProviderRouter {
       return fb;
     }
 
-    const prompt = this.buildPrompt(situationPayload, taskType, memories, webFacts);
+    const prompt = this.buildPrompt(situationPayload, taskType, memories, webFacts, skills);
     const t0 = Date.now();
     let lastError = null;
+
+    const JSON_MODE_TASKS = ['REASONING', 'PLAN', 'RESEARCH', 'SOCIAL_CHAT', 'EMOTION'];
+    const callOptions = { jsonMode: JSON_MODE_TASKS.includes(taskType) };
 
     for (const provider of available) {
       try {
         logger.info('Router', `[Task:${taskType}] Routing to preferred provider: ${provider.name}${webFacts ? ' (with Web Knowledge)' : ''}`);
-        const result = await provider.fn(provider.key, prompt);
+        const result = await provider.fn(provider.key, prompt, callOptions);
 
         // Normalize legacy string returns vs structured {text, usage, model, latencyMs}
         const isStructured = result && typeof result === 'object' && typeof result.text === 'string';
@@ -371,7 +388,44 @@ class ProviderRouter {
     return fb;
   }
 
-  buildPrompt(payload, taskType, memories = [], webFacts = null) {
+  buildPrompt(payload, taskType, memories = [], webFacts = null, skills = []) {
+    const _renderAffordances = (aff) => {
+      if (!aff) return '';
+      const lines = [];
+      if (aff.craftable?.length) {
+        lines.push('CRAFT NOW: ' + aff.craftable.map(c => `${c.item} x${c.count}${c.needsTable ? ' (table)' : ''}`).join(', '));
+      }
+      if (aff.notCraftable?.length) {
+        lines.push('BLOCKED CRAFTS: ' + aff.notCraftable.map(c => `${c.item} - ${c.reason}`).join('; '));
+      }
+      if (aff.minable?.length || aff.blockedMine?.length) {
+        if (aff.minable?.length) lines.push('MINEABLE: ' + aff.minable.map(m => `${m.block} x${m.count}`).join(', '));
+        if (aff.blockedMine?.length) lines.push('CANNOT MINE: ' + aff.blockedMine.map(b => `${b.block} (${b.reason})`).join(', '));
+      }
+      if (aff.harvestable?.length) lines.push(`HARVEST: ${aff.harvestable.join(', ')}`);
+      if (aff.food?.length) lines.push(`FOOD AVAILABLE: ${aff.food.join(', ')}`);
+      if (aff.furniture) {
+        lines.push(`beds:${aff.furniture.bedsNearby ?? 0} chests:${aff.furniture.chestsNearby ?? 0} furnaces:${aff.furniture.furnacesNearby ?? 0}`);
+      }
+      if (aff.tradeablePlayers?.length) lines.push(`TRADEABLE: ${aff.tradeablePlayers.join(', ')}`);
+      if (aff.dangers?.length) lines.push('DANGER: ' + aff.dangers.map(d => `${d.mob} x${d.count}`).join(', '));
+      if (lines.length === 0) return '';
+      return `WHAT YOU CAN DO RIGHT NOW (verified against your real situation — prefer these, do not guess):\n${lines.map(l => '- ' + l).join('\n')}\n`;
+    };
+
+    const _renderLastActionResult = (lar) => {
+      if (!lar || !lar.action) return '';
+      if (lar.ok) {
+        return `LAST ACTION OUTCOME: SUCCESS - ${lar.action}. ${lar.detail || ''} Build on this momentum or pivot toward your goal.\n`;
+      }
+      return `LAST ACTION OUTCOME: FAILURE - ${lar.action} failed. ${lar.detail || ''} DO NOT blindly repeat it. Try a different approach or prerequisite first.\n`;
+    };
+
+    const _renderSkills = (skillList) => {
+      if (!skillList || skillList.length === 0) return '';
+      return `TRICKS YOU LEARNED BEFORE:\n${skillList.map(s => `- [skill] ${typeof s === 'string' ? s : (s.text || s.summary || JSON.stringify(s))}`).join('\n')}\n`;
+    };
+
     if (taskType === 'SOCIAL_CHAT') {
       const p = payload.persona || {};
       return `You are a fully autonomous Minecraft player with a real personality. You are NOT a bot, you are NOT an assistant. You are a living, breathing Minecraft civilization member who happens to have thoughts and feelings.
@@ -481,7 +535,8 @@ GOAL & HISTORY:
 Active goal: ${payload.activeGoal || 'none - pick one'}
 Recent actions: ${payload.recentEvents || 'none'}
 Memories: ${JSON.stringify(memories)}
-${webFacts ? 'Minecraft Wiki:\n' + webFacts + '\n' : ''}
+${_renderSkills(skills)}${webFacts ? 'Minecraft Wiki:\n' + webFacts + '\n' : ''}
+${_renderAffordances(payload.affordances)}${_renderLastActionResult(payload.lastActionResult)}
 ${payload.stuckWarning ? '⚠️ CRITICAL STAGNATION ALERT:\n' + payload.stuckWarning + '\nDO NOT repeat the same unrewarded action. Formulate a multi-step PLAN or pivot strategy.\n' : ''}
 
 RULE ENGINE SAYS:
@@ -528,6 +583,7 @@ Reply ONLY as raw JSON:
   "buildType": "if BUILD: shelter|wall|tower|farm|house",
   "tradeOffer": "if TRADE: e.g. 4x oak_planks for 2x iron_ingot from Agent_Beta",
   "newGoal": "if PLAN: goal description else null",
+  "steps": ["if action==PLAN: 2-6 short concrete executable steps, e.g. 'mine 8 iron_ore', 'smelt iron_ingot', 'craft iron_pickaxe', 'explore toward village'"],
   "emotionDelta": { "anger": 0, "happiness": 0, "fatigue": 0 }
 }`;
   }
@@ -572,6 +628,9 @@ Reply ONLY as raw JSON:
         buildType: parsed.buildType ? String(parsed.buildType).trim() : null,
         tradeOffer: parsed.tradeOffer ? String(parsed.tradeOffer).trim() : null,
         newGoal: parsed.newGoal ? String(parsed.newGoal).trim() : null,
+        steps: Array.isArray(parsed.steps)
+          ? parsed.steps.map(s => String(s).trim()).filter(Boolean).slice(0, 8)
+          : null,
         emotionDelta: {
           anger: Number(parsed.emotionDelta?.anger) || 0,
           happiness: Number(parsed.emotionDelta?.happiness) || 0,

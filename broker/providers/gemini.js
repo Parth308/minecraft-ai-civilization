@@ -1,19 +1,24 @@
 const logger = require('../../shared/logger');
 
-async function queryGemini(apiKey, prompt) {
+async function queryGemini(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
   const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   logger.info('GeminiProvider', `Querying Gemini API with model: ${model}...`);
   const t0 = Date.now();
 
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }]
+  };
+  if (options.jsonMode) {
+    requestBody.generationConfig = { ...(requestBody.generationConfig || {}), responseMimeType: 'application/json' };
+  }
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }]
-    }),
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(8000)
   });
 
