@@ -117,13 +117,26 @@
   const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
 
   function sourceBadge(ev) {
+    const isChat = ev.taskType === 'SOCIAL_CHAT' || ev.action === 'TALK' || ev.action === 'CHAT';
+    const isPlan = ev.taskType === 'PLAN' || ev.action === 'PLAN';
+    const isReasoning = ev.taskType === 'REASONING' || ev.taskType === 'RESEARCH';
+
     if (ev.source === 'llm') {
+      if (isChat) {
+        return `<span class="badge" style="background:#7c3aed;color:#fff;font-weight:700;padding:2px 7px;border-radius:4px">💬 CHAT · ${esc(ev.provider || 'LLM')}</span>`;
+      }
+      if (isPlan) {
+        return `<span class="badge" style="background:#059669;color:#fff;font-weight:700;padding:2px 7px;border-radius:4px">🗺️ PLAN · ${esc(ev.provider || 'LLM')}</span>`;
+      }
+      if (isReasoning) {
+        return `<span class="badge" style="background:#d97706;color:#fff;font-weight:700;padding:2px 7px;border-radius:4px">🧠 REASON · ${esc(ev.provider || 'LLM')}</span>`;
+      }
       const p = ev.provider ? `<span class="badge badge-llm">${esc(ev.provider)}</span>` : '<span class="badge badge-llm">LLM</span>';
       return p;
     }
     if (ev.source === 'cache') return `<span class="badge badge-cache">CACHE·${esc((ev.cacheType || '').toUpperCase())}</span>`;
     if (ev.source === 'fallback') return '<span class="badge badge-fallback">SAFETY</span>';
-    return '<span class="badge badge-tree">TREE</span>';
+    return '<span class="badge badge-tree" style="font-weight:600">⚙️ TREE ($0)</span>';
   }
 
   const SOURCE_LABEL = { tree: 'Tree', llm: 'LLM', cache: 'Cache', fallback: 'Fallback' };
@@ -681,15 +694,40 @@
 
   // ── Page: Decisions ───────────────────────────────────────────────
   function renderDecisions() {
-    const escs = [...(state.brokerStats?.recentEscalations || [])].reverse();
+    state.decisionFilter = state.decisionFilter || 'ALL';
+    const allEscs = [...(state.brokerStats?.recentEscalations || [])].reverse();
+
+    const chatCount = allEscs.filter(e => e.taskType === 'SOCIAL_CHAT' || e.action === 'TALK' || e.action === 'CHAT').length;
+    const planCount = allEscs.filter(e => e.taskType === 'PLAN' || e.action === 'PLAN').length;
+    const reasonCount = allEscs.filter(e => e.taskType === 'REASONING' || e.taskType === 'RESEARCH').length;
+
+    const filteredEscs = allEscs.filter(e => {
+      if (state.decisionFilter === 'CHAT') return e.taskType === 'SOCIAL_CHAT' || e.action === 'TALK' || e.action === 'CHAT';
+      if (state.decisionFilter === 'STRATEGY') return e.taskType === 'PLAN' || e.action === 'PLAN' || e.taskType === 'REASONING' || e.taskType === 'RESEARCH';
+      return true;
+    });
+
     return `
-      <div class="page-header">
-        <div class="page-title">Decisions &amp; Escalations</div>
-        <div class="page-desc">Every LLM call, cache hit and fallback routed by the broker (last 200)</div>
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div>
+          <div class="page-title">Decisions &amp; Escalations</div>
+          <div class="page-desc">Every LLM call, chat dialogue, cache hit and fallback routed by the broker (last 200)</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-spectate" style="font-size:12px;padding:4px 10px;background:${state.decisionFilter === 'ALL' ? 'var(--surface-3)' : 'var(--surface)'}" onclick="window.setDecisionFilter('ALL')">
+            All (${allEscs.length})
+          </button>
+          <button class="btn btn-spectate" style="font-size:12px;padding:4px 10px;background:${state.decisionFilter === 'CHAT' ? 'rgba(124,58,237,0.3)' : 'var(--surface)'};border-color:rgba(124,58,237,0.4)" onclick="window.setDecisionFilter('CHAT')">
+            💬 In-Game Chat (${chatCount})
+          </button>
+          <button class="btn btn-spectate" style="font-size:12px;padding:4px 10px;background:${state.decisionFilter === 'STRATEGY' ? 'rgba(16,185,129,0.3)' : 'var(--surface)'};border-color:rgba(16,185,129,0.4)" onclick="window.setDecisionFilter('STRATEGY')">
+            🧠 Strategy &amp; Plans (${reasonCount + planCount})
+          </button>
+        </div>
       </div>
 
       <div class="card" style="padding:6px 4px;margin-bottom:16px">
-        ${escalationsTable(escs, false)}
+        ${escalationsTable(filteredEscs, false)}
       </div>
 
       <div class="section-title">Per-Agent Decision Feeds</div>
@@ -714,32 +752,44 @@
       </div>`;
   }
 
+  window.setDecisionFilter = (filterName) => {
+    state.decisionFilter = filterName;
+    render();
+  };
+
   function escalationsTable(rows, compact) {
-    if (!rows.length) return '<div class="empty-state">No escalations recorded yet…</div>';
+    if (!rows.length) return '<div class="empty-state">No matching escalations recorded…</div>';
     return `
       <table>
         <thead><tr>
-          <th>Time</th><th>Agent</th><th>Source</th><th>Action</th>
+          <th>Time</th><th>Agent</th><th>Intent / Task</th><th>Action</th>
           ${compact ? '' : '<th>Provider / Model</th>'}
-          <th>AI Reasoning &amp; Model Output</th>
+          <th>AI Reasoning &amp; Dialogue Output</th>
           <th>Tokens</th><th>Cost</th><th>Latency</th>
         </tr></thead>
         <tbody>
-          ${rows.map(e => `
+          ${rows.map(e => {
+            const isChat = e.taskType === 'SOCIAL_CHAT' || e.action === 'TALK' || e.action === 'CHAT';
+            const isPlan = e.taskType === 'PLAN' || e.action === 'PLAN';
+            const intentLabel = isChat ? '<span class="badge" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:10px;border:1px solid rgba(124,58,237,0.3)">💬 CHAT DIALOGUE</span>'
+                              : isPlan ? '<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;font-size:10px;border:1px solid rgba(16,185,129,0.3)">🗺️ STRATEGIC PLAN</span>'
+                              : '<span class="badge" style="background:rgba(217,119,6,0.15);color:#fbbf24;font-size:10px;border:1px solid rgba(217,119,6,0.3)">🧠 REASONING</span>';
+            return `
             <tr>
               <td class="num" style="color:var(--text-faint)">${timeOf(e.ts)}</td>
               <td><b>${esc(e.agentId)}</b></td>
-              <td>${sourceBadge(e)}</td>
-              <td><b class="mono">${esc(e.action || '—')}</b></td>
+              <td>${sourceBadge(e)} ${compact ? '' : intentLabel}</td>
+              <td><b class="mono">${esc(e.action || (isChat ? 'TALK' : '—'))}</b></td>
               ${compact ? '' : `<td>${e.provider ? `<span style="color:var(--amber)">${esc(e.provider)}</span>` : '<span style="color:var(--text-faint)">—</span>'} ${e.model ? `<div style="color:var(--text-faint);font-size:11px">${esc(e.model.split('/').pop())}</div>` : ''}</td>`}
-              <td style="font-size:12px;max-width:320px;color:var(--text-dim);word-break:break-word">
-                ${esc(e.reason || '—')}
+              <td style="font-size:12px;max-width:340px;color:var(--text-dim);word-break:break-word">
+                ${isChat ? `<span style="color:var(--text)">"${esc(e.reason || e.chatMessage || '')}"</span>` : esc(e.reason || '—')}
                 ${e.webKnowledgeUsed ? ' <span class="badge badge-cache" style="font-size:9.5px">🌐 Wiki</span>' : ''}
               </td>
               <td class="num">${e.source === 'llm' ? `${fmtInt(e.inputTokens)}/${fmtInt(e.outputTokens)}` : '—'}</td>
               <td class="num">${e.costUsd > 0 ? fmtCost(e.costUsd) : e.source === 'llm' ? '$0*' : '—'}</td>
               <td class="num">${e.latencyMs ? fmtMs(e.latencyMs) : '—'}</td>
-            </tr>`).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>`;
   }
