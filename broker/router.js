@@ -223,8 +223,15 @@ class ProviderRouter {
     const taskType = situationPayload.taskType || (situationPayload.taskHint === 'RESEARCH' ? 'RESEARCH' : 'REASONING');
     const agentId = situationPayload.agentId || 'unknown';
 
-    // Exact and semantic cache checks (skipped for social chat and reflection to maintain dynamic free will)
-    if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
+    // Exact and semantic cache checks (strictly bypassed for chat, reflection, planning, and stuck loop breaks to ensure dynamic agency)
+    const shouldSkipCache = (
+      taskType === 'SOCIAL_CHAT' ||
+      taskType === 'REFLECTION' ||
+      taskType === 'PLAN' ||
+      !!situationPayload.isStuckInLoop
+    );
+
+    if (!shouldSkipCache) {
       const exactMatch = this.cache.get(situationPayload);
       if (exactMatch) {
         this.cacheStats.exactHits += 1;
@@ -311,7 +318,7 @@ class ProviderRouter {
         const decisionData = this.parseLLMResponse(rawText);
         this._recordProviderSuccess(provider.name, usage, latencyMs);
 
-        if (taskType !== 'SOCIAL_CHAT' && taskType !== 'REFLECTION') {
+        if (!shouldSkipCache) {
           this.cache.set(situationPayload, decisionData);
           await this.semanticCache.store(situationPayload, decisionData);
         }
