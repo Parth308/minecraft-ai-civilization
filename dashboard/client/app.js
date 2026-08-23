@@ -526,15 +526,38 @@
   }
 
   function renderAgents() {
+    state.selectedAgent = state.selectedAgent || 'ALL';
+    const displayAgents = state.selectedAgent === 'ALL'
+      ? state.agents
+      : state.agents.filter(a => a.username === state.selectedAgent);
+
     return `
-      <div class="page-header">
-        <div class="page-title">Agents &amp; Cognition</div>
-        <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered) · Live decision reasoning &amp; vitals</div>
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div>
+          <div class="page-title">Agents &amp; Cognition</div>
+          <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered) · Live decision reasoning &amp; vitals</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-spectate" style="font-size:12px;padding:5px 12px;background:${state.selectedAgent === 'ALL' ? 'var(--surface-3)' : 'var(--surface)'}" onclick="window.setSelectedAgent('ALL')">
+            👁️ All Agents (${state.agents.length})
+          </button>
+          ${state.agents.map(a => `
+            <button class="btn btn-spectate" style="font-size:12px;padding:5px 12px;background:${state.selectedAgent === a.username ? 'rgba(16,185,129,0.25)' : 'var(--surface)'};border-color:${state.selectedAgent === a.username ? 'var(--green)' : 'var(--border)'}" onclick="window.setSelectedAgent('${esc(a.username)}')">
+              <span class="status-pill ${a.online ? 'ok' : 'err'}" style="display:inline-block;width:6px;height:6px"></span>
+              ${esc(a.username)}
+            </button>
+          `).join('')}
+        </div>
       </div>
-      ${state.agents.length === 0
+      ${displayAgents.length === 0
         ? '<div class="card empty-state">No agents reporting yet…</div>'
-        : `<div class="agent-grid">${state.agents.map(agentCard).join('')}</div>`}`;
+        : `<div class="agent-grid">${displayAgents.map(agentCard).join('')}</div>`}`;
   }
+
+  window.setSelectedAgent = (name) => {
+    state.selectedAgent = name;
+    render();
+  };
 
   function agentCard(a) {
     const st = a.stats || {};

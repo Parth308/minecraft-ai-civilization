@@ -258,16 +258,10 @@ tr:hover td { background: rgba(255,255,255,0.015); }
 /* ── Agent Cards & Cognition Hub ─────────────────────────────── */
 
 .agent-grid {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 24px;
   width: 100%;
-}
-
-@media (min-width: 1680px) {
-  .agent-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 .agent-card {
