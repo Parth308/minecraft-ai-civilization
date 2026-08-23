@@ -23,6 +23,7 @@ pip-delete-this-directory.txt
 # Simulation Logs & Dumps
 logs/
 logs_dump/
+logs_dump_v1/
 *.gz
 *.tar.gz
 *.dump

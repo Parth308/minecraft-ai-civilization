@@ -61,6 +61,24 @@ class SocialDialogueEngine {
         }
       }
 
+      // Emergent Gossip & Grudge Propagation
+      const isAccusation = lower.includes('untrustworthy') || lower.includes('scam') || lower.includes('thief') || lower.includes('stole') || lower.includes('lied') || lower.includes('unfair');
+      if (isAccusation) {
+        const candidateNames = ['agent_alpha', 'agent_beta', 'agent_gamma'];
+        for (const candidate of candidateNames) {
+          if (lower.includes(candidate) && candidate !== this.persona.agentId.toLowerCase() && candidate !== sender.toLowerCase()) {
+            const properName = candidate.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('_');
+            const senderTrust = relationship?.trust ?? 50;
+            if (senderTrust >= 40) {
+              this.relationships.updateTrust(properName, -15);
+              this.relationships.updateAffinity(properName, -10);
+              logger.warn('SocialDialogue', `[GOSSIP & REPUTATION] ${this.persona.agentId} heard accusation from ${sender} against ${properName}. Lowered trust/affinity.`);
+            }
+            break;
+          }
+        }
+      }
+
       // Diplomatic actions (War, Treaties, Currencies)
       if (this.factionManager) {
         if (response.warTarget) {

@@ -102,6 +102,8 @@ This document serves as the complete technical specification, architectural refe
 #### 4. Social & Diplomatic Architecture (`agent/social/`)
 - **[`agent/social/dialogue.js`](file:///e:/Projects/minecraft-community/agent/social/dialogue.js)** — `SocialDialogueEngine` class:
   - `processIncomingChat(sender, message, civContext)`: Parses natural chat messages from other bots or players, passes persona, goals, and history to Brain Broker (`SOCIAL_CHAT` task), updates dynamic relationship metrics, and returns natural spoken dialogue.
+  - **Emergent Gossip & Grudge Propagation**: Parses accusations/warnings in chat (theft, scam, lies); trusted speakers cause hearing bots to adjust trust/affinity against accused agents.
+  - **Trade & Broadcast**: When executing successful barters, agents broadcast transaction summaries to public chat if trust $\ge 0.5$, notifying civilization of available market surplus.
 - **[`agent/social/factions.js`](file:///e:/Projects/minecraft-community/agent/social/factions.js)** — `FactionAffiliationManager` class:
   - `recordSecretBase(name, coords, notes)`: Records hidden private bases never published to the global ledger.
   - `declareWar(targetName, reason)` / `declarePeace(targetName)`: Manages hostile/war and peace states dynamically.
@@ -138,6 +140,10 @@ This document serves as the complete technical specification, architectural refe
 ---
 
 #### 6. Actuation & Skills Layer (`agent/actuation/`, `agent/skills/`)
+- **[`agent/skills/farmer.js`](file:///e:/Projects/minecraft-community/agent/skills/farmer.js)** — `FarmerSkill` class:
+  - `tillAndPlant(radius=12)`: Scans for grass/dirt blocks near water, equips hoe, tills soil into farmland, and sows seeds.
+  - `harvestAndReplant(radius=16)`: Digs mature crops (wheat, carrots, potatoes, beetroots) and replants seeds.
+  - `cookFood(radius=10)`: Smelts raw meat and potatoes in furnaces/smokers with available fuel.
 - **[`agent/skills/builder.js`](file:///e:/Projects/minecraft-community/agent/skills/builder.js)** — `BuilderSkill` class:
   - `buildShelter(origin, width, length, height)`: Scans inventory for building blocks (planks, cobblestone, stone, dirt, wood, brick) and erects perimeter shelter walls with entrance.
   - **Failure Handling & Cooldown**: If `placedCount === 0`, marks the target site invalid in `invalidSites`, resets active building goals in `GoalManager`, and enforces a 60-second cooldown before shelter building can be re-triggered.

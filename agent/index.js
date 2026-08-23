@@ -23,6 +23,7 @@ const SocialDialogueEngine = require('./social/dialogue');
 const FactionAffiliationManager = require('./social/factions');
 const BuilderSkill = require('./skills/builder');
 const BarterSkill = require('./skills/barter');
+const FarmerSkill = require('./skills/farmer');
 const ReflectionEngine = require('./cognition/reflection');
 const { ACTIONS } = require('../shared/constants');
 
@@ -162,6 +163,7 @@ function createAgent() {
   const builder = new BuilderSkill(bot, inventory, movement, goalManager);
   bot.goalManager = goalManager;
   const barter = new BarterSkill(bot, inventory, relationships, chat);
+  const farmer = new FarmerSkill(bot, inventory, movement);
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
@@ -620,34 +622,26 @@ function createAgent() {
         }
 
         case 'HARVEST': {
-          logger.info('AgentLoop', 'Executing HARVEST action — scanning for mature crops');
-          const cropTypes = ['wheat', 'carrots', 'potatoes', 'beetroots', 'nether_wart'];
-          let harvested = 0;
-          for (const cropName of cropTypes) {
-            const cropBlock = senses.getNearbyBlock(cropName, 16);
-            if (cropBlock && cropBlock.metadata === 7) {
-              const success = await inventory.digBlock(cropBlock);
-              if (success) {
-                harvested++;
-                const seedName = cropName === 'wheat' ? 'wheat_seeds' :
-                                 cropName === 'carrots' ? 'carrot' :
-                                 cropName === 'potatoes' ? 'potato' : null;
-                if (seedName) {
-                  const seedItem = bot.inventory?.items().find(i => i.name === seedName);
-                  const farmland = bot.blockAt(cropBlock.position.offset(0, -1, 0));
-                  if (seedItem && farmland && farmland.name === 'farmland') {
-                    try {
-                      await bot.equip(seedItem, 'hand');
-                      await bot.placeBlock(farmland, new (require('vec3'))(0, 1, 0));
-                    } catch (_) {}
-                  }
-                }
-              }
-            }
-          }
-          logger.info('AgentLoop', `Harvested ${harvested} crop blocks`);
-          eventBuffer.addEvent('harvest', { count: harvested });
-          actionSuccess = harvested > 0;
+          logger.info('AgentLoop', 'Executing HARVEST action via FarmerSkill');
+          const didHarvest = await farmer.harvestAndReplant();
+          eventBuffer.addEvent('harvest', { success: didHarvest });
+          actionSuccess = !!didHarvest;
+          break;
+        }
+
+        case 'FARM': {
+          logger.info('AgentLoop', 'Executing FARM action — tilling and planting crops');
+          const didPlant = await farmer.tillAndPlant();
+          eventBuffer.addEvent('farm', { success: didPlant });
+          actionSuccess = !!didPlant;
+          break;
+        }
+
+        case 'COOK': {
+          logger.info('AgentLoop', 'Executing COOK action — preparing food in furnace');
+          const didCook = await farmer.cookFood();
+          eventBuffer.addEvent('cook', { success: didCook });
+          actionSuccess = !!didCook;
           break;
         }
 
