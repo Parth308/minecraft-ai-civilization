@@ -177,8 +177,17 @@ class ProviderRouter {
   }
 
   getPreferredProviders(taskType = 'REASONING') {
-    // Ultra-fast LPU / high-bandwidth inference providers first
-    const baseOrder = ['Groq', 'LLM7', 'Nvidia', 'Agnes', 'Cerebras', 'OpenRouter', 'Gemini'];
+    let baseOrder;
+    if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
+      // High-intelligence thinking & multi-step planning cascade
+      baseOrder = ['Gemini', 'Groq', 'Nvidia', 'OpenRouter', 'LLM7', 'Agnes', 'Cerebras'];
+    } else if (taskType === 'REFLECTION') {
+      // Deep macro-reflection & structured wisdom extraction
+      baseOrder = ['Gemini', 'Nvidia', 'Groq', 'OpenRouter', 'LLM7'];
+    } else {
+      // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
+      baseOrder = ['Nvidia', 'Groq', 'LLM7', 'Cerebras', 'OpenRouter', 'Agnes', 'Gemini'];
+    }
 
     // Filter to configured, non-rate-limited providers
     const active = baseOrder
@@ -187,12 +196,14 @@ class ProviderRouter {
 
     if (active.length <= 1) return active;
 
-    // Multi-agent round-robin rotation to distribute load evenly across free tier providers
-    if (this._rrIndex == null) this._rrIndex = 0;
-    this._rrIndex = (this._rrIndex + 1) % active.length;
+    // For social chat, use round-robin load balancing. For reasoning, keep highest tier at front
+    if (taskType === 'SOCIAL_CHAT') {
+      if (this._rrIndex == null) this._rrIndex = 0;
+      this._rrIndex = (this._rrIndex + 1) % active.length;
+      return [...active.slice(this._rrIndex), ...active.slice(0, this._rrIndex)];
+    }
 
-    // Rotate array starting from the current round-robin index
-    return [...active.slice(this._rrIndex), ...active.slice(0, this._rrIndex)];
+    return active;
   }
 
   async fetchRelevantMemories(agentId, situation) {
@@ -462,6 +473,7 @@ Active goal: ${payload.activeGoal || 'none - pick one'}
 Recent actions: ${payload.recentEvents || 'none'}
 Memories: ${JSON.stringify(memories)}
 ${webFacts ? 'Minecraft Wiki:\n' + webFacts + '\n' : ''}
+${payload.stuckWarning ? '⚠️ CRITICAL STAGNATION ALERT:\n' + payload.stuckWarning + '\nDO NOT repeat the same unrewarded action. Formulate a multi-step PLAN or pivot strategy.\n' : ''}
 
 RULE ENGINE SAYS:
 Best guess: ${top.name} (confidence ${top.confidence}) - "${top.reason}"

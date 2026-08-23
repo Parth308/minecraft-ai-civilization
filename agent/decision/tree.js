@@ -68,9 +68,25 @@ class DecisionTree {
     candidates.sort((a, b) => b.confidence - a.confidence);
     const topCandidate = candidates[0];
 
+    // Action loop & stagnation detector: prevent infinite repetitive wandering/mining
+    if (!this._actionHistory) this._actionHistory = [];
+    this._actionHistory.push(topCandidate.name);
+    if (this._actionHistory.length > 8) this._actionHistory.shift();
+
+    const isStuckInLoop = (
+      this._actionHistory.length >= 6 &&
+      this._actionHistory.every(a => a === topCandidate.name) &&
+      (topCandidate.name === 'EXPLORE' || topCandidate.name === 'WANDER' || topCandidate.name === 'MINE')
+    );
+
+    if (isStuckInLoop) {
+      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent repeated '${topCandidate.name}' 6 consecutive cycles without progress. Escalating to high-level PLAN.`);
+      this._actionHistory = [];
+    }
+
     logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
 
-    if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence)) {
+    if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop) {
       const isResearchNeeded = (
         topCandidate.name === 'CRAFT' ||
         topCandidate.name === 'BUILD' ||
@@ -83,13 +99,15 @@ class DecisionTree {
         agentState.activeGoal?.toLowerCase().includes('build')
       );
 
-      const taskType = topCandidate.name === 'TALK' ? 'CHAT' : (isResearchNeeded ? 'RESEARCH' : 'REASONING');
-      const taskHint = isResearchNeeded ? 'RESEARCH' : null;
+      const taskType = isStuckInLoop ? 'PLAN' : (topCandidate.name === 'TALK' ? 'CHAT' : (isResearchNeeded ? 'RESEARCH' : 'REASONING'));
+      const taskHint = isStuckInLoop ? 'PLAN' : (isResearchNeeded ? 'RESEARCH' : null);
       
       const payload = {
         agentId: senses.bot?.username || persona?.agentId || 'Agent',
         taskType,
         taskHint,
+        isStuckInLoop,
+        stuckWarning: isStuckInLoop ? `You have been looping on '${topCandidate.name}' for multiple cycles without finding trees/progress. Think like a real human player: break this loop. Formulate a multi-step objective, head towards high elevation/vantage point, punch tall grass for seeds, search near rivers, or find companions.` : null,
         topCandidate,
         allCandidates: candidates,
         stats,

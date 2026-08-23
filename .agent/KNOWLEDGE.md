@@ -17,13 +17,15 @@ This document serves as the complete technical specification, architectural refe
   - **Civilization Control Dashboard**: Express.js + WebSocket on port `3003` (`dashboard/server/index.js`, 512MB RAM cap)
   - **Ollama Embeddings Service**: Port `11434` running `nomic-embed-text` (768-dim normalized vectors)
 - **LLM Provider Pool (Free Tiers & Drivers)**:
-  - **Gemini Flash (`gemini-2.5-flash`)**: Primary workhorse for complex reasoning, emotions, and Tier 2 memory consolidation.
-  - **NVIDIA NIM (`meta/llama-3.1-70b-instruct`)**: High-intelligence secondary reasoning & diplomacy engine.
-  - **Groq (`llama-3.1-8b-instant` / `qwen3.6-27b`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
-  - **Cerebras (`llama3.1-8b`)**: Backup provider on rate limits (~1,800 tokens/sec).
-  - **OpenRouter Free (`meta-llama/llama-3.1-8b-instruct:free` / `meta-llama/llama-3.2-3b-instruct`)**: Universal failover provider.
+  - **Gemini Flash (`gemini-2.5-flash`)**: Primary workhorse for high-intelligence reasoning, multi-step planning (`PLAN`), emotions, and Tier 2 memory consolidation.
+  - **NVIDIA NIM (`meta/llama-3.1-70b-instruct` / `meta/llama-3.1-8b-instruct`)**: High-intelligence secondary reasoning & diplomacy engine.
+  - **Groq (`llama-3.3-70b-versatile` / `llama-3.1-8b-instant`)**: Primary for fast sub-second chat dialogue, quick reflexes, and Tier 1 buffer compaction.
+  - **Cerebras (`llama3.1-8b` / `llama3.1-70b` / `llama-3.3-70b`)**: Ultra-fast backup provider with candidate fallback (~1,800 tokens/sec).
+  - **OpenRouter Free (`meta-llama/llama-3.3-70b-instruct:free`, `meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`)**: Universal failover pool with automatic free model rotation.
   - **Agnes AI (`agnes.js`)**: External conversational reasoning endpoint driver.
   - **LLM7 (`minimax-m2.7`)**: Extended fallback inference provider driver.
+  - **Task-Specific Provider Routing**: `getPreferredProviders(taskType)` routes `REASONING`/`PLAN`/`RESEARCH` to thinking models (Gemini, Groq 70B, Nvidia) and `SOCIAL_CHAT`/`REFLEX` to high-throughput dialogue models (Nvidia, Groq, LLM7, Cerebras, OpenRouter).
+  - **Human-like Anti-Stuck Loop Breaker**: `DecisionTree` detects repetitive non-productive actions (6+ consecutive unrewarded explore/wander/mine ticks) and forces strategic planning escalation to formulate multi-step goals.
 - **Detachable Embeddings Engine**:
   - **Ollama**: `nomic-embed-text` (768-dim normalized vectors via `POST /api/embeddings`)
   - **Hosted**: Gemini `text-embedding-004` (768 dimensions)
