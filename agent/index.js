@@ -462,7 +462,7 @@ function createAgent() {
 
   // Action executor based on decision tree output
   async function executeDecision(decision) {
-    let actionSuccess = true;
+    let actionSuccess = false;
     let execErrorDetail = null;
     try {
       switch (decision.action) {
@@ -470,6 +470,7 @@ function createAgent() {
           logger.info('AgentLoop', 'Executing EAT action');
           await inventory.eatFood(stats.health, stats.hunger);
           eventBuffer.addEvent('eatFood', { health: stats.health, hunger: stats.hunger });
+          actionSuccess = true;
           break;
 
         case ACTIONS.FLEE:
@@ -675,6 +676,7 @@ function createAgent() {
 
         case 'PLAN': {
           const newGoal = decision.newGoal;
+          let planApplied = false;
           if (newGoal && typeof goalManager.setGoal === 'function') {
             goalManager.setGoal(newGoal);
             agentState.activeGoal = newGoal;
@@ -684,11 +686,13 @@ function createAgent() {
               chat.say(`new mission: ${newGoal}`);
             }
             eventBuffer.addEvent('newGoal', { goal: newGoal });
+            planApplied = true;
           }
           if (Array.isArray(decision.steps) && decision.steps.length > 0 && typeof goalManager.setPlan === 'function') {
             goalManager.setPlan(decision.steps);
+            planApplied = true;
           }
-          actionSuccess = true;
+          actionSuccess = planApplied;
           break;
         }
 
@@ -912,8 +916,9 @@ function createAgent() {
   events.on('playerJoined', ({ username }) => {
     detailedLogger.logSenses(bot.username, `Player joined server: ${username}`);
     eventBuffer.addEvent('playerJoined', { username });
-    // Casual greeting to joining player (if not an agent) with cooldown
-    if (username !== bot.username && !username.startsWith('Agent_') && Date.now() - lastOutgoingChat > 4000) {
+    // Casual greeting to joining player (if human player, not another agent, and not spectator bot) with cooldown
+    const isBotOrAgent = username.startsWith('Agent_') || username.toLowerCase().includes('spectator') || username.toLowerCase().includes('bot');
+    if (username !== bot.username && !isBotOrAgent && Date.now() - lastOutgoingChat > 4000) {
       lastOutgoingChat = Date.now();
       setTimeout(() => chat.say(`Hey ${username}! Welcome.`), 1200 + Math.random() * 1000);
     }
@@ -978,8 +983,8 @@ function createAgent() {
     if (agentState.recentChat.length > 60) agentState.recentChat.shift();
     eventBuffer.addEvent('playerChat', { username, message });
 
-    // Ignore our own echoes
-    if (username === bot.username) return;
+    // Ignore our own echoes and spectator bots
+    if (username === bot.username || username.toLowerCase().includes('spectator')) return;
 
     // Check if answering an 'ask' consent prompt for lesson sharing
     if (reflection.pendingLesson) {

@@ -11,6 +11,9 @@ class DynamicRuleEngine {
     if (!decisionData || !decisionData.action || decisionData.fallback) return;
 
     const action = decisionData.action;
+    // PLAN and IDLE are cognitive meta-actions or no-ops, not repeatable physical actuation rules
+    if (action === 'PLAN' || action === 'IDLE') return;
+
     const situationName = situationPayload.topCandidate?.name || 'GENERIC';
     const ruleId = `learned_${situationName.toLowerCase()}_${this.learnedRules.length + 1}`;
     const now = Date.now();
@@ -60,10 +63,10 @@ class DynamicRuleEngine {
       }
     }
 
-    // Prune rules with confidence < 0.2
+    // Prune rules with confidence < 0.2 or non-actuation actions
     const beforePrune = this.learnedRules.length;
     this.learnedRules = this.learnedRules.filter(r => {
-      if (r.confidence < 0.2) {
+      if (r.confidence < 0.2 || r.action === 'PLAN' || r.action === 'IDLE') {
         logger.info('DynamicRules', `[PRUNE] Pruned stale rule ${r.id} (${r.action}) due to low confidence (${r.confidence})`);
         return false;
       }
@@ -104,6 +107,9 @@ class DynamicRuleEngine {
     const candidateActions = [];
 
     for (const rule of this.learnedRules) {
+      // Disallow executing meta-actions as repeating dynamic rules
+      if (rule.action === 'PLAN' || rule.action === 'IDLE') continue;
+
       let conf = rule.confidence;
       let targetMeta = { ruleId: rule.id };
 

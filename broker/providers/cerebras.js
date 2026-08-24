@@ -4,11 +4,13 @@ async function queryCerebras(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('CEREBRAS_API_KEY is not configured');
 
   const candidateModels = [
-    process.env.CEREBRAS_MODEL,
-    'gpt-oss-120b',
-    'gemma-4-31b',
-    'llama3.1-8b'
-  ].filter(Boolean);
+    ...new Set([
+      process.env.CEREBRAS_MODEL,
+      'llama3.1-8b',
+      'llama-3.3-70b',
+      'llama-3.1-70b'
+    ].filter(Boolean))
+  ];
 
   let lastError = null;
   const t0 = Date.now();
