@@ -13,6 +13,7 @@ const buildAffordances = require('../perception/affordances');
 const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
 const EscalationManager = require('./escalate');
+const SocietyClient = require('../memory/societyClient');
 const logger = require('../../shared/logger');
 
 class DecisionTree {
@@ -115,6 +116,14 @@ class DecisionTree {
       hazardResearchQuery = 'minecraft hostile mob swarm pillar defense tactics';
     }
 
+    // Society knowledge snapshot (cached ~60s). Awareness, not instruction —
+    // the LLM decides what conventions/pledges/reputation mean for this choice.
+    let societyContext = null;
+    try {
+      const societyAgentId = senses.bot?.username || persona?.agentId || 'Agent';
+      societyContext = await SocietyClient.forAgent(societyAgentId).getContext();
+    } catch { /* society knowledge is optional */ }
+
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop || isHazard) {
       const isResearchNeeded = isHazard || (
         topCandidate.name === 'CRAFT' ||
@@ -171,7 +180,13 @@ class DecisionTree {
         recentEvents: (agentState.recentDecisions || []).slice(-5).map(d => `${d.action}(${d.source})`).join(' → '),
         lastActionResult: agentState.lastActionResult || null,
         affordances: buildAffordances.build(senses.bot, senses, stats),
-        persona: persona?.getPersonaPromptContext ? persona.getPersonaPromptContext() : (persona || {})
+        persona: persona?.getPersonaPromptContext ? persona.getPersonaPromptContext() : (persona || {}),
+        society: societyContext ? {
+          conventions: Object.fromEntries(Object.entries(societyContext.conventions || {}).map(([k, v]) => [k, v.value])),
+          openPledges: (societyContext.openPledges || []).slice(0, 8).map(p => `${p.agentId}: ${p.description}`),
+          recentNotices: (societyContext.notices || []).slice(0, 4).map(n => `[${n.type}] ${n.title}`),
+          reputationHighlights: societyContext.reputationHighlights || []
+        } : null
       };
 
       const escalationResult = await this.escalator.escalate(payload);

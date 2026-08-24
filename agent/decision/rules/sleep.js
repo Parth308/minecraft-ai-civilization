@@ -14,12 +14,22 @@ function evaluateSleep(senses, stats, persona = null, agentState = {}) {
   const ambition = persona?.traits?.ambition ?? 0.5;
   const scarCount = persona?.scarCount || (Array.isArray(persona?.scarHistory) ? persona.scarHistory.length : 0);
 
+  // Stable circadian rhythm derived from identity: early birds grow uneasy at
+  // dusk, night owls shrug off darkness until exhaustion catches up.
+  let chronotype = 'mid';
+  if (persona?._hashCode) {
+    const roll = Math.abs(persona._hashCode(`chrono:${persona.agentId}`)) % 3;
+    chronotype = roll === 0 ? 'early' : (roll === 2 ? 'owl' : 'mid');
+  }
+
   // Perceived threat index [0.0 - 1.0]
   let threatLevel = 0.35; // base darkness threat
   threatLevel += hostileCount * 0.15;
   threatLevel += (caution - 0.5) * 0.30;
   threatLevel += scarCount * 0.08;
   threatLevel -= (ambition - 0.5) * 0.15;
+  if (chronotype === 'early') threatLevel += 0.05;
+  if (chronotype === 'owl') threatLevel -= 0.05;
   threatLevel = Math.max(0.10, Math.min(0.99, threatLevel));
 
   // If a bed is nearby and agent feels fatigue or high threat
@@ -44,12 +54,13 @@ function evaluateSleep(senses, stats, persona = null, agentState = {}) {
     };
   }
 
-  // Bold / Ambitious agent chooses to brave the night
+  // Bold / Ambitious agent chooses to brave the night — owls more boldly than larks
+  const braveConfidence = chronotype === 'owl' ? 0.06 : (chronotype === 'early' ? 0.14 : 0.10);
   return {
     name: ACTIONS.SLEEP,
-    confidence: 0.10,
+    confidence: braveConfidence,
     threatLevel: Number(threatLevel.toFixed(2)),
-    reason: `Nighttime, but feeling brave (Threat: ${Math.round(threatLevel * 100)}%, Ambition: ${Math.round(ambition * 100)}%). Continuing operations.`
+    reason: `Nighttime, but feeling brave as a ${chronotype}-rhythm soul (Threat: ${Math.round(threatLevel * 100)}%, Ambition: ${Math.round(ambition * 100)}%). Continuing operations.`
   };
 }
 

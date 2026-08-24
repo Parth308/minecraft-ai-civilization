@@ -132,6 +132,22 @@ Reply ONLY with a valid JSON object:
       } catch (err) {
         logger.debug('ReflectionEngine', `Failed to post shared lesson to ledger: ${err.message}`);
       }
+
+      // Outgoing personalities also pin notable wisdom to the community notice
+      // board — persistent artifact other agents may read and build upon.
+      if (effective.baseOpenness >= 0.55 && severity >= 0.5) {
+        fetch(`${serviceUrl}/api/society/notices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            author: this.agentId,
+            type: isHazard ? 'guide' : 'lore',
+            title: lessonText.slice(0, 100),
+            body: reflectionResponse.diaryEntry || lessonText
+          })
+        }).catch(() => {});
+        logger.info('ReflectionEngine', `[NOTICE BOARD] ${this.agentId} published insight to community board`);
+      }
     } else {
       // Record unshared lesson in local tracker and register in ledger as unshared diagnostic
       this.unsharedLessons.push(lessonEntry);

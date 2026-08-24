@@ -1,4 +1,5 @@
 const logger = require('../../shared/logger');
+const SocietyClient = require('../memory/societyClient');
 
 class SocialDialogueEngine {
   constructor(brainClient, persona, goalManager, relationshipTracker, factionManager = null, dynamicRuleEngine = null, reflectionEngine = null) {
@@ -9,6 +10,7 @@ class SocialDialogueEngine {
     this.factionManager = factionManager;
     this.dynamicRuleEngine = dynamicRuleEngine;
     this.reflectionEngine = reflectionEngine;
+    this.societyClient = SocietyClient.forAgent(persona.agentId);
   }
 
   setReflectionEngine(refEngine) {
@@ -17,6 +19,26 @@ class SocialDialogueEngine {
 
   setDynamicRuleEngine(ruleEngine) {
     this.dynamicRuleEngine = ruleEngine;
+  }
+
+  // Detect any third party mentioned in a message: known relationship names
+  // plus generic Agent_* name pattern. Excludes self and the sender.
+  _extractMentionedAgents(message, sender) {
+    const selfId = this.persona.agentId.toLowerCase();
+    const mentioned = new Set();
+    for (const known of Object.keys(this.relationships.getAll())) {
+      if (known.toLowerCase() !== selfId && known.toLowerCase() !== sender.toLowerCase() &&
+          message.toLowerCase().includes(known.toLowerCase())) {
+        mentioned.add(known);
+      }
+    }
+    for (const match of message.matchAll(/Agent[_ ]([A-Za-z0-9]+)/gi)) {
+      const proper = `Agent_${match[1].charAt(0).toUpperCase()}${match[1].slice(1)}`;
+      if (proper.toLowerCase() !== selfId && proper.toLowerCase() !== sender.toLowerCase()) {
+        mentioned.add(proper);
+      }
+    }
+    return [...mentioned];
   }
 
   async processIncomingChat(sender, message, civContext = {}) {
@@ -37,6 +59,14 @@ class SocialDialogueEngine {
       }
     }
 
+    // 2. Society knowledge snapshot: what have I heard about this speaker?
+    // Knowledge only — how it colors the reply is entirely the agent's choice.
+    const society = await this.societyClient.getContext();
+    const speakerRep = society?.reputationHighlights?.find(r => r.agentId.toLowerCase() === sender.toLowerCase()) || { score: 0 };
+    const heardAboutSpeaker = (society?.recentGossip || [])
+      .filter(g => g.about.toLowerCase() === sender.toLowerCase())
+      .slice(-3);
+
     const payload = {
       taskType: 'SOCIAL_CHAT',
       agentId: this.persona.agentId,
@@ -46,6 +76,13 @@ class SocialDialogueEngine {
       persona: this.persona.getPersonaPromptContext(),
       goals: this.goalManager.getGoalContext(),
       diplomacy: this.factionManager ? this.factionManager.getDiplomaticContext() : {},
+      society: {
+        speakerReputationScore: speakerRep.score,
+        heardAboutSpeaker,
+        conventions: society?.conventions ? Object.fromEntries(Object.entries(society.conventions).map(([k, v]) => [k, v.value])) : {},
+        openPledges: (society?.openPledges || []).map(p => `${p.agentId}: ${p.description}`),
+        communityNotices: (society?.notices || []).slice(0, 5).map(n => `[${n.type}] ${n.title}`)
+      },
       civContext: {
         ...civContext,
         gossipEligibleLesson: gossipLesson ? gossipLesson.lesson : null
@@ -56,6 +93,7 @@ class SocialDialogueEngine {
       const response = await this.brainClient.escalate(payload);
 
       // Apply relationship shifts
+      const prevAffinity = relationship?.affinity ?? 50;
       if (response.relationshipDelta) {
         if (response.relationshipDelta.trust) this.relationships.updateTrust(sender, response.relationshipDelta.trust);
         if (response.relationshipDelta.affinity) this.relationships.updateAffinity(sender, response.relationshipDelta.affinity);
@@ -66,7 +104,7 @@ class SocialDialogueEngine {
         this.goalManager.setGoal(response.newGoal);
       }
 
-      // 2. Incoming Informal Lesson Hearing from Peer Chat
+      // Incoming Informal Lesson Hearing from Peer Chat
       const ruleEngine = this.dynamicRuleEngine || civContext.dynamicRuleEngine;
       const lower = message.toLowerCase();
       const isSurvivalTip = lower.includes('freeze') || lower.includes('powder snow') || lower.includes('boots') ||
@@ -99,22 +137,34 @@ class SocialDialogueEngine {
         }
       }
 
-      // Emergent Gossip & Grudge Propagation
-      const isAccusation = lower.includes('untrustworthy') || lower.includes('scam') || lower.includes('thief') || lower.includes('stole') || lower.includes('lied') || lower.includes('unfair');
-      if (isAccusation) {
-        const candidateNames = ['agent_alpha', 'agent_beta', 'agent_gamma'];
-        for (const candidate of candidateNames) {
-          if (lower.includes(candidate) && candidate !== this.persona.agentId.toLowerCase() && candidate !== sender.toLowerCase()) {
-            const properName = candidate.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('_');
-            const senderTrust = relationship?.trust ?? 50;
-            if (senderTrust >= 40) {
-              this.relationships.updateTrust(properName, -15);
-              this.relationships.updateAffinity(properName, -10);
-              logger.warn('SocialDialogue', `[GOSSIP & REPUTATION] ${this.persona.agentId} heard accusation from ${sender} against ${properName}. Lowered trust/affinity.`);
-            }
-            break;
-          }
+      // Emergent gossip: accusations against third parties damage their reputation
+      // in my eyes AND spread through the society record. Trust-gated — I only
+      // believe people I trust.
+      const isAccusation = lower.includes('untrustworthy') || lower.includes('scam') || lower.includes('thief') ||
+                           lower.includes('stole') || lower.includes('lied') || lower.includes('unfair') ||
+                           lower.includes('cheat') || lower.includes('betray');
+      const isPraise = lower.includes('trustworthy') || lower.includes('helped me') || lower.includes('good trade') ||
+                       lower.includes('generous') || lower.includes('saved me') || lower.includes('reliable');
+
+      const mentionedAgents = this._extractMentionedAgents(message, sender);
+      const senderTrust = relationship?.trust ?? 50;
+
+      if ((isAccusation || isPraise) && mentionedAgents.length > 0 && senderTrust >= 40) {
+        for (const target of mentionedAgents.slice(0, 2)) {
+          const sentiment = isAccusation ? -0.7 : 0.5;
+          this.relationships.applyGossipPrior(target, sentiment);
+          this.societyClient.postGossip(target, sentiment, `${sender} said: "${message.slice(0, 140)}"`);
+          logger.info('SocialDialogue', `[GOSSIP PROPAGATED] ${this.persona.agentId} heard ${isAccusation ? 'accusation' : 'praise'} from ${sender} about ${target}`);
         }
+      }
+
+      // Direct experience also becomes word-of-mouth: notably good/bad personal
+      // interactions get whispered around (agents prefer spreading good news).
+      const affinityDelta = (relationship?.affinity ?? 50) - prevAffinity;
+      if (affinityDelta <= -10) {
+        this.societyClient.postGossip(sender, -0.6, `Treated me badly in conversation`);
+      } else if (affinityDelta >= 10 && Math.random() < 0.30) {
+        this.societyClient.postGossip(sender, 0.5, `Pleasant and trustworthy interaction`);
       }
 
       // Diplomatic actions (War, Treaties, Currencies)

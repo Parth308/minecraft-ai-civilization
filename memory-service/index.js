@@ -19,6 +19,9 @@ const vectorStore = new VectorMemoryStore();
 const scheduler = new MemoryScheduler(compactor);
 scheduler.start();
 
+// Society knowledge layer (gossip/reputation, notices, conventions, pledges)
+require('./society')(app);
+
 // Health Check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'memory-service', uptime: process.uptime() });
