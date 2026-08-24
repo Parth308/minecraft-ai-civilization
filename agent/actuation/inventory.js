@@ -484,14 +484,33 @@ class InventoryActuator {
   }
 
   async craftItem(itemName, count = 1) {
-    const item = this.bot.registry.itemsByName[itemName];
+    let targetItemName = itemName;
+    let item = this.bot.registry.itemsByName[targetItemName];
+
+    // If requested item is a generic plank and not in inventory, check if we have any other logs to craft
+    if (itemName.endsWith('_planks') || itemName === 'planks') {
+      const invItems = this.bot.inventory?.items() || [];
+      const hasMatchingLog = invItems.some(i => i.name.endsWith('_log') || i.name.endsWith('_wood') || i.name.endsWith('_stem'));
+      if (hasMatchingLog) {
+        const matchingLog = invItems.find(i => i.name.endsWith('_log') || i.name.endsWith('_wood') || i.name.endsWith('_stem'));
+        if (matchingLog) {
+          const woodPrefix = matchingLog.name.replace(/^(stripped_)?([a-z_]+)_(log|wood|stem)$/, '$2');
+          const candidatePlanks = `${woodPrefix}_planks`;
+          if (this.bot.registry.itemsByName[candidatePlanks]) {
+            targetItemName = candidatePlanks;
+            item = this.bot.registry.itemsByName[targetItemName];
+          }
+        }
+      }
+    }
+
     if (!item) {
       logger.warn('Actuation:Inventory', `Unknown item to craft: ${itemName}`);
       return false;
     }
 
-    // 1. Check if item can be crafted in 2×2 inventory grid
-    let recipes = this.bot.recipesFor(item.id, null, count, null);
+    // 1. Check if item can be crafted in 2×2 inventory grid (check 1 operation first)
+    let recipes = this.bot.recipesFor(item.id, null, 1, null);
     let craftingTable = null;
     let newlyPlaced = false;
 
@@ -513,18 +532,22 @@ class InventoryActuator {
       }
 
       // Re-query recipes with crafting table
-      recipes = this.bot.recipesFor(item.id, null, count, craftingTable);
+      recipes = this.bot.recipesFor(item.id, null, 1, craftingTable);
     }
 
     if (!recipes || recipes.length === 0) {
-      logger.warn('Actuation:Inventory', `No recipe available for: ${itemName} (Table: ${!!craftingTable})`);
+      logger.warn('Actuation:Inventory', `No recipe available for: ${targetItemName} (Table: ${!!craftingTable})`);
       return false;
     }
 
+    const recipe = recipes[0];
+    const outputPerCraft = recipe.result?.count || 1;
+    const craftOperations = Math.max(1, Math.ceil(count / outputPerCraft));
+
     try {
-      logger.info('Actuation:Inventory', `Crafting ${count}x ${itemName}${craftingTable ? ' at crafting table' : ' (2x2)'}...`);
-      await this.bot.craft(recipes[0], count, craftingTable);
-      detailedLogger.logInventory(this.agentId, `Crafted item: ${count}x ${itemName}`, { usedTable: !!craftingTable });
+      logger.info('Actuation:Inventory', `Crafting ${craftOperations}x operation (${targetItemName})${craftingTable ? ' at crafting table' : ' (2x2)'}...`);
+      await this.bot.craft(recipe, craftOperations, craftingTable);
+      detailedLogger.logInventory(this.agentId, `Crafted item: ${craftOperations * outputPerCraft}x ${targetItemName}`, { usedTable: !!craftingTable });
 
       // Auto-recover/mine placed crafting table back into backpack so bot never leaves it behind
       if (newlyPlaced && craftingTable) {

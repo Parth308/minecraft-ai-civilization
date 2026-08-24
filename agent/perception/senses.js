@@ -215,15 +215,25 @@ class Senses {
     return this.bot.inventory.items().filter(item => toolKeywords.some(kw => item.name.includes(kw)));
   }
 
+  _matchesItemName(itemActualName, targetName) {
+    if (itemActualName === targetName) return true;
+    if (targetName === 'log') return itemActualName.endsWith('_log') || itemActualName.endsWith('_wood') || itemActualName.endsWith('_stem') || itemActualName === 'bamboo_block';
+    if (targetName === 'planks') return itemActualName.endsWith('_planks') || itemActualName === 'bamboo_mosaic';
+    if (targetName === 'ore') return itemActualName.endsWith('_ore');
+    if (targetName === 'wool') return itemActualName.endsWith('_wool');
+    if (targetName === 'boat') return itemActualName.endsWith('_boat') || itemActualName.endsWith('_raft');
+    return false;
+  }
+
   hasItem(itemName) {
     if (!this.bot.inventory) return false;
-    return !!this.bot.inventory.items().find(i => i.name === itemName);
+    return !!this.bot.inventory.items().find(i => this._matchesItemName(i.name, itemName));
   }
 
   countItem(itemName) {
     if (!this.bot.inventory) return 0;
     return this.bot.inventory.items()
-      .filter(i => i.name === itemName)
+      .filter(i => this._matchesItemName(i.name, itemName))
       .reduce((sum, i) => sum + i.count, 0);
   }
 

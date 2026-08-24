@@ -67,11 +67,29 @@ function evaluateCraft(senses, stats) {
     });
   };
 
+  const WOOD_TO_PLANKS = {
+    oak_log: 'oak_planks', stripped_oak_log: 'oak_planks', oak_wood: 'oak_planks', stripped_oak_wood: 'oak_planks',
+    birch_log: 'birch_planks', stripped_birch_log: 'birch_planks', birch_wood: 'birch_planks', stripped_birch_wood: 'birch_planks',
+    spruce_log: 'spruce_planks', stripped_spruce_log: 'spruce_planks', spruce_wood: 'spruce_planks', stripped_spruce_wood: 'spruce_planks',
+    jungle_log: 'jungle_planks', stripped_jungle_log: 'jungle_planks', jungle_wood: 'jungle_planks', stripped_jungle_wood: 'jungle_planks',
+    acacia_log: 'acacia_planks', stripped_acacia_log: 'acacia_planks', acacia_wood: 'acacia_planks', stripped_acacia_wood: 'acacia_planks',
+    dark_oak_log: 'dark_oak_planks', stripped_dark_oak_log: 'dark_oak_planks', dark_oak_wood: 'dark_oak_planks', stripped_dark_oak_wood: 'dark_oak_planks',
+    mangrove_log: 'mangrove_planks', stripped_mangrove_log: 'mangrove_planks', mangrove_wood: 'mangrove_planks', stripped_mangrove_wood: 'mangrove_planks',
+    cherry_log: 'cherry_planks', stripped_cherry_log: 'cherry_planks', cherry_wood: 'cherry_planks', stripped_cherry_wood: 'cherry_planks',
+    bamboo_block: 'bamboo_planks', stripped_bamboo_block: 'bamboo_planks',
+    crimson_stem: 'crimson_planks', stripped_crimson_stem: 'crimson_planks',
+    warped_stem: 'warped_planks', stripped_warped_stem: 'warped_planks'
+  };
+
   // 1. Logs -> Planks (2x2 craft in inventory)
   if (logCount >= 1 && plankCount < 16) {
-    const logItem = senses.hasItem('oak_log') ? 'oak_planks' :
-                    senses.hasItem('birch_log') ? 'birch_planks' :
-                    senses.hasItem('spruce_log') ? 'spruce_planks' : 'oak_planks';
+    let logItem = 'oak_planks';
+    for (const [rawWood, plankType] of Object.entries(WOOD_TO_PLANKS)) {
+      if (senses.hasItem(rawWood)) {
+        logItem = plankType;
+        break;
+      }
+    }
 
     if (!isCraftOnCooldown(logItem) && hasRequiredIngredients([{ item: 'log', count: logCount, min: 1 }])) {
       return {
@@ -79,7 +97,7 @@ function evaluateCraft(senses, stats) {
         confidence: 0.94,
         itemToCraft: logItem,
         count: logCount * 4,
-        reason: `Refining ${logCount} raw logs into wooden planks`
+        reason: `Refining ${logCount} raw logs into ${logItem}`
       };
     }
   }
