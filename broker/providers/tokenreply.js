@@ -6,11 +6,15 @@ const logger = require('../../shared/logger');
 async function queryTokenReply(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('TOKENREPLY_API_KEY is not configured');
 
+  // Verified against live /v1/models catalog — '-free' suffix models are callable
+  // on the Default tier (2026-08-24).
   const candidateModels = [
     process.env.TOKENREPLY_MODEL,
-    'gpt-4o-mini',
-    'deepseek-v3',
-    'llama-3.3-70b-instruct'
+    'deepseek-v4-flash-free',
+    'gemini-3.7-flash-default-free',
+    'nemotron-3-ultra-free',
+    'mimo-v2.5-free',
+    'deepseek-v4-flash-thinking-free'
   ].filter(Boolean);
 
   let lastError = null;
