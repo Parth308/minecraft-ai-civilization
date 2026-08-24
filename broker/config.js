@@ -8,6 +8,11 @@ module.exports = {
     nvidia: process.env.NVIDIA_API_KEY,
     cerebras: process.env.CEREBRAS_API_KEY,
     openrouter: process.env.OPENROUTER_API_KEY,
+    siliconflow: process.env.SILICONFLOW_API_KEY,
+    zhipu: process.env.ZHIPU_API_KEY,
+    mistral: process.env.MISTRAL_API_KEY,
+    githubModels: process.env.GITHUB_MODELS_TOKEN,
+    pollinations: process.env.POLLINATIONS_API_KEY || 'unused',
     agnes: process.env.AGNES_API_KEY,
     llm7: process.env.LLM7_API_KEY || 'unused'
   },

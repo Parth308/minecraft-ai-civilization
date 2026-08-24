@@ -4,7 +4,7 @@ services:
     container_name: minecraft-paper-server
     ports:
       - "25565:25565"
-      - "25575:25575"   # RCON — used by dashboard for operator chat + spectator setup
+      - "25575:25575" # RCON — used by dashboard for operator chat + spectator setup
     environment:
       TYPE: "PAPER"
       VERSION: "1.20.4"
@@ -53,7 +53,7 @@ services:
         echo "Embedding model ready!"
         wait $$PID
     healthcheck:
-      test: ["CMD-SHELL", "ollama list | grep -q $${OLLAMA_MODEL:-nomic-embed-text} || exit 1"]
+      test: [ "CMD-SHELL", "ollama list | grep -q $${OLLAMA_MODEL:-nomic-embed-text} || exit 1" ]
       interval: 5s
       timeout: 10s
       retries: 20
@@ -84,7 +84,7 @@ services:
     volumes:
       - ./memory-service/store/agents:/app/memory-service/store/agents
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -124,12 +124,21 @@ services:
       AGNES_MODEL: "${AGNES_MODEL:-deepseek-v3}"
       LLM7_API_KEY: "${LLM7_API_KEY:-unused}"
       LLM7_MODEL: "${LLM7_MODEL:-default}"
+      SILICONFLOW_API_KEY: "${SILICONFLOW_API_KEY:-}"
+      SILICONFLOW_MODEL: "${SILICONFLOW_MODEL:-Qwen/Qwen3-8B-Instruct}"
+      ZHIPU_API_KEY: "${ZHIPU_API_KEY:-}"
+      ZHIPU_MODEL: "${ZHIPU_MODEL:-glm-4-flash}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      MISTRAL_MODEL: "${MISTRAL_MODEL:-mistral-small-latest}"
+      GITHUB_MODELS_TOKEN: "${GITHUB_MODELS_TOKEN:-}"
+      GITHUB_MODEL: "${GITHUB_MODEL:-openai/gpt-4o-mini}"
+      POLLINATIONS_MODEL: "${POLLINATIONS_MODEL:-openai}"
       CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-300}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-ollama}"
       OLLAMA_HOST: "http://ollama:11434"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-nomic-embed-text}"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -152,8 +161,8 @@ services:
       dockerfile: agent/Dockerfile
     container_name: agent-alpha
     expose:
-      - "3010"   # /status endpoint for dashboard
-      - "3020"   # Native 3D POV stream
+      - "3010" # /status endpoint for dashboard
+      - "3020" # Native 3D POV stream
     environment:
       MC_HOST: "minecraft-server"
       MC_PORT: 25565
@@ -169,7 +178,7 @@ services:
       VIEWER_PORT: "3020"
       NODE_OPTIONS: "--max-old-space-size=400"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3010/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3010/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -196,8 +205,8 @@ services:
       dockerfile: agent/Dockerfile
     container_name: agent-beta
     expose:
-      - "3011"   # /status endpoint for dashboard
-      - "3021"   # Native 3D POV stream
+      - "3011" # /status endpoint for dashboard
+      - "3021" # Native 3D POV stream
     environment:
       MC_HOST: "minecraft-server"
       MC_PORT: 25565
@@ -213,7 +222,7 @@ services:
       VIEWER_PORT: "3021"
       NODE_OPTIONS: "--max-old-space-size=400"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3011/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3011/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -240,8 +249,8 @@ services:
       dockerfile: agent/Dockerfile
     container_name: agent-gamma
     expose:
-      - "3012"   # /status endpoint for dashboard
-      - "3022"   # Native 3D POV stream
+      - "3012" # /status endpoint for dashboard
+      - "3022" # Native 3D POV stream
     environment:
       MC_HOST: "minecraft-server"
       MC_PORT: 25565
@@ -257,7 +266,7 @@ services:
       VIEWER_PORT: "3022"
       NODE_OPTIONS: "--max-old-space-size=400"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3012/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3012/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -284,7 +293,7 @@ services:
       dockerfile: dashboard/Dockerfile
     container_name: civilization-dashboard
     ports:
-      - "3003:3003"   # Main dashboard UI
+      - "3003:3003" # Main dashboard UI
     environment:
       DASHBOARD_PORT: 3003
       VIEWER_PORT: 3004
@@ -301,7 +310,7 @@ services:
       RCON_PORT: 25575
       RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3003/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3003/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -315,7 +324,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M   # Larger cap — mineflayer spectator bot + prismarine-viewer live here
+          memory: 512M # Larger cap — mineflayer spectator bot + prismarine-viewer live here
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -326,4 +335,3 @@ volumes:
 networks:
   minecraft-network:
     driver: bridge
-

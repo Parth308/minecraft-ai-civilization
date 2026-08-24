@@ -3,6 +3,11 @@ const queryGroq = require('./providers/groq');
 const queryNvidia = require('./providers/nvidia');
 const queryCerebras = require('./providers/cerebras');
 const queryOpenRouter = require('./providers/openrouter');
+const querySiliconFlow = require('./providers/siliconflow');
+const queryZhipu = require('./providers/zhipu');
+const queryMistral = require('./providers/mistral');
+const queryGitHubModels = require('./providers/githubmodels');
+const queryPollinations = require('./providers/pollinations');
 const queryAgnes = require('./providers/agnes');
 const queryLLM7 = require('./providers/llm7');
 const ExactCache = require('./cache/exactCache');
@@ -20,13 +25,18 @@ const logger = require('../shared/logger');
 const FREE_TIER_MODE = process.env.FREE_TIER_MODE !== 'false';
 
 const BENCHMARK_RATES_PER_MTOK = {
-  Gemini:     { input: 0.30, output: 2.50, name: 'Gemini 2.0 Flash (Free Tier: 15 RPM / 250k TPM)' },
-  Groq:       { input: 0.59, output: 0.79, name: 'Llama 3.3 70B (Free Tier: 30 RPM / 12k TPM)' },
-  Nvidia:     { input: 0.60, output: 0.60, name: 'NVIDIA NIM (1,000 Free Credits / 40 RPM)' },
-  Cerebras:   { input: 0.10, output: 0.10, name: 'Cerebras Llama 3.1 8B ($5 Free Trial)' },
-  OpenRouter: { input: 0.00, output: 0.00, name: 'OpenRouter Free Models (Permanent $0.00)' },
-  Agnes:      { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
-  LLM7:       { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' }
+  Gemini:      { input: 0.30, output: 2.50, name: 'Gemini Flash (Free Tier: ~20 req/day per model post-2025 cuts)' },
+  Groq:        { input: 0.59, output: 0.79, name: 'Groq LPU (Free Tier: 30 RPM / up to 14.4k req/day)' },
+  Nvidia:      { input: 0.60, output: 0.60, name: 'NVIDIA NIM (~40 RPM Free Prototyping)' },
+  Cerebras:    { input: 0.10, output: 0.10, name: 'Cerebras gpt-oss-120b (Free Tier: 1M tokens/day / 30K TPM)' },
+  OpenRouter:  { input: 0.00, output: 0.00, name: 'OpenRouter :free Models (Rotating Roster)' },
+  SiliconFlow: { input: 0.00, output: 0.00, name: 'SiliconFlow Qwen3-8B / DS-R1-Distill (Permanent $0 Models)' },
+  Zhipu:       { input: 0.00, output: 0.00, name: 'Zhipu GLM-4-Flash (Free Tier)' },
+  Mistral:     { input: 0.50, output: 1.50, name: 'Mistral Experiment Plan (~1B tokens/month free)' },
+  GithubModels:{ input: 0.00, output: 0.00, name: 'GitHub Models GPT-4o-mini (Free w/ GitHub PAT)' },
+  Pollinations:{ input: 0.00, output: 0.00, name: 'Pollinations (Anonymous Lane UNVERIFIED - 402 observed 2026-08)' },
+  Agnes:       { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
+  LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' }
 };
 
 const MAX_ESCALATION_LOG = 200;
@@ -48,6 +58,11 @@ class ProviderRouter {
       Nvidia: { name: 'Nvidia', key: config.keys.nvidia, fn: queryNvidia },
       Cerebras: { name: 'Cerebras', key: config.keys.cerebras, fn: queryCerebras },
       OpenRouter: { name: 'OpenRouter', key: config.keys.openrouter, fn: queryOpenRouter },
+      SiliconFlow: { name: 'SiliconFlow', key: config.keys.siliconflow, fn: querySiliconFlow },
+      Zhipu: { name: 'Zhipu', key: config.keys.zhipu, fn: queryZhipu },
+      Mistral: { name: 'Mistral', key: config.keys.mistral, fn: queryMistral },
+      GithubModels: { name: 'GithubModels', key: config.keys.githubModels, fn: queryGitHubModels },
+      Pollinations: { name: 'Pollinations', key: config.keys.pollinations, fn: queryPollinations },
       Agnes: { name: 'Agnes', key: config.keys.agnes, fn: queryAgnes },
       LLM7: { name: 'LLM7', key: config.keys.llm7, fn: queryLLM7 }
     };
@@ -180,13 +195,13 @@ class ProviderRouter {
     let baseOrder;
     if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['Gemini', 'Groq', 'Nvidia', 'OpenRouter', 'LLM7', 'Agnes', 'Cerebras'];
+      baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'GithubModels', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes'];
     } else if (taskType === 'REFLECTION') {
-      // Deep macro-reflection & structured wisdom extraction
-      baseOrder = ['Gemini', 'Nvidia', 'Groq', 'OpenRouter', 'LLM7'];
+      // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
+      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'GithubModels', 'Nvidia', 'OpenRouter', 'LLM7'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
-      baseOrder = ['Nvidia', 'Groq', 'LLM7', 'Cerebras', 'OpenRouter', 'Agnes', 'Gemini'];
+      baseOrder = ['Groq', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LLM7', 'Pollinations', 'OpenRouter', 'Agnes', 'Gemini'];
     }
 
     // Filter to configured, non-rate-limited providers
