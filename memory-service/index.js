@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { initializeAgentMemoryFiles, getSectionFilePath, parseSectionFile, SECTIONS } = require('./sections/schema');
+const { initializeAgentMemoryFiles, getSectionFilePath, parseSectionFile, writeSectionFile, SECTIONS } = require('./sections/schema');
 const EventRouter = require('./router');
 const MemoryCompactor = require('./sections/compactor');
 const MemoryScheduler = require('./scheduler');
@@ -21,6 +21,34 @@ scheduler.start();
 
 // Society knowledge layer (gossip/reputation, notices, conventions, pledges)
 require('./society')(app);
+
+// Traumatic amnesia — death randomly erases a fraction of learned memories.
+// Knowledge becomes precious because surviving long enough to accumulate it is rare.
+app.post('/api/memory/amnesia', async (req, res) => {
+  const { agentId, fraction = 0.3 } = req.body || {};
+  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  const f = Math.min(0.6, Math.max(0, Number(fraction) || 0.3));
+  let forgotten = 0;
+  for (const section of ['skills', 'events', 'recent']) {
+    try {
+      const p = getSectionFilePath(agentId, section);
+      if (!fs.existsSync(p)) continue;
+      const parsed = parseSectionFile(p);
+      const before = parsed.entries.length;
+      const keepCount = Math.ceil(before * (1 - f));
+      if (before <= keepCount) continue;
+      const dropIdx = new Set();
+      while (dropIdx.size < before - keepCount) dropIdx.add(Math.floor(Math.random() * before));
+      parsed.entries = parsed.entries.filter((_, i) => !dropIdx.has(i));
+      writeSectionFile(p, parsed.frontmatter, parsed.entries);
+      forgotten += before - keepCount;
+    } catch (err) {
+      logger.debug('MemoryService', `Amnesia pass skipped ${section}: ${err.message}`);
+    }
+  }
+  logger.warn('MemoryService', `[AMNESIA] ${agentId} lost ${forgotten} memory entries after death`);
+  res.json({ success: true, agentId, forgotten });
+});
 
 // Health Check
 app.get('/health', (req, res) => {

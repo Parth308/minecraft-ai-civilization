@@ -7,6 +7,27 @@ class InventoryActuator {
     this.bot = bot;
   }
 
+  get _society() {
+    if (!this.__society) {
+      const SocietyClient = require('../memory/societyClient');
+      this.__society = SocietyClient.forAgent(this.bot.username || 'UnknownAgent');
+    }
+    return this.__society;
+  }
+
+  // Fire-and-forget: every chest interaction becomes potential court evidence
+  _logSocietyAccess(chestBlock) {
+    const p = chestBlock?.position;
+    if (!p) return null;
+    return this._society.logAccess(p.x, p.y, p.z).then(verdict => {
+      if (verdict?.trespass) {
+        logger.warn('Actuation:Inventory', `[PROPERTY] Opened ${verdict.owner}'s chest @ ${p.x},${p.y},${p.z} — this may be witnessed`);
+        detailedLogger.logInventory(this.agentId, 'Opened foreign chest', { owner: verdict.owner, pos: { x: p.x, y: p.y, z: p.z } });
+      }
+      return verdict;
+    });
+  }
+
   get agentId() {
     return this.bot.username || 'UnknownAgent';
   }
@@ -295,6 +316,12 @@ class InventoryActuator {
       await this.bot.placeBlock(referenceBlock, faceVector);
       detailedLogger.logInventory(this.agentId, `Placed block: ${blockName}`, { against: referenceBlock.name, pos: referenceBlock.position, face: faceVector });
       logger.info('Actuation:Inventory', `Placed ${blockName} against ${referenceBlock.name}`);
+
+      // Placed chests are registered property — ownership starts at placement
+      if (blockName.includes('chest')) {
+        const p = referenceBlock.position.offset(faceVector.x, faceVector.y, faceVector.z);
+        this._society.claimChest(p.x, p.y, p.z, blockName);
+      }
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Block placement failed: ${err.message}`);
@@ -342,6 +369,7 @@ class InventoryActuator {
       // Navigate close to chest before opening
       await this._navigateWithin(chestBlock.position, 3);
       await this.bot.lookAt(chestBlock.position.offset(0.5, 0.5, 0.5), true);
+      await this._logSocietyAccess(chestBlock);
 
       const chest = await this.bot.openChest(chestBlock);
       for (const itemName of itemNames) {
@@ -367,6 +395,7 @@ class InventoryActuator {
       // Navigate close to chest before opening
       await this._navigateWithin(chestBlock.position, 3);
       await this.bot.lookAt(chestBlock.position.offset(0.5, 0.5, 0.5), true);
+      await this._logSocietyAccess(chestBlock);
 
       const chest = await this.bot.openChest(chestBlock);
       for (const itemName of itemNames) {

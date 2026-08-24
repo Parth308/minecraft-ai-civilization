@@ -68,6 +68,106 @@ class SocietyClient {
       body: JSON.stringify({ agentId: this.agentId, description })
     }).catch(err => logger.debug('SocietyClient', `Pledge failed: ${err.message}`));
   }
+
+  // ── Property / theft justice ────────────────────────────────────────────────
+
+  claimChest(x, y, z, label = 'chest') {
+    return fetch(`${this.serviceUrl}/api/society/property/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, x, y, z, label })
+    }).catch(err => logger.debug('SocietyClient', `Chest claim failed: ${err.message}`));
+  }
+
+  shareChest(x, y, z, withAgent) {
+    return fetch(`${this.serviceUrl}/api/society/property/share`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, x, y, z, withAgent })
+    }).catch(err => logger.debug('SocietyClient', `Chest share failed: ${err.message}`));
+  }
+
+  // Returns { trespass, owner } verdict — caller decides how to react
+  logAccess(x, y, z) {
+    return fetch(`${this.serviceUrl}/api/society/property/access`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, x, y, z })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Access log failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  fileAccusation(accused, chestKey, claimedItems = '') {
+    return fetch(`${this.serviceUrl}/api/society/accusations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accuser: this.agentId, accused, chestKey, claimedItems })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Accusation failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  // ── Credit & debt ───────────────────────────────────────────────────────────
+
+  createDebt(debtor, item, amount, context = '') {
+    return fetch(`${this.serviceUrl}/api/society/debts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creditor: this.agentId, debtor, item, amount, context })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Debt creation failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  resolveDebt(debtId, action) {
+    const byField = action === 'paid' ? 'byDebtor' : 'byCreditor';
+    return fetch(`${this.serviceUrl}/api/society/debts/${debtId}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [byField]: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Debt ${action} failed: ${err.message}`);
+      return {};
+    });
+  }
+  // ── Intel marketplace ───────────────────────────────────────────────────────
+
+  listIntel(title, fact, priceItem = 'iron_ingot', priceAmount = 1) {
+    return fetch(`${this.serviceUrl}/api/society/intel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seller: this.agentId, title, fact, priceItem, priceAmount })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Intel listing failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  purchaseIntel(intelId) {
+    return fetch(`${this.serviceUrl}/api/society/intel/${intelId}/purchase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ buyer: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Intel purchase failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  addGrievance(against, reason, weight = 1) {
+    return fetch(`${this.serviceUrl}/api/society/grievances`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ by: this.agentId, against, reason, weight })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Grievance failed: ${err.message}`);
+      return {};
+    });
+  }
 }
 
 module.exports = SocietyClient;

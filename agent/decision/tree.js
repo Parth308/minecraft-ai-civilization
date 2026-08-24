@@ -185,7 +185,8 @@ class DecisionTree {
           conventions: Object.fromEntries(Object.entries(societyContext.conventions || {}).map(([k, v]) => [k, v.value])),
           openPledges: (societyContext.openPledges || []).slice(0, 8).map(p => `${p.agentId}: ${p.description}`),
           recentNotices: (societyContext.notices || []).slice(0, 4).map(n => `[${n.type}] ${n.title}`),
-          reputationHighlights: societyContext.reputationHighlights || []
+          reputationHighlights: societyContext.reputationHighlights || [],
+          openAccusations: (societyContext.openAccusations || []).slice(0, 4).map(a => `${a.accuser} vs ${a.accused}: theft @${a.chestKey} (${a.evidenceCount} evidence records)`)
         } : null
       };
 

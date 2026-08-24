@@ -44,8 +44,29 @@ class SocialDialogueEngine {
   async processIncomingChat(sender, message, civContext = {}) {
     if (!message || sender === this.persona.agentId) return null;
 
-    logger.info('SocialDialogue', `Processing chat from [${sender}]: "${message}"`);
     const relationship = this.relationships.get(sender);
+
+    // Social avoidance: deep distrust means silence. Being ignored is itself a
+    // message — and reconciliation later becomes a visible event.
+    if ((relationship?.trust ?? 50) < 15 && Math.random() < 0.9) {
+      logger.info('SocialDialogue', `[COLD SHOULDER] ${this.persona.agentId} ignores ${sender} (trust ${relationship.trust})`);
+      if (!this._ignoredOnce) this._ignoredOnce = new Map();
+      if (!this._ignoredOnce.has(sender)) {
+        this._ignoredOnce.set(sender, true);
+        this.societyClient.postGossip(sender, -0.4, `Refuses to even speak to me anymore`);
+      }
+      return null;
+    }
+
+    logger.info('SocialDialogue', `Processing chat from [${sender}]: "${message}"`);
+
+    // Conversation continuity: per-pair rolling transcript so exchanges reference
+    // their own history instead of feeling like isolated slot-machine replies.
+    if (!this._conversations) this._conversations = new Map();
+    if (!this._conversations.has(sender)) this._conversations.set(sender, []);
+    const transcript = this._conversations.get(sender);
+    transcript.push({ role: 'them', text: message.slice(0, 200) });
+    if (transcript.length > 12) transcript.splice(0, transcript.length - 12);
 
     // 1. Organic Gossip/Lesson Leaking for "ask" or "private" lessons
     let gossipLesson = null;
@@ -76,12 +97,28 @@ class SocialDialogueEngine {
       persona: this.persona.getPersonaPromptContext(),
       goals: this.goalManager.getGoalContext(),
       diplomacy: this.factionManager ? this.factionManager.getDiplomaticContext() : {},
+      conversationHistory: transcript.slice(0, -1).slice(-6),
       society: {
         speakerReputationScore: speakerRep.score,
         heardAboutSpeaker,
         conventions: society?.conventions ? Object.fromEntries(Object.entries(society.conventions).map(([k, v]) => [k, v.value])) : {},
         openPledges: (society?.openPledges || []).map(p => `${p.agentId}: ${p.description}`),
-        communityNotices: (society?.notices || []).slice(0, 5).map(n => `[${n.type}] ${n.title}`)
+        communityNotices: (society?.notices || []).slice(0, 5).map(n => `[${n.type}] ${n.title}`),
+        justice: {
+          accusedOf: (society?.openAccusations || []).filter(a => a.accused.toLowerCase() === this.persona.agentId.toLowerCase()).map(a => `${a.accuser} accuses you of theft @ ${a.chestKey} (${a.claimedItems})`),
+          yourAccusationsPending: (society?.openAccusations || []).filter(a => a.accuser.toLowerCase() === this.persona.agentId.toLowerCase()).length
+        },
+        finance: {
+          youOwe: (society?.openDebts || []).filter(d => d.debtor.toLowerCase() === this.persona.agentId.toLowerCase()).map(d => `${d.amount}x ${d.item} to ${d.creditor}`),
+          owedToYou: (society?.openDebts || []).filter(d => d.creditor.toLowerCase() === this.persona.agentId.toLowerCase()).map(d => `${d.debtor} owes you ${d.amount}x ${d.item}`),
+          speakerOwesYou: (society?.openDebts || []).filter(d => d.creditor.toLowerCase() === this.persona.agentId.toLowerCase() && d.debtor.toLowerCase() === sender.toLowerCase()).map(d => `${d.amount}x ${d.item}`)
+        },
+        intelMarket: (society?.intelListings || []).slice(0, 5).map(i => `"${i.title}" — ${i.priceAmount}x ${i.priceItem} (seller: ${i.seller})`),
+        tensionWithSpeaker: (() => {
+          const g = society?.topGrievances || [];
+          return g.filter(x => (x.by.toLowerCase() === sender.toLowerCase() && x.against.toLowerCase() === this.persona.agentId.toLowerCase()) ||
+                               (x.by.toLowerCase() === this.persona.agentId.toLowerCase() && x.against.toLowerCase() === sender.toLowerCase())).length;
+        })()
       },
       civContext: {
         ...civContext,
@@ -165,6 +202,11 @@ class SocialDialogueEngine {
         this.societyClient.postGossip(sender, -0.6, `Treated me badly in conversation`);
       } else if (affinityDelta >= 10 && Math.random() < 0.30) {
         this.societyClient.postGossip(sender, 0.5, `Pleasant and trustworthy interaction`);
+      }
+
+      if (response.chatMessage) {
+        transcript.push({ role: 'me', text: String(response.chatMessage).slice(0, 200) });
+        if (transcript.length > 12) transcript.splice(0, transcript.length - 12);
       }
 
       // Diplomatic actions (War, Treaties, Currencies)

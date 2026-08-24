@@ -23,6 +23,12 @@ class SocietyStore {
         notices: [],
         conventions: {},
         pledges: [],
+        property: {},
+        accessLog: [],
+        accusations: [],
+        debts: [],
+        intel: [],
+        grievances: [],
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -37,10 +43,16 @@ class SocietyStore {
       if (!Array.isArray(data.notices)) data.notices = [];
       if (!data.conventions || typeof data.conventions !== 'object') data.conventions = {};
       if (!Array.isArray(data.pledges)) data.pledges = [];
+      if (!data.property || typeof data.property !== 'object') data.property = {};
+      if (!Array.isArray(data.accessLog)) data.accessLog = [];
+      if (!Array.isArray(data.accusations)) data.accusations = [];
+      if (!Array.isArray(data.debts)) data.debts = [];
+      if (!Array.isArray(data.intel)) data.intel = [];
+      if (!Array.isArray(data.grievances)) data.grievances = [];
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
-      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], updatedAt: new Date().toISOString() };
+      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], updatedAt: new Date().toISOString() };
     }
   }
 
@@ -198,7 +210,279 @@ class SocietyStore {
     return openOnly ? pledges.filter(p => p.status === 'open') : pledges.slice(-30);
   }
 
-  // ── Bundled context snapshot (one call for agents) ───────────────────────────
+  // ── Property Registry & Theft Justice ────────────────────────────────────────
+
+  claimChest(agentId, x, y, z, label = 'chest') {
+    if (agentId == null || x == null || y == null || z == null) return { success: false, reason: 'agentId and coordinates required' };
+    const data = this.load();
+    const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+    const existing = data.property[key];
+    if (existing && existing.owner !== agentId) {
+      return { success: false, reason: `Already owned by ${existing.owner}` };
+    }
+    data.property[key] = { owner: agentId, label, sharedWith: existing?.sharedWith || [], placedAt: existing?.placedAt || new Date().toISOString() };
+    this.save(data);
+    logger.info('SocietyStore', `[PROPERTY] ${agentId} owns ${label} @ ${key}`);
+    return { success: true, key, property: data.property[key] };
+  }
+
+  shareChest(agentId, x, y, z, withAgent) {
+    const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+    const data = this.load();
+    const prop = data.property[key];
+    if (!prop) return { success: false, reason: 'Unknown chest — owner must claim it first' };
+    if (prop.owner !== agentId) return { success: false, reason: `Only the owner (${prop.owner}) can share` };
+    if (!prop.sharedWith.includes(withAgent)) prop.sharedWith.push(withAgent);
+    this.save(data);
+    logger.info('SocietyStore', `[PROPERTY SHARED] ${agentId} granted ${withAgent} access to ${key}`);
+    return { success: true, property: prop };
+  }
+
+  // Every chest opening flows through here. Returns ownership verdict for the
+  // accessor and permanently logs the access as potential evidence.
+  logChestAccess(agentId, x, y, z) {
+    const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+    const data = this.load();
+    data.accessLog.push({ chestKey: key, agentId, timestamp: new Date().toISOString() });
+    if (data.accessLog.length > 300) data.accessLog.splice(0, data.accessLog.length - 300);
+
+    const prop = data.property[key];
+    let verdict = { chestKey: key, unregistered: !prop };
+    if (prop && prop.owner !== agentId && !prop.sharedWith.includes(agentId)) {
+      verdict.trespass = true;
+      verdict.owner = prop.owner;
+      logger.warn('SocietyStore', `[TRESPASS LOGGED] ${agentId} opened ${prop.owner}'s ${prop.label} @ ${key} (evidence recorded)`);
+    } else {
+      logger.debug('SocietyStore', `[ACCESS OK] ${agentId} @ ${key}${prop ? ` (${prop.owner === agentId ? 'own' : 'shared'})` : ''}`);
+    }
+    this.save(data);
+    return verdict;
+  }
+
+  fileAccusation(accuserId, accusedId, chestKey, claimedItems = '') {
+    if (!accuserId || !accusedId || accuserId.toLowerCase() === accusedId.toLowerCase()) {
+      return { success: false, reason: 'Valid distinct accuser/accused required' };
+    }
+    const data = this.load();
+
+    // Evidence is objective: the accused's access entries on that exact chest
+    const evidence = data.accessLog.filter(a =>
+      a.chestKey === String(chestKey) && a.agentId.toLowerCase() === accusedId.toLowerCase()
+    );
+
+    const entry = {
+      id: `acc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      accuser: accuserId,
+      accused: accusedId,
+      chestKey,
+      claimedItems: String(claimedItems).slice(0, 160),
+      evidenceCount: evidence.length,
+      status: 'open',
+      timestamp: new Date().toISOString()
+    };
+    data.accusations.push(entry);
+    if (data.accusations.length > 80) data.accusations.splice(0, data.accusations.length - 80);
+    this.save(data);
+
+    logger.warn('SocietyStore', `[ACCUSATION FILED] ${accuserId} accuses ${accusedId} of theft @ ${chestKey} | access-log evidence: ${evidence.length} records`);
+    return { success: true, accusation: entry, evidence };
+  }
+
+  resolveAccusation(accusationId, verdict, resolvedBy) {
+    if (!['guilty', 'innocent', 'dismissed'].includes(verdict)) return { success: false, reason: "verdict must be guilty|innocent|dismissed" };
+    const data = this.load();
+    const acc = data.accusations.find(a => a.id === accusationId && a.status === 'open');
+    if (!acc) return { success: false, reason: 'Open accusation not found' };
+
+    acc.status = verdict;
+    acc.resolvedBy = resolvedBy;
+    acc.resolvedAt = new Date().toISOString();
+
+    // Verdicts carry social consequences through the reputation system
+    const applyRep = (agentId, delta, fact) => {
+      const rep = data.reputation[agentId] || { score: 0, positives: 0, negatives: 0 };
+      rep.score = Math.max(-100, Math.min(100, rep.score + delta));
+      delta >= 0 ? rep.positives++ : rep.negatives++;
+      rep.lastUpdated = acc.resolvedAt;
+      data.reputation[agentId] = rep;
+      data.gossip.push({ id: `gsp_${Date.now()}_v`, from: resolvedBy || 'community', about: agentId, sentiment: delta / 20, fact, timestamp: acc.resolvedAt });
+    };
+
+    if (verdict === 'guilty') applyRep(acc.accused, -20, `Found GUILTY of stealing from ${acc.accuser} (${acc.claimedItems})`);
+    else if (verdict === 'innocent' && acc.evidenceCount === 0) applyRep(acc.accuser, -8, `Filed an accusation against ${acc.accused} with zero evidence`);
+    else if (verdict === 'innocent') applyRep(acc.accused, 6, `Cleared of ${acc.accuser}'s accusation`);
+
+    if (data.gossip.length > 400) data.gossip.splice(0, data.gossip.length - 400);
+    this.save(data);
+    logger.warn('SocietyStore', `[VERDICT: ${verdict.toUpperCase()}] Case ${accusationId} resolved by ${resolvedBy}: ${acc.accused} vs ${acc.accuser}`);
+    return { success: true, accusation: acc };
+  }
+
+  // ── Credit & Debt ────────────────────────────────────────────────────────────
+
+  addDebt(creditor, debtor, item, amount, context = '') {
+    if (!creditor || !debtor || creditor.toLowerCase() === debtor.toLowerCase()) {
+      return { success: false, reason: 'Distinct creditor and debtor required' };
+    }
+    const data = this.load();
+    const entry = {
+      id: `dbt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      creditor,
+      debtor,
+      item: String(item).slice(0, 60),
+      amount: Math.max(1, parseInt(amount, 10) || 1),
+      context: String(context).slice(0, 160),
+      status: 'open',
+      createdAt: new Date().toISOString()
+    };
+    data.debts.push(entry);
+    if (data.debts.length > 120) data.debts.splice(0, data.debts.length - 120);
+    this.save(data);
+    logger.info('SocietyStore', `[DEBT CREATED] ${debtor} owes ${creditor}: ${entry.amount}x ${entry.item} (${entry.context})`);
+    return { success: true, debt: entry };
+  }
+
+  _resolveDebt(data, debtId, status, actor) {
+    const debt = data.debts.find(d => d.id === debtId && d.status === 'open');
+    if (!debt) return { success: false, reason: 'Open debt not found' };
+
+    // Only the party whose action it is may resolve
+    if (status === 'paid' && debt.debtor !== actor) return { success: false, reason: 'Only the debtor can repay' };
+    if (status === 'forgiven' && debt.creditor !== actor) return { success: false, reason: 'Only the creditor can forgive' };
+    if (status === 'defaulted' && debt.creditor !== actor) return { success: false, reason: 'Only the creditor can declare default' };
+
+    debt.status = status;
+    debt.resolvedAt = new Date().toISOString();
+
+    const rep = (agentId, delta, fact) => {
+      const r = data.reputation[agentId] || { score: 0, positives: 0, negatives: 0 };
+      r.score = Math.max(-100, Math.min(100, r.score + delta));
+      delta >= 0 ? r.positives++ : r.negatives++;
+      r.lastUpdated = debt.resolvedAt;
+      data.reputation[agentId] = r;
+      data.gossip.push({ id: `gsp_${Date.now()}_d`, from: actor || 'community', about: agentId, sentiment: delta / 20, fact, timestamp: debt.resolvedAt });
+    };
+
+    if (status === 'paid') rep(debt.debtor, 8, `Honored a debt: returned ${debt.amount}x ${debt.item} to ${debt.creditor}`);
+    else if (status === 'forgiven') rep(debt.creditor, 6, `Generously forgave ${debt.debtor}'s debt of ${debt.amount}x ${debt.item}`);
+    else if (status === 'defaulted') rep(debt.debtor, -15, `Defaulted on debt owed to ${debt.creditor}: ${debt.amount}x ${debt.item}`);
+
+    if (data.gossip.length > 400) data.gossip.splice(0, data.gossip.length - 400);
+    logger.warn('SocietyStore', `[DEBT ${status.toUpperCase()}] ${debt.debtor}/${debt.creditor} ${debt.amount}x ${debt.item}`);
+    return { success: true, debt };
+  }
+
+  payDebt(debtId, byDebtor) {
+    const data = this.load();
+    const result = this._resolveDebt(data, debtId, 'paid', byDebtor);
+    this.save(data);
+    return result;
+  }
+
+  forgiveDebt(debtId, byCreditor) {
+    const data = this.load();
+    const result = this._resolveDebt(data, debtId, 'forgiven', byCreditor);
+    this.save(data);
+    return result;
+  }
+
+  defaultDebt(debtId, byCreditor) {
+    const data = this.load();
+    const result = this._resolveDebt(data, debtId, 'defaulted', byCreditor);
+    this.save(data);
+    return result;
+  }
+
+  getOpenDebts(agentId = null) {
+    const debts = this.load().debts.filter(d => d.status === 'open');
+    if (!agentId) return debts;
+    const lower = String(agentId).toLowerCase();
+    return debts.filter(d => d.debtor.toLowerCase() === lower || d.creditor.toLowerCase() === lower);
+  }
+
+  getOpenAccusations() {
+    return this.load().accusations.filter(a => a.status === 'open');
+  }
+
+  getAccessLog(chestKey = null, limit = 50) {
+    const log = this.load().accessLog;
+    const filtered = chestKey ? log.filter(a => a.chestKey === String(chestKey)) : log;
+    return filtered.slice(-limit);
+  }
+
+  // ── Intel Marketplace (knowledge as property) ────────────────────────────────
+
+  listIntel(seller, title, fact, priceItem = 'iron_ingot', priceAmount = 1) {
+    if (!seller || !title || !fact) return { success: false, reason: 'seller, title and fact required' };
+    const data = this.load();
+    const entry = {
+      id: `itl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      seller,
+      title: String(title).slice(0, 100),
+      fact: String(fact).slice(0, 300),
+      priceItem,
+      priceAmount: Math.max(1, parseInt(priceAmount, 10) || 1),
+      status: 'listed',
+      timestamp: new Date().toISOString()
+    };
+    data.intel.push(entry);
+    if (data.intel.length > 60) data.intel.splice(0, data.intel.length - 60);
+    this.save(data);
+    logger.info('SocietyStore', `[INTEL LISTED] ${seller}: "${entry.title}" for ${entry.priceAmount}x ${entry.priceItem}`);
+    return { success: true, listing: entry };
+  }
+
+  purchaseIntel(intelId, buyer) {
+    const data = this.load();
+    const entry = data.intel.find(i => i.id === intelId && i.status === 'listed');
+    if (!entry) return { success: false, reason: 'Listing not found or already sold' };
+    if (entry.seller === buyer) return { success: false, reason: 'Cannot buy your own intel' };
+    entry.status = 'sold';
+    entry.buyer = buyer;
+    entry.soldAt = new Date().toISOString();
+    this.save(data);
+    logger.info('SocietyStore', `[INTEL SOLD] ${buyer} bought "${entry.title}" from ${entry.seller}`);
+    // Payment itself happens in-world (toss items); the record enables fraud accusations if the tip lies
+    return { success: true, fact: entry.fact, seller: entry.seller, price: `${entry.priceAmount}x ${entry.priceItem}` };
+  }
+
+  getIntelListings(limit = 15) {
+    return this.load().intel.filter(i => i.status === 'listed').slice(-limit);
+  }
+
+  // ── Grievance Ledger (raw material of feuds & wars) ──────────────────────────
+
+  addGrievance(by, against, reason, weight = 1) {
+    if (!by || !against || by.toLowerCase() === against.toLowerCase()) return { success: false, reason: 'Distinct parties required' };
+    const data = this.load();
+    const entry = {
+      id: `grv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      by, against,
+      reason: String(reason).slice(0, 200),
+      weight: Math.max(1, Math.min(5, parseInt(weight, 10) || 1)),
+      timestamp: new Date().toISOString()
+    };
+    data.grievances.push(entry);
+    if (data.grievances.length > 200) data.grievances.splice(0, data.grievances.length - 200);
+    this.save(data);
+    logger.warn('SocietyStore', `[GRIEVANCE] ${by} holds grudge against ${against} (weight ${entry.weight}): ${entry.reason}`);
+    return { success: true, grievance: entry };
+  }
+
+  // Tension between two agents = total grievance weight in BOTH directions.
+  // Feeds faction politics: high tension makes conflict probable, not random.
+  tensionBetween(agentA, agentB) {
+    const data = this.load();
+    const a = agentA.toLowerCase(), b = agentB.toLowerCase();
+    return data.grievances
+      .filter(g => (g.by.toLowerCase() === a && g.against.toLowerCase() === b) ||
+                   (g.by.toLowerCase() === b && g.against.toLowerCase() === a))
+      .reduce((sum, g) => sum + g.weight, 0);
+  }
+
+  getTopGrievances(limit = 10) {
+    return this.load().grievances.slice(-limit).reverse();
+  }
 
   getContextSnapshot() {
     const data = this.load();
@@ -206,6 +490,10 @@ class SocietyStore {
       notices: data.notices.slice(-8).reverse(),
       conventions: data.conventions,
       openPledges: data.pledges.filter(p => p.status === 'open').slice(-15),
+      openAccusations: data.accusations.filter(a => a.status === 'open').slice(-6),
+      openDebts: data.debts.filter(d => d.status === 'open').slice(-10),
+      intelListings: data.intel.filter(i => i.status === 'listed').slice(-8),
+      topGrievances: data.grievances.slice(-8).reverse(),
       recentGossip: data.gossip.slice(-12),
       reputationHighlights: Object.entries(data.reputation)
         .map(([agentId, r]) => ({ agentId, score: r.score }))
@@ -216,7 +504,7 @@ class SocietyStore {
 }
 
 function societyRoutes(app) {
-  const store = new SocietyStore();
+  const store = sharedStore;
 
   app.post('/api/society/gossip', (req, res) => {
     const { fromAgent, aboutAgent, sentiment, fact } = req.body || {};
@@ -255,6 +543,88 @@ function societyRoutes(app) {
     res.json(store.resolvePledge(req.params.id, status, resolvedBy));
   });
 
+  app.post('/api/society/property/claim', (req, res) => {
+    const { agentId, x, y, z, label } = req.body || {};
+    res.json(store.claimChest(agentId, x, y, z, label));
+  });
+
+  app.post('/api/society/property/share', (req, res) => {
+    const { agentId, x, y, z, withAgent } = req.body || {};
+    res.json(store.shareChest(agentId, x, y, z, withAgent));
+  });
+
+  app.post('/api/society/property/access', (req, res) => {
+    const { agentId, x, y, z } = req.body || {};
+    res.json(store.logChestAccess(agentId, x, y, z));
+  });
+
+  app.get('/api/society/property/access-log', (req, res) => {
+    res.json({ entries: store.getAccessLog(req.query.chestKey || null) });
+  });
+
+  app.post('/api/society/accusations', (req, res) => {
+    const { accuser, accused, chestKey, claimedItems } = req.body || {};
+    res.json(store.fileAccusation(accuser, accused, chestKey, claimedItems));
+  });
+
+  app.post('/api/society/accusations/:id/resolve', (req, res) => {
+    const { verdict, resolvedBy } = req.body || {};
+    res.json(store.resolveAccusation(req.params.id, verdict, resolvedBy));
+  });
+
+  app.get('/api/society/accusations/open', (req, res) => {
+    res.json({ accusations: store.getOpenAccusations() });
+  });
+
+  app.post('/api/society/debts', (req, res) => {
+    const { creditor, debtor, item, amount, context } = req.body || {};
+    res.json(store.addDebt(creditor, debtor, item, amount, context));
+  });
+
+  app.post('/api/society/debts/:id/pay', (req, res) => {
+    res.json(store.payDebt(req.params.id, (req.body || {}).byDebtor));
+  });
+
+  app.post('/api/society/debts/:id/forgive', (req, res) => {
+    res.json(store.forgiveDebt(req.params.id, (req.body || {}).byCreditor));
+  });
+
+  app.post('/api/society/debts/:id/default', (req, res) => {
+    res.json(store.defaultDebt(req.params.id, (req.body || {}).byCreditor));
+  });
+
+  app.get('/api/society/debts/open', (req, res) => {
+    res.json({ debts: store.getOpenDebts(req.query.agentId || null) });
+  });
+
+  app.post('/api/society/intel', (req, res) => {
+    const { seller, title, fact, priceItem, priceAmount } = req.body || {};
+    res.json(store.listIntel(seller, title, fact, priceItem, priceAmount));
+  });
+
+  app.get('/api/society/intel', (req, res) => {
+    res.json({ listings: store.getIntelListings() });
+  });
+
+  app.post('/api/society/intel/:id/purchase', (req, res) => {
+    res.json(store.purchaseIntel(req.params.id, (req.body || {}).buyer));
+  });
+
+  app.post('/api/society/grievances', (req, res) => {
+    const { by, against, reason, weight } = req.body || {};
+    res.json(store.addGrievance(by, against, reason, weight));
+  });
+
+  app.get('/api/society/grievances/top', (req, res) => {
+    res.json({ grievances: store.getTopGrievances() });
+  });
+
+  app.get('/api/society/grievances/tension', (req, res) => {
+    const { a, b } = req.query;
+    if (!a || !b) return res.status(400).json({ error: 'a and b required' });
+    res.json({ a, b, tension: store.tensionBetween(a, b) });
+  });
+
   app.get('/api/society/context', (req, res) => {
     res.json(store.getContextSnapshot());
   });
@@ -262,5 +632,10 @@ function societyRoutes(app) {
   logger.info('SocietyStore', 'Society knowledge routes mounted (/api/society/*)');
 }
 
+// Shared singleton — ledger fairness reports (and any future service module)
+// need the same store the routes use, so civilization data stays coherent.
+const sharedStore = new SocietyStore();
+
 module.exports = societyRoutes;
 module.exports.SocietyStore = SocietyStore;
+module.exports.sharedStore = sharedStore;

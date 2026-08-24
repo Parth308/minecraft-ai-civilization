@@ -179,6 +179,27 @@ class CivilizationLedger {
       logger.info('CivLedger', `[SHARED GOAL COMPLETED] 🎉 Shared goal "${goal.description}" fully achieved by ${goal.participants.join(', ')}!`);
       detailedLogger.logCivilizationMilestone('shared_goal_completed', `Goal "${goal.description}" completed!`, goal);
       this.addChronicleEntry(`Civilization Milestone: "${goal.description}" Accomplished!`, `Through coordinated collaboration, ${goal.participants.join(' and ')} successfully finished "${goal.description}"!`, goal.participants, 'shared_goal_completed');
+
+      // Fairness report: freeloaders who joined but never contributed become
+      // public knowledge — social pressure replaces mechanical enforcement.
+      try {
+        const { sharedStore } = require('../../society');
+        const contributors = new Set(Object.keys(goal.contributions || {}));
+        for (const p of goal.participants) {
+          const gave = (goal.contributions[p] || []).reduce((sum, i) => sum + (i.count || 0), 0);
+          if (!contributors.has(p)) {
+            sharedStore.addGrievance('community', p, `Took part in "${goal.description}" but contributed nothing`, 2);
+            sharedStore.addGossip('community', p, -0.5, `Rode on the coattails of others during "${goal.description}"`);
+          } else {
+            const topGave = Math.max(...[...contributors].filter(c => c !== p).map(c => (goal.contributions[c] || []).reduce((s2, i2) => s2 + (i2.count || 0), 0)), 0);
+            if (gave > 0 && gave >= topGave) {
+              sharedStore.addGossip('community', p, 0.6, `Carried the team in "${goal.description}"`);
+            }
+          }
+        }
+      } catch (fairErr) {
+        logger.debug('CivLedger', `Fairness report skipped: ${fairErr.message}`);
+      }
     }
 
     this.saveLedger(data);

@@ -109,6 +109,19 @@ class DynamicRuleEngine {
    * Reduced penalty (-0.15, ~35% strength) applied to 1-2 preceding rules in causal chain.
    * Local-first: immediately changes the agent's own decision tree weighting.
    */
+  // Traumatic amnesia: death wipes a random fraction of learned rules —
+  // hard-won tactics vanish alongside formal memories.
+  forgetFraction(fraction = 0.3) {
+    if (!Array.isArray(this.learnedRules) || this.learnedRules.length === 0) return 0;
+    const dropCount = Math.floor(this.learnedRules.length * Math.min(0.6, Math.max(0, fraction)));
+    if (dropCount <= 0) return 0;
+    for (let i = 0; i < dropCount; i++) {
+      this.learnedRules.splice(Math.floor(Math.random() * this.learnedRules.length), 1);
+    }
+    logger.warn('DynamicRules', `[AMNESIA] ${dropCount} learned rules forgotten after trauma`);
+    return dropCount;
+  }
+
   penalizeFatalDecisionChain(recentDecisions = [], deathCause = 'hazard') {
     const penalizedRuleIds = [];
     if (!Array.isArray(recentDecisions) || recentDecisions.length === 0) return penalizedRuleIds;

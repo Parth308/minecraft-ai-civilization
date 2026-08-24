@@ -975,6 +975,21 @@ function createAgent() {
       })
     }).catch(() => {});
 
+    // 3b. Death costs MIND, not life: traumatic amnesia erases a chunk of learned
+    // skills/memories. This is why elders (long survival without dying) are rare
+    // and their knowledge is genuinely precious.
+    fetch(`${serviceUrl}/api/memory/amnesia`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: bot.username, fraction: 0.3 })
+    }).then(r => r.json()).then(result => {
+      if (result?.forgotten > 0) {
+        logger.warn('AgentLoop', `[TRAUMATIC AMNESIA] Death erased ${result.forgotten} memory entries for ${bot.username}`);
+        detailedLogger.logCognition(bot.username, 'Traumatic amnesia after death', { forgottenEntries: result.forgotten });
+      }
+    }).catch(() => {});
+    decisionTree?.dynamicRuleEngine?.forgetFraction?.(0.3);
+
     // 4. Trigger immediate high-severity reflection so death lesson forms and propagates
     reflection.runReflection(
       [
