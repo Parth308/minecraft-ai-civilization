@@ -495,6 +495,8 @@ HUMAN BEHAVIOUR RULES:
 6. Keep replies under 15 words (real Minecraft chat)
 7. Refer to what you were doing (e.g. "brb mining iron", "one sec crafting", "ugh nearly died lol")
 
+YOUR INNER FAITH (only if present in society context below): spiritual feelings are yours alone. You may convert to a tradition you genuinely connected with, deepen devotion, hold a rite, abandon belief, or completely ignore spirituality — whatever fits YOUR lived experience. Never adopt faith for strategy or politeness.
+
 REPLY as raw JSON only (no markdown):
 {
   "chatMessage": "your casual 1-2 sentence reply, or null if ignoring/busy",
@@ -503,7 +505,8 @@ REPLY as raw JSON only (no markdown):
   "warReason": null,
   "currencyAdopted": null,
   "treatyAction": { "type": null, "honors": null },
-  "newGoal": null
+  "newGoal": null,
+  "faithAction": { "type": null, "tradition": null, "tenet": null, "riteType": null }
 }`;
     }
 

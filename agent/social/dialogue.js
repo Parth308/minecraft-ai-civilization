@@ -84,11 +84,28 @@ class SocialDialogueEngine {
 
     // 2. Society knowledge snapshot: what have I heard about this speaker?
     // Knowledge only — how it colors the reply is entirely the agent's choice.
-    const society = await this.societyClient.getContext();
+    const [society, faithCtx] = await Promise.all([
+      this.societyClient.getContext(),
+      this.societyClient.faithContext()
+    ]);
     const speakerRep = society?.reputationHighlights?.find(r => r.agentId.toLowerCase() === sender.toLowerCase()) || { score: 0 };
     const heardAboutSpeaker = (society?.recentGossip || [])
       .filter(g => g.about.toLowerCase() === sender.toLowerCase())
       .slice(-3);
+
+    // Exposure bookkeeping: hearing an active tradition's name for the first
+    // time marks you 'exposed'. Hearing is not believing — states beyond this
+    // only move when the agent itself declares them.
+    const traditions = Object.keys(society?.conventions || {}).filter(k => k.startsWith('faith.'));
+    const lowerMsg0 = message.toLowerCase();
+    const newlyExposedTradition = traditions.find(t => {
+      const name = t.replace('faith.', '').toLowerCase();
+      return name.length > 2 && lowerMsg0.includes(name);
+    });
+    if (newlyExposedTradition && faithCtx && faithCtx.state === 'none') {
+      this.societyClient.setFaith('exposed', newlyExposedTradition.replace('faith.', ''));
+      logger.info('SocialDialogue', `[FAITH EXPOSURE] ${this.persona.agentId} first heard of "${newlyExposedTradition}"`);
+    }
 
     const payload = {
       taskType: 'SOCIAL_CHAT',
@@ -117,6 +134,15 @@ class SocialDialogueEngine {
         },
         intelMarket: (society?.intelListings || []).slice(0, 5).map(i => `"${i.title}" — ${i.priceAmount}x ${i.priceItem} (seller: ${i.seller})`),
         marketPrices: (society?.marketHighlights || []).slice(0, 6).map(m => `${m.item}: ~${m.average} ${m.unitCurrency} (from ${m.samples} trades)`),
+        faith: faithCtx ? {
+          yourState: faithCtx.state,
+          yourTradition: faithCtx.tradition,
+          yourPiety: faithCtx.piety,
+          mortalitySalience: faithCtx.mortalitySalience,
+          knownDoctrines: faithCtx.doctrines,
+          recentScripture: faithCtx.scriptures.map(s2 => `"${s2.body.slice(0, 80)}" — ${s2.author}`),
+          note: 'Faith is yours alone. Adopt, preach, doubt, or ignore — nothing obligates you.'
+        } : null,
         tensionWithSpeaker: (() => {
           const g = society?.topGrievances || [];
           return g.filter(x => (x.by.toLowerCase() === sender.toLowerCase() && x.against.toLowerCase() === this.persona.agentId.toLowerCase()) ||
@@ -245,6 +271,29 @@ class SocialDialogueEngine {
         }
         if (response.treatyAction) {
           this.factionManager.recordTreaty(sender, response.treatyAction.type, response.treatyAction.honors);
+        }
+      }
+
+      // Faith actions: conversion/devotion/rites are ALWAYS the agent's own
+      // sovereign choice — the LLM emits faithAction only when its inner life
+      // genuinely moves it. We merely record what it declares.
+      if (response.faithAction && response.faithAction.type) {
+        const fa = response.faithAction;
+        if (fa.type === 'convert' && fa.tradition) {
+          const res = await this.societyClient.setFaith('believer', fa.tradition);
+          logger.warn('SocialDialogue', `[FAITH CONVERTED] ${this.persona.agentId} embraced "${fa.tradition}" (${res?.faith?.piety ?? '?'} piety)`);
+          if (fa.tenet && !response.chatMessage) {
+            response.chatMessage = `I walk with ${fa.tradition} now. ${fa.tenet}`;
+          }
+        } else if (fa.type === 'devout' && fa.tradition) {
+          await this.societyClient.setFaith('devout', fa.tradition);
+          logger.warn('SocialDialogue', `[FAITH DEVOUT] ${this.persona.agentId} deepened devotion to "${fa.tradition}"`);
+        } else if (fa.type === 'rite') {
+          const rite = await this.societyClient.attendRite(fa.riteType || 'prayer');
+          logger.info('SocialDialogue', `[FAITH RITE] ${this.persona.agentId} held a rite${rite?.bondedWith?.length ? ` with ${rite.bondedWith.join(', ')}` : ''}`);
+        } else if (fa.type === 'abandon') {
+          await this.societyClient.setFaith('none', null);
+          logger.info('SocialDialogue', `[FAITH ABANDONED] ${this.persona.agentId} let go of belief`);
         }
       }
 

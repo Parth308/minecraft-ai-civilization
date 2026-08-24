@@ -33,6 +33,8 @@ class SocietyStore {
         priceMemory: {},
         placeMemories: [],
         faith: {},
+        clans: {},
+        recentRites: [],
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -57,10 +59,12 @@ class SocietyStore {
       if (!data.priceMemory || typeof data.priceMemory !== 'object') data.priceMemory = {};
       if (!Array.isArray(data.placeMemories)) data.placeMemories = [];
       if (!data.faith || typeof data.faith !== 'object') data.faith = {};
+      if (!data.clans || typeof data.clans !== 'object') data.clans = {};
+      if (!Array.isArray(data.recentRites)) data.recentRites = [];
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
-      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], wallets: {}, priceMemory: {}, placeMemories: [], faith: {}, updatedAt: new Date().toISOString() };
+      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], wallets: {}, priceMemory: {}, placeMemories: [], faith: {}, clans: {}, recentRites: [], updatedAt: new Date().toISOString() };
     }
   }
 
@@ -584,6 +588,124 @@ class SocietyStore {
     return data.slice(-6);
   }
 
+  // ── Clans (identity blocs with pooled economies) ─────────────────────────────
+
+  foundClan(agentId, name, motto = '') {
+    if (!agentId || !name) return { success: false, reason: 'agentId and name required' };
+    const data = this.load();
+    const key = String(name).slice(0, 40);
+    if (data.clans[key]) return { success: false, reason: 'Clan name taken' };
+
+    // Founding cost: 25 of any single currency — founding something should hurt
+    const wallet = data.wallets[agentId] || {};
+    const purse = Object.entries(wallet).find(([, v]) => v >= 25);
+    if (purse) {
+      wallet[purse[0]] -= 25;
+      const treasury = this._wallet(data, `clan:${key}`);
+      treasury[purse[0]] = (treasury[purse[0]] || 0) + 25;
+    }
+
+    data.clans[key] = {
+      founder: agentId,
+      members: [agentId],
+      motto: String(motto).slice(0, 120),
+      foundedAt: new Date().toISOString(),
+      tradition: null
+    };
+    this.save(data);
+    logger.warn('SocietyStore', `[CLAN FOUNDED] ${agentId} founded clan "${key}"${purse ? ` (treasury seeded with 25 ${purse[0]})` : ''}`);
+    this.addNotice(agentId, 'lore', `The founding of ${key}`, motto || `${agentId} raised a banner.`);
+    return { success: true, clan: data.clans[key] };
+  }
+
+  joinClan(agentId, name) {
+    const data = this.load();
+    const clan = data.clans[name];
+    if (!clan) return { success: false, reason: 'No such clan' };
+    if (clan.members.includes(agentId)) return { success: true, clan };
+    clan.members.push(agentId);
+    this.save(data);
+    logger.info('SocietyStore', `[CLAN JOINED] ${agentId} joined "${name}" (${clan.members.length} members)`);
+    return { success: true, clan };
+  }
+
+  getClan(name) {
+    const data = this.load();
+    const clan = data.clans[name];
+    if (!clan) return null;
+    return { name, ...clan, treasury: data.wallets[`clan:${name}`] || {} };
+  }
+
+  getClanOf(agentId) {
+    const data = this.load();
+    for (const [name, c] of Object.entries(data.clans)) {
+      if (c.members.includes(agentId)) return { name, ...c, treasury: data.wallets[`clan:${name}`] || {} };
+    }
+    return null;
+  }
+
+  // Bloc-level tension: sum of member-pair grievances between two clans.
+  // This is how individual feuds escalate into collective conflict.
+  clanTension(nameA, nameB) {
+    const data = this.load();
+    const A = data.clans[nameA]?.members || [];
+    const B = data.clans[nameB]?.members || [];
+    let total = 0;
+    for (const g of data.grievances) {
+      const byInA = A.includes(g.by), againstInB = B.includes(g.against);
+      const byInB = B.includes(g.by), againstInA = A.includes(g.against);
+      if ((byInA && againstInB) || (byInB && againstInA)) total += g.weight;
+    }
+    return total;
+  }
+
+  // ── Group Rites (Durkheim engine: shared ritual = social glue) ───────────────
+
+  attendRite(agentId, riteType = 'reflection', coords = null) {
+    if (!agentId) return { success: false, reason: 'agentId required' };
+    const now = Date.now();
+    const data = this.load();
+
+    const f = data.faith[agentId] || { state: 'none', tradition: null, piety: 0 };
+    f.piety = Math.min(100, f.piety + 5);
+    f.lastRiteAt = new Date().toISOString();
+    if (f.state === 'none' && f.piety >= 20) f.state = 'exposed';
+
+    let bondedWith = [];
+    if (coords && typeof coords.x === 'number') {
+      // Record this rite, then find co-present recent rites — shared sacred
+      // moments bond participants (mutual piety + spoken goodwill).
+      data.recentRites.push({ agentId, riteType, x: Math.round(coords.x), z: Math.round(coords.z), ts: now });
+      data.recentRites = data.recentRites.filter(r => now - r.ts < 10 * 60 * 1000).slice(-80);
+
+      for (const other of data.recentRites) {
+        if (other.agentId === agentId) continue;
+        if (now - other.ts > 8 * 60 * 1000) continue;
+        if (Math.hypot(other.x - coords.x, other.z - coords.z) > 24) continue;
+        bondedWith.push(other.agentId);
+
+        const of = data.faith[other.agentId] || { state: 'none', tradition: null, piety: 0 };
+        of.piety = Math.min(100, of.piety + 3);
+        of.lastRiteAt = new Date().toISOString();
+        if (of.state === 'none' && of.piety >= 20) of.state = 'exposed';
+        data.faith[other.agentId] = of;
+      }
+      for (const b of bondedWith) {
+        data.gossip.push({
+          id: `gsp_${Date.now()}_r_${b}`, from: agentId, about: b,
+          sentiment: 0.4, fact: `Shared a solemn moment at the ${riteType}`,
+          timestamp: new Date().toISOString()
+        });
+      }
+      if (data.gossip.length > 400) data.gossip.splice(data.gossip.length - 400);
+    }
+
+    data.faith[agentId] = f;
+    this.save(data);
+    logger.info('SocietyStore', `[RITE ATTENDED] ${agentId} (${riteType}) — piety ${f.piety}${bondedWith.length ? `, bonded with ${bondedWith.join(', ')}` : ''}`);
+    return { success: true, faith: f, bondedWith };
+  }
+
   // ── Faith Vessel ─────────────────────────────────────────────────────────────
   // NO forced belief, NO scripted doctrine. This tracks what agents THEMSELVES
   // declare and do. Doctrines live in conventions (keys starting 'faith.'),
@@ -600,19 +722,6 @@ class SocietyStore {
     data.faith[agentId] = f;
     this.save(data);
     logger.info('SocietyStore', `[FAITH] ${agentId}: state=${f.state} tradition=${f.tradition || '—'} piety=${f.piety}`);
-    return { success: true, faith: f };
-  }
-
-  attendRite(agentId, riteType = 'reflection') {
-    if (!agentId) return { success: false, reason: 'agentId required' };
-    const data = this.load();
-    const f = data.faith[agentId] || { state: 'none', tradition: null, piety: 0 };
-    f.piety = Math.min(100, f.piety + 5);
-    f.lastRiteAt = new Date().toISOString();
-    if (f.state === 'none' && f.piety >= 20) f.state = 'exposed';
-    data.faith[agentId] = f;
-    this.save(data);
-    logger.info('SocietyStore', `[RITE ATTENDED] ${agentId} (${riteType}) — piety ${f.piety}`);
     return { success: true, faith: f };
   }
 
@@ -839,6 +948,52 @@ function societyRoutes(app) {
 
   app.get('/api/society/faith/:agentId', (req, res) => {
     res.json(store.getFaith(req.params.agentId));
+  });
+
+  app.post('/api/society/clans', (req, res) => {
+    const { agentId, name, motto } = req.body || {};
+    res.json(store.foundClan(agentId, name, motto));
+  });
+
+  app.post('/api/society/clans/join', (req, res) => {
+    const { agentId, name } = req.body || {};
+    res.json(store.joinClan(agentId, name));
+  });
+
+  app.get('/api/society/clans/:name', (req, res) => {
+    res.json(store.getClan(decodeURIComponent(req.params.name)) || { error: 'not found' });
+  });
+
+  app.get('/api/society/clans', (req, res) => {
+    const data = store.load();
+    res.json({ clans: Object.keys(data.clans).map(n => ({ name: n, members: data.clans[n].members.length, motto: data.clans[n].motto })) });
+  });
+
+  app.get('/api/society/clans/tension', (req, res) => {
+    const { a, b } = req.query;
+    if (!a || !b) return res.status(400).json({ error: 'clan names a and b required' });
+    res.json({ a, b, tension: store.clanTension(a, b) });
+  });
+
+  // History Book — compiled origin stories and milestones for meaning-making
+  app.get('/api/society/history', (req, res) => {
+    let chronicle = [], deaths = [];
+    try {
+      const ledger = JSON.parse(fs.readFileSync(path.join(__dirname, 'civilization', 'ledger.json'), 'utf-8'));
+      chronicle = ledger.chronicleEntries || [];
+      deaths = ledger.deaths || [];
+    } catch { /* fresh world */ }
+    const data = store.load();
+    res.json({
+      eras: {
+        totalDeaths: deaths.length,
+        clansFounded: Object.entries(data.clans).map(([n, c]) => ({ name: n, founder: c.founder, foundedAt: c.foundedAt })),
+        currenciesAdopted: (data.conventions['currency'] ? [data.conventions['currency'].value] : [])
+      },
+      milestones: chronicle.slice(-30).reverse(),
+      scriptures: data.notices.filter(n => n.type === 'scripture').slice(-10).reverse(),
+      doctrines: Object.entries(data.conventions).filter(([k]) => k.startsWith('faith.')).map(([k, v]) => ({ tenet: k.replace('faith.', ''), value: v.value }))
+    });
   });
 
   app.get('/api/society/context', (req, res) => {

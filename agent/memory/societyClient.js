@@ -239,7 +239,7 @@ class SocietyClient {
     return fetch(`${this.serviceUrl}/api/society/faith/rite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentId: this.agentId, riteType })
+      body: JSON.stringify({ agentId: this.agentId, riteType, coords: this._lastPos || null })
     }).then(r => r.json()).catch(err => {
       logger.debug('SocietyClient', `Rite failed: ${err.message}`);
       return {};
@@ -252,6 +252,33 @@ class SocietyClient {
       if (res.ok) return await res.json();
     } catch { /* optional */ }
     return null;
+  }
+
+  // Position cache — rites auto-attach coordinates so group bonding works
+  setLastPosition(x, z, y = null) {
+    this._lastPos = { x: Math.round(x), y: y == null ? null : Math.round(y), z: Math.round(z) };
+  }
+
+  foundClan(name, motto = '') {
+    return fetch(`${this.serviceUrl}/api/society/clans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, name, motto })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Clan founding failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  joinClan(name) {
+    return fetch(`${this.serviceUrl}/api/society/clans/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, name })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Clan join failed: ${err.message}`);
+      return {};
+    });
   }
 }
 

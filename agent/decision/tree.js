@@ -156,6 +156,7 @@ class DecisionTree {
       // decisions here. The agent feels the history of the ground it stands on.
       const pos = senses.bot?.entity?.position;
       if (pos && typeof pos.x === 'number') {
+        client.setLastPosition(pos.x, pos.z);
         const near = await client.placesNear(pos.x, pos.z, 24);
         if (near.length > 0) societyContext.nearbyPlaceMemories = near;
       }
@@ -236,6 +237,14 @@ class DecisionTree {
       };
 
       const escalationResult = await this.escalator.escalate(payload);
+
+      // Plans outrank reflexes: a fresh LLM-authored goal suppresses ambient
+      // night-flee for a few minutes so decisions stick instead of snapping back
+      // to instinct every tick. Hazard-driven flee is never suppressed.
+      if ((escalationResult.newGoal || isStuckInLoop) && !isHazard) {
+        evaluateFlee.setFleeCooldown('night', 3 * 60 * 1000);
+        logger.info('DecisionTree', '[PLAN COMMITMENT] New goal suppresses ambient night-flee for 3 minutes');
+      }
 
       // Replicate learned decision into local dynamic rule engine and long-term skills.md!
       this.dynamicRuleEngine.learnRule(payload, escalationResult);

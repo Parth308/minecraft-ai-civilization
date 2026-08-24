@@ -83,6 +83,15 @@ class Senses {
     });
   }
 
+  // Ranged-threat resolution: arrows in flight mean SOMEONE is shooting.
+  // Nearest hostile within the extended band is the presumed source — this
+  // lets FLEE see archers that outrun normal melee-proximity checks.
+  getRangedThreat(maxDistance = 24) {
+    if (this.getNearbyProjectiles(20).length === 0) return null;
+    const hostiles = this.getNearbyHostileMobs(maxDistance);
+    return hostiles.length > 0 ? hostiles[0] : null;
+  }
+
   // ─── Block & Environmental Senses ────────────────────────────────────────────
 
   getNearbyBlock(blockName, maxDistance = 16) {

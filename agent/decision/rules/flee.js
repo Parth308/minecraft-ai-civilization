@@ -21,6 +21,20 @@ function isFleeOnCooldown(key = 'night') {
 function evaluateFlee(senses, stats) {
   const hostiles = senses.getNearbyHostileMobs(12);
 
+  // Ranged bridging: arrows in flight expose shooters beyond melee-sense range.
+  // Being shot at is itself the threat — no need to see who holds the bow.
+  if (hostiles.length === 0 && stats.health > 6) {
+    const rangedThreat = typeof senses.getRangedThreat === 'function' ? senses.getRangedThreat(24) : null;
+    if (rangedThreat) {
+      return {
+        name: ACTIONS.FLEE,
+        confidence: 0.90,
+        threat: rangedThreat,
+        reason: `Under projectile fire from ${rangedThreat.name || 'a distant shooter'} — breaking line of sight`
+      };
+    }
+  }
+
   // If health is critically low (< 6) and enemies nearby
   if (stats.health <= 6 && hostiles.length > 0) {
     return {
