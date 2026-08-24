@@ -37,11 +37,14 @@ Current Vitals & Emotions: ${JSON.stringify(stats)}
 Recent Experiences: ${JSON.stringify(recentEvents.slice(-10))}
 
 Write a short (2-sentence) reflective diary entry in your personal journal about what you experienced today, what you learned, and your immediate ambition for tomorrow.
+You have complete inner freedom. If your experiences stir spiritual or existential thought, you may express it — but only if it arises naturally from YOUR own reflections. Never invent belief for its own sake.
 Reply ONLY with a valid JSON object:
 {
   "diaryEntry": "your 2-sentence journal entry",
   "lifeLesson": "one key tactical or philosophical principle learned",
   "newGoal": "optional ambitious new goal or null",
+  "selfImage": "one sentence: who am I becoming? (evolving self-concept)",
+  "faithReflection": "optional: a spiritual/existential thought IF genuinely stirred by experience, else null",
   "severity": 0.8
 }`;
 
@@ -58,8 +61,38 @@ Reply ONLY with a valid JSON object:
           diary: response.diaryEntry,
           lesson: response.lifeLesson,
           newGoal: response.newGoal,
+          selfImage: response.selfImage || null,
+          faithReflection: response.faithReflection || null,
           source: 'agent-diary'
         });
+
+        // Evolving self-concept: identity is a story the agent keeps telling itself
+        if (response.selfImage && this.persona?.setSelfImage) {
+          this.persona.setSelfImage(response.selfImage);
+        }
+
+        // Emergent meaning-making: if reflection genuinely stirred spiritual
+        // thought, the agent records it as scripture and it deepens their piety.
+        // Entirely optional on the LLM's part — the vessel never pushes.
+        if (response.faithReflection) {
+          const serviceUrl0 = this.memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+          fetch(`${serviceUrl0}/api/society/notices`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              author: this.agentId,
+              type: 'scripture',
+              title: `Reflection of ${this.agentId}`,
+              body: String(response.faithReflection).slice(0, 600)
+            })
+          }).catch(() => {});
+          fetch(`${serviceUrl0}/api/society/faith/rite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agentId: this.agentId, riteType: 'existential_reflection' })
+          }).catch(() => {});
+          logger.info('ReflectionEngine', `[FAITH] ${this.agentId} recorded a genuine existential reflection`);
+        }
 
         // Store into long-term vector memory with source tag
         if (this.memoryClient) {

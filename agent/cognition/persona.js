@@ -353,6 +353,12 @@ class DynamicPersona {
     return `Scarred by ${deaths} death${deaths > 1 ? 's' : ''} — grown more cautious, less ambitious`;
   }
 
+  setSelfImage(text) {
+    if (!text) return;
+    this.selfImage = String(text).slice(0, 240);
+    logger.info('Persona', `[SELF-IMAGE] ${this.agentId}: "${this.selfImage}"`);
+  }
+
   getPersonaPromptContext() {
     return {
       agentId: this.agentId,
@@ -369,6 +375,7 @@ class DynamicPersona {
       scarSummary: this.getScarSummary(),
       scarCount: (this.scarHistory || []).length,
       worldview: this.worldviewSummary,
+      selfImage: this.selfImage || null,
       freeWillNote: `You have true free will. Act naturally according to your ${this.title} persona and ${this.temperament} temperament.`
     };
   }

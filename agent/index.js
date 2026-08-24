@@ -25,6 +25,8 @@ const BuilderSkill = require('./skills/builder');
 const BarterSkill = require('./skills/barter');
 const FarmerSkill = require('./skills/farmer');
 const ReflectionEngine = require('./cognition/reflection');
+const EmotionalState = require('./cognition/emotions');
+const BeliefNetwork = require('./cognition/beliefs');
 const { ACTIONS } = require('../shared/constants');
 
 let prismarineViewer = null;
@@ -128,6 +130,8 @@ statusServer.listen(config.statusPort, () => {
   logger.info('AgentStatus', `${config.username} permanent status server on :${config.statusPort}`);
   announceToDashboard();
   setInterval(announceToDashboard, 15000);
+  // Inner weather decays on its own clock — feelings fade if not refreshed
+  setInterval(() => EmotionalState.forAgent(config.username).decay(), 60000);
 });
 
 function createAgent() {
@@ -549,6 +553,8 @@ function createAgent() {
             const success = await inventory.craftItem(item, count);
             if (success) {
               eventBuffer.addEvent('craftItem', { item, count });
+              EmotionalState.forAgent(bot.username).appraise('craft_success', {}, persona?.traits || {});
+              BeliefNetwork.forAgent(bot.username).learnFrom('craft_success', {});
               actionSuccess = true;
             } else {
               actionSuccess = false;
@@ -856,6 +862,12 @@ function createAgent() {
     detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
     eventBuffer.addEvent('agentHurt', { health });
 
+    // Near-death fear imprint
+    if (health <= 6) {
+      EmotionalState.forAgent(bot.username).appraise('near_death', {}, persona?.traits || {});
+      BeliefNetwork.forAgent(bot.username).learnFrom('near_death', {});
+    }
+
     // Look for who hit us (nearest player or mob within 5 blocks)
     const nearby = senses.getNearbyPlayers(5);
     const nearbyMobs = senses.getNearbyHostileMobs(5);
@@ -941,6 +953,11 @@ function createAgent() {
     stats.addHappiness(-50);
     stats.addAnger(30);
     detailedLogger.logCombat(bot.username, 'AGENT DIED', { deathPosition: position, cause });
+
+    // Inner weather: the OCC engine processes the event before anything else
+    const emotions0 = EmotionalState.forAgent(bot.username);
+    emotions0.appraise('death_self', {}, persona?.traits || {});
+    BeliefNetwork.forAgent(bot.username).learnFrom('death_self', {});
 
     // 1. Local-first negative reinforcement on fatal decision chain
     const penalizedRules = decisionTree?.dynamicRuleEngine?.penalizeFatalDecisionChain(

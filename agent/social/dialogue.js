@@ -1,5 +1,7 @@
 const logger = require('../../shared/logger');
 const SocietyClient = require('../memory/societyClient');
+const EmotionalState = require('../cognition/emotions');
+const BeliefNetwork = require('../cognition/beliefs');
 
 class SocialDialogueEngine {
   constructor(brainClient, persona, goalManager, relationshipTracker, factionManager = null, dynamicRuleEngine = null, reflectionEngine = null) {
@@ -121,6 +123,8 @@ class SocialDialogueEngine {
                                (x.by.toLowerCase() === this.persona.agentId.toLowerCase() && x.against.toLowerCase() === sender.toLowerCase())).length;
         })()
       },
+      emotions: EmotionalState.forAgent(this.persona.agentId).toContext(),
+      beliefs: BeliefNetwork.forAgent(this.persona.agentId).toContext(),
       civContext: {
         ...civContext,
         gossipEligibleLesson: gossipLesson ? gossipLesson.lesson : null
@@ -199,10 +203,31 @@ class SocialDialogueEngine {
       // Direct experience also becomes word-of-mouth: notably good/bad personal
       // interactions get whispered around (agents prefer spreading good news).
       const affinityDelta = (relationship?.affinity ?? 50) - prevAffinity;
+      const emo0 = EmotionalState.forAgent(this.persona.agentId);
+      const bel0 = BeliefNetwork.forAgent(this.persona.agentId);
       if (affinityDelta <= -10) {
         this.societyClient.postGossip(sender, -0.6, `Treated me badly in conversation`);
-      } else if (affinityDelta >= 10 && Math.random() < 0.30) {
-        this.societyClient.postGossip(sender, 0.5, `Pleasant and trustworthy interaction`);
+        emo0.feelToward(sender, 'anger', 0.25);
+        emo0.appraise('betrayal', { actor: sender }, this.persona.traits || {});
+        bel0.learnFrom('betrayal');
+      } else if (affinityDelta >= 10) {
+        emo0.feelToward(sender, 'gratitude', 0.25);
+        emo0.appraise('debt_repaid_to_me', { actor: sender }, this.persona.traits || {});
+        bel0.learnFrom('gift_received');
+        if (Math.random() < 0.30) {
+          this.societyClient.postGossip(sender, 0.5, `Pleasant and trustworthy interaction`);
+        }
+      }
+
+      // Hearing about others stirs feelings too — reputation is emotional
+      for (const target of mentionedAgents.slice(0, 2)) {
+        if (isAccusation && senderTrust >= 40) {
+          emo0.appraise('bad_gossip_heard', { about: target }, this.persona.traits || {});
+          bel0.learnFrom('bad_gossip_heard');
+        } else if (isPraise && senderTrust >= 40) {
+          emo0.appraise('good_gossip_heard', { about: target }, this.persona.traits || {});
+          bel0.learnFrom('good_gossip_heard');
+        }
       }
 
       if (response.chatMessage) {

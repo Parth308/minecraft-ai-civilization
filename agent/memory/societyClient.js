@@ -215,13 +215,43 @@ class SocietyClient {
   }
 
   async placesNear(x, z, radius = 24) {
-    const ctx = await this.getContext(true);
-    // Place memories are agent-scoped; filter the shared snapshot locally
     try {
       const res = await fetch(`${this.serviceUrl}/api/society/places/near?agentId=${encodeURIComponent(this.agentId)}&x=${Math.round(x)}&z=${Math.round(z)}&radius=${radius}`, { signal: AbortSignal.timeout(3000) });
       if (res.ok) return (await res.json()).places || [];
     } catch { /* fall through */ }
     return [];
+  }
+
+  // ── Faith vessel ────────────────────────────────────────────────────────────
+
+  setFaith(state = null, tradition = undefined) {
+    return fetch(`${this.serviceUrl}/api/society/faith`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, state, tradition })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Faith update failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  attendRite(riteType = 'reflection') {
+    return fetch(`${this.serviceUrl}/api/society/faith/rite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, riteType })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Rite failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  async faithContext() {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/faith/${encodeURIComponent(this.agentId)}`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return await res.json();
+    } catch { /* optional */ }
+    return null;
   }
 }
 

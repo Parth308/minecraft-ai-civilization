@@ -32,6 +32,7 @@ class SocietyStore {
         wallets: {},
         priceMemory: {},
         placeMemories: [],
+        faith: {},
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -55,10 +56,11 @@ class SocietyStore {
       if (!data.wallets || typeof data.wallets !== 'object') data.wallets = {};
       if (!data.priceMemory || typeof data.priceMemory !== 'object') data.priceMemory = {};
       if (!Array.isArray(data.placeMemories)) data.placeMemories = [];
+      if (!data.faith || typeof data.faith !== 'object') data.faith = {};
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
-      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], wallets: {}, priceMemory: {}, placeMemories: [], updatedAt: new Date().toISOString() };
+      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], wallets: {}, priceMemory: {}, placeMemories: [], faith: {}, updatedAt: new Date().toISOString() };
     }
   }
 
@@ -582,6 +584,69 @@ class SocietyStore {
     return data.slice(-6);
   }
 
+  // ── Faith Vessel ─────────────────────────────────────────────────────────────
+  // NO forced belief, NO scripted doctrine. This tracks what agents THEMSELVES
+  // declare and do. Doctrines live in conventions (keys starting 'faith.'),
+  // scripture lives in notices (type 'scripture'). The store only remembers.
+
+  setFaith(agentId, { state, tradition } = {}) {
+    if (!agentId) return { success: false, reason: 'agentId required' };
+    const validStates = ['none', 'exposed', 'believer', 'devout'];
+    const data = this.load();
+    const f = data.faith[agentId] || { state: 'none', tradition: null, piety: 0 };
+    if (state && validStates.includes(state)) f.state = state;
+    if (tradition !== undefined) f.tradition = tradition === null ? null : String(tradition).slice(0, 60);
+    f.updatedAt = new Date().toISOString();
+    data.faith[agentId] = f;
+    this.save(data);
+    logger.info('SocietyStore', `[FAITH] ${agentId}: state=${f.state} tradition=${f.tradition || '—'} piety=${f.piety}`);
+    return { success: true, faith: f };
+  }
+
+  attendRite(agentId, riteType = 'reflection') {
+    if (!agentId) return { success: false, reason: 'agentId required' };
+    const data = this.load();
+    const f = data.faith[agentId] || { state: 'none', tradition: null, piety: 0 };
+    f.piety = Math.min(100, f.piety + 5);
+    f.lastRiteAt = new Date().toISOString();
+    if (f.state === 'none' && f.piety >= 20) f.state = 'exposed';
+    data.faith[agentId] = f;
+    this.save(data);
+    logger.info('SocietyStore', `[RITE ATTENDED] ${agentId} (${riteType}) — piety ${f.piety}`);
+    return { success: true, faith: f };
+  }
+
+  // Terror-management signal: how death-soaked is the world right now?
+  // High salience historically precedes meaning-seeking — we surface it as
+  // context only. What (if anything) an agent does with it is entirely its own.
+  mortalitySalience() {
+    const ledgerPath = path.join(__dirname, 'civilization', 'ledger.json');
+    let deaths = [];
+    try {
+      const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf-8'));
+      deaths = ledger.deaths || [];
+    } catch { /* no ledger yet */ }
+    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+    const recent = deaths.filter(d => new Date(d.timestamp).getTime() > cutoff);
+    return {
+      deathsLastTwoHours: recent.length,
+      level: recent.length >= 8 ? 'extreme' : recent.length >= 4 ? 'high' : recent.length >= 1 ? 'present' : 'calm'
+    };
+  }
+
+  getFaith(agentId) {
+    const data = this.load();
+    return {
+      agentId,
+      ...(data.faith[agentId] || { state: 'none', tradition: null, piety: 0 }),
+      mortalitySalience: this.mortalitySalience(),
+      doctrines: Object.entries(data.conventions)
+        .filter(([k]) => k.startsWith('faith.'))
+        .map(([k, v]) => ({ tenet: k.replace('faith.', ''), value: v.value, adherents: v.adopters.length })),
+      scriptures: data.notices.filter(n => n.type === 'scripture').slice(-5)
+    };
+  }
+
   getContextSnapshot() {
     const data = this.load();
     return {
@@ -760,6 +825,20 @@ function societyRoutes(app) {
     const { agentId, x, z, radius } = req.query;
     if (!agentId || x == null || z == null) return res.status(400).json({ error: 'agentId, x, z required' });
     res.json({ places: store.getPlacesNear(agentId, Number(x), Number(z), Number(radius) || 24) });
+  });
+
+  app.post('/api/society/faith', (req, res) => {
+    const { agentId, state, tradition } = req.body || {};
+    res.json(store.setFaith(agentId, { state, tradition }));
+  });
+
+  app.post('/api/society/faith/rite', (req, res) => {
+    const { agentId, riteType } = req.body || {};
+    res.json(store.attendRite(agentId, riteType));
+  });
+
+  app.get('/api/society/faith/:agentId', (req, res) => {
+    res.json(store.getFaith(req.params.agentId));
   });
 
   app.get('/api/society/context', (req, res) => {

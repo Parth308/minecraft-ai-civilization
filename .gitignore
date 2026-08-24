@@ -25,11 +25,14 @@ logs/
 logs_dump/
 logs_dump_v1/
 logs_dump_v2/
+logs_dump_v3/
+logs_dump_v*/
 *.gz
 *.tar.gz
 *.dump
 *.log.gz
 memory-service/store/civilization/ledger.json
+memory-service/store/civilization/society.json
 
 # Markdown files (allow README and agent knowledge base)
 *.md

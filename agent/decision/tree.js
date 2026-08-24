@@ -14,6 +14,8 @@ const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
 const EscalationManager = require('./escalate');
 const SocietyClient = require('../memory/societyClient');
+const EmotionalState = require('../cognition/emotions');
+const BeliefNetwork = require('../cognition/beliefs');
 const logger = require('../../shared/logger');
 
 class DecisionTree {
@@ -65,6 +67,32 @@ class DecisionTree {
       }
       return { ...c, confidence: Math.min(0.99, Math.max(0.01, Number(conf.toFixed(2)))) };
     });
+
+    // ── Inner weather & needs: feelings tint confidence, never command. ────────
+    const selfId = senses.bot?.username || persona?.agentId || 'Agent';
+    const emo = EmotionalState.forAgent(selfId);
+    const beliefs = BeliefNetwork.forAgent(selfId);
+    for (const c of candidates) {
+      if (c.name === 'FLEE') c.confidence += emo.emotions.fear * 0.06;
+      if (c.name === 'FIGHT') c.confidence += emo.directedSum('anger') * 0.07;
+      if (c.name === 'TALK' || c.name === 'COOPERATE') {
+        c.confidence += emo.emotions.gratitude * 0.05;
+        if (emo.inGrief()) c.confidence += 0.05; // grief seeks company
+      }
+      if (c.name === 'EXPLORE') c.confidence += emo.emotions.joy * 0.03;
+    }
+
+    // Motivation ladder: when survival is handled, unmet higher needs whisper.
+    const survivalFine = stats.health > 14 && stats.hunger > 50;
+    if (survivalFine && persona?.traits) {
+      const tr = persona.traits;
+      if ((tr.sociability ?? 0.5) > 0.6) {
+        for (const c of candidates) if (c.name === 'TALK') c.confidence += 0.04; // belonging
+      }
+      if ((tr.curiosity ?? 0.5) > 0.65 || (tr.ambition ?? 0.5) > 0.7) {
+        for (const c of candidates) if (c.name === 'MINE' || c.name === 'CRAFT') c.confidence += 0.04; // mastery
+      }
+    }
 
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
@@ -197,7 +225,14 @@ class DecisionTree {
           reputationHighlights: societyContext.reputationHighlights || [],
           openAccusations: (societyContext.openAccusations || []).slice(0, 4).map(a => `${a.accuser} vs ${a.accused}: theft @${a.chestKey} (${a.evidenceCount} evidence records)`),
           nearbyPlaceMemories: (societyContext.nearbyPlaceMemories || []).map(p => `(${p.x},${p.z}): ${p.label} [feeling: ${p.sentiment}]`)
-        } : null
+        } : null,
+        innerLife: {
+          mood: emo.mood,
+          emotions: emo.top(),
+          feelings: emo.directedContext(),
+          grieving: emo.inGrief(),
+          beliefs: beliefs.toContext()
+        }
       };
 
       const escalationResult = await this.escalator.escalate(payload);
