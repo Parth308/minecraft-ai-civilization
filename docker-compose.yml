@@ -168,6 +168,12 @@ services:
       STATUS_PORT: "3010"
       VIEWER_PORT: "3020"
       NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3010/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
       minecraft-server:
         condition: service_started
@@ -206,6 +212,12 @@ services:
       STATUS_PORT: "3011"
       VIEWER_PORT: "3021"
       NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3011/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
       minecraft-server:
         condition: service_started
@@ -244,6 +256,12 @@ services:
       STATUS_PORT: "3012"
       VIEWER_PORT: "3022"
       NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3012/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
       minecraft-server:
         condition: service_started

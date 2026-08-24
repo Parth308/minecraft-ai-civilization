@@ -1,5 +1,23 @@
 const { ACTIONS } = require('../../../shared/constants');
 
+// Cooldown gates ONLY the ambient night-awareness variant. Threat-driven flee
+// must never be suppressed, or agents die to hostiles they could outrun.
+const fleeCooldowns = new Map();
+
+function setFleeCooldown(key = 'night', durationMs = 45000) {
+  fleeCooldowns.set(key, Date.now() + durationMs);
+}
+
+function isFleeOnCooldown(key = 'night') {
+  const expiry = fleeCooldowns.get(key);
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    fleeCooldowns.delete(key);
+    return false;
+  }
+  return true;
+}
+
 function evaluateFlee(senses, stats) {
   const hostiles = senses.getNearbyHostileMobs(12);
 
@@ -40,7 +58,7 @@ function evaluateFlee(senses, stats) {
                    senses.hasItem('golden_chestplate') ||
                    senses.hasItem('netherite_chestplate');
 
-  if (isNight && (!hasWeapon || !hasArmor)) {
+  if (isNight && (!hasWeapon || !hasArmor) && !isFleeOnCooldown('night')) {
     if (hostiles.length > 0) {
       return {
         name: ACTIONS.FLEE,
@@ -64,4 +82,6 @@ function evaluateFlee(senses, stats) {
 }
 
 module.exports = evaluateFlee;
+module.exports.setFleeCooldown = setFleeCooldown;
+module.exports.isFleeOnCooldown = isFleeOnCooldown;
 

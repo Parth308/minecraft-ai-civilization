@@ -490,9 +490,14 @@ function createAgent() {
             eventBuffer.addEvent('flee', { threat: fleeThreat.name || 'hostile' });
             actionSuccess = true;
           } else {
-            // Generic flee — run away from current position
-            movement.wander(20);
-            actionSuccess = false;
+            // Ambient night-flee: commit to ONE shelter waypoint instead of
+            // re-randomizing a wander target every tick (jitter livelock).
+            const shelterResult = movement.goToShelter();
+            eventBuffer.addEvent('flee', { mode: 'shelter', committed: shelterResult.committed });
+            if (shelterResult.arrived || !shelterResult.committed) {
+              require('./decision/rules/flee').setFleeCooldown('night', 45000);
+            }
+            actionSuccess = true;
           }
           break;
         }

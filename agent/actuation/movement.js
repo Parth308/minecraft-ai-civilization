@@ -46,6 +46,49 @@ class MovementActuator {
     this.goto(target.x, target.y, target.z, 2);
   }
 
+  // Ambient night-flee re-fires every decision cycle; without waypoint
+  // commitment each re-fire randomized the destination (jitter livelock).
+  goToShelter(radius = 24, maxAgeMs = 60000) {
+    const now = Date.now();
+    const pos = this.bot.entity?.position;
+
+    if (this._shelter && this._shelter.expiresAt > now) {
+      if (!pos || pos.distanceTo(this._shelter.target) > 2.5) {
+        return { committed: true, arrived: false, target: this._shelter.target };
+      }
+      this._shelter = null;
+      logger.info('Actuation:Movement', 'Shelter waypoint reached — releasing commitment');
+      return { committed: false, arrived: true };
+    }
+
+    let target = null;
+    try {
+      const lightBlocks = ['torch', 'lantern', 'campfire', 'glowstone', 'sea_lantern', 'jack_o_lantern', 'shroomlight'];
+      const lightIds = lightBlocks.map(n => this.bot.registry?.blocksByName[n]?.id).filter(id => id != null);
+      if (pos && lightIds.length > 0) {
+        const found = this.bot.findBlock({ matching: lightIds, maxDistance: radius, count: 1 });
+        if (found) target = found.position.clone();
+      }
+    } catch { /* registry/findBlock unavailable — fall through to offset */ }
+
+    if (!target && pos) {
+      const dx = Math.floor((Math.random() - 0.5) * radius * 2);
+      const dz = Math.floor((Math.random() - 0.5) * radius * 2);
+      target = pos.offset(dx, 0, dz);
+    }
+
+    if (!target) return { committed: false, arrived: false };
+
+    this._shelter = { target, expiresAt: now + maxAgeMs };
+    logger.info('Actuation:Movement', `Committed to shelter waypoint X:${Math.round(target.x)} Y:${Math.round(target.y)} Z:${Math.round(target.z)} for ${Math.round(maxAgeMs / 1000)}s`);
+    this.goto(target.x, target.y, target.z, 2);
+    return { committed: true, arrived: false, target };
+  }
+
+  clearShelterCommitment() {
+    this._shelter = null;
+  }
+
   wander(radius = 15) {
     if (!this.bot.entity) return;
     const current = this.bot.entity.position;

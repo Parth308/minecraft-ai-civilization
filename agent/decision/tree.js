@@ -35,7 +35,7 @@ class DecisionTree {
     const staticCandidates = [
       evaluateFlee(senses, stats),
       evaluateEat(senses, stats),
-      evaluateFight(senses, stats),
+      evaluateFight(senses, stats, persona),
       evaluateSleep(senses, stats, persona, agentState),
       evaluateCraft(senses, stats),
       evaluateMine(senses, stats),
@@ -69,15 +69,17 @@ class DecisionTree {
     candidates.sort((a, b) => b.confidence - a.confidence);
     const topCandidate = candidates[0];
 
-    // Action loop & stagnation detector: prevent infinite repetitive wandering/mining
+    // Action loop & stagnation detector: prevent infinite repetitive actions.
+    // FIGHT excluded on purpose — re-selecting combat every cycle is correct behavior.
     if (!this._actionHistory) this._actionHistory = [];
     this._actionHistory.push(topCandidate.name);
     if (this._actionHistory.length > 8) this._actionHistory.shift();
 
+    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE']);
     const isStuckInLoop = (
       this._actionHistory.length >= 6 &&
       this._actionHistory.every(a => a === topCandidate.name) &&
-      (topCandidate.name === 'EXPLORE' || topCandidate.name === 'WANDER' || topCandidate.name === 'MINE')
+      LOOPABLE_ACTIONS.has(topCandidate.name)
     );
 
     if (isStuckInLoop) {
