@@ -250,12 +250,16 @@ This document serves as the complete technical specification, architectural refe
 - **[`broker/router.js`](file:///e:/Projects/minecraft-community/broker/router.js)** — `ProviderRouter` class:
   - Supports task modes: `REASONING`, `CHAT`, `REFLEX`, `SOCIAL_CHAT`, `REFLECTION`, `RESEARCH`.
   - **RESEARCH Task Mode**: Automatically executes `WebKnowledgeClient` query before LLM dispatch, injects real Minecraft wiki / mechanic knowledge into prompt context, and executes fallback provider cascade.
+  - **Hazard Emergency Priority Routing**: Hazard-tagged escalations (`isHazard: true`) bypass the 5-minute task cooldown and route directly to top thinking models with emergency survival instructions in system prompts.
   - Executes resilient provider fallback cascade when primary endpoints rate-limit or fail.
-- **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager + per-agent task rate limiter (enforces max 1 `RESEARCH` task per agent per 5 minutes).
+- **[`broker/rateLimiter.js`](file:///e:/Projects/minecraft-community/broker/rateLimiter.js)**: Provider cooldown manager + per-agent task rate limiter (enforces max 1 non-hazard `RESEARCH` task per agent per 5 minutes; hazard emergencies bypass cooldown).
 - **[`broker/cache/exactCache.js`](file:///e:/Projects/minecraft-community/broker/cache/exactCache.js)**: SHA-256 state hash cache with 300s TTL.
 - **[`broker/cache/semanticCache.js`](file:///e:/Projects/minecraft-community/broker/cache/semanticCache.js)**: Cosine similarity vector cache ($\ge 0.88$).
 - **[`broker/search/webSearch.js`](file:///e:/Projects/minecraft-community/broker/search/webSearch.js)** — `WebKnowledgeClient` class:
-  - Live Minecraft Wiki Search API integration (`minecraft.wiki/api.php`) + built-in architectural blueprint, combat, barter, and mining mechanics database.
+  - **3-Tier Knowledge Engine**: (1) Offline `minecraft-data` numeric grounding (food values, mob dimensions), (2) Curated tactical hazard and architectural blueprint database, (3) Live Minecraft Wiki Search API (`minecraft.wiki/api.php`) with tutorial namespace query biasing.
+  - **Hazard Strategy Database**: Covers powder snow & hypothermia (leather boots immunity, heat radii), lava/fire (water bucket, sneaking, block seals), drowning & suffocation (torch/door instant air pockets), fall damage (water clutch, hay bales), starvation (cooking nutrition multipliers), and combat (pillars, shields).
+  - **Architectural & Construction Database**: Covers building fundamentals (foundation, proportions, symmetry), roofing techniques (stairs, slabs, gables, overhangs), redstone basics (inverters, repeaters, hidden doors, comparators), automated farming (water channels, harvesting), vertical structures (scaffolding, watchtowers, bridge clutches), castle/fortress construction (perimeter planning, crenellations, multi-block variation), interior design, and defensive perimeter walls.
+  - Returns structured object `{ text, isHazard, tags, source }` with fast-path local cache.
 - **[`broker/providers/`](file:///e:/Projects/minecraft-community/broker/providers/)** — Individual LLM Drivers:
   - **`gemini.js`**: Google Gemini Flash API driver (`gemini-2.5-flash`).
   - **`nvidia.js`**: NVIDIA NIM API driver (`meta/llama-3.1-70b-instruct`).
@@ -274,7 +278,8 @@ This document serves as the complete technical specification, architectural refe
   - `GET /health`
   - `POST /api/memory/init`, `POST /api/memory/compact`, `POST /api/memory/consolidate`
   - `GET /api/memory/query`, `GET /api/memory/sections/:agentId/:section`
-  - `GET /api/ledger`, `GET /api/ledger/lessons`, `POST /api/ledger/lessons`
+  - `GET /api/ledger`, `GET /api/ledger/lessons`, `GET /api/ledger/lessons/unshared`, `POST /api/ledger/lessons`
+  - `GET /api/ledger/deaths`, `POST /api/ledger/deaths`
   - `GET /api/ledger/trades`, `POST /api/ledger/trades`
   - `GET /api/ledger/territory`, `GET /api/ledger/territory/all`, `POST /api/ledger/territory/claim`
   - `GET /api/ledger/shared-goals`, `POST /api/ledger/shared-goals/propose`, `POST /api/ledger/shared-goals/join`, `POST /api/ledger/shared-goals/contribute`
@@ -295,7 +300,8 @@ This document serves as the complete technical specification, architectural refe
   - **Spatial Sovereignty**: `claimTerritory()` with radius-based collision rejection, `getTerritoryAt()`, `getTerritoryClaims()`.
   - **Coordinated Community Projects**: `createSharedGoal()`, `joinSharedGoal()`, `contributeToSharedGoal()` tracking collaborative milestones.
   - **Living Chronicle & Lore Feed**: `addChronicleEntry()`, `getChronicle()`, `recordTreaty()` auto-generating evocative historical chronicles across treaties, territorial settlements, and communal victories.
-  - **Shared Lessons**: Public lore discovery pool with per-agent privacy opt-in (`public`, `private`, `ask`).
+  - **Severity-Weighted Wisdom Ledger**: `recordLesson()` stores public shared lessons (with severity & confidence) alongside `unsharedLessons` for diagnostic visibility.
+  - **Casualty & Death Records**: `recordDeath()` logs fatal hazard casualties, penalized decision chains, and behavioral scar summaries.
 
 ---
 

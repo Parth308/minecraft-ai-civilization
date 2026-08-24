@@ -66,7 +66,12 @@ class WebKnowledgeClient {
 
     let wikiFacts = null;
     try {
-      const wikiUrl = `https://minecraft.wiki/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQuery)}&utf8=&format=json`;
+      // For construction-style queries, bias the search toward the wiki's
+      // dedicated tutorial namespace — plain keyword search on "castle" or
+      // "room" surfaces lore/mob pages, not the actual how-to-build content.
+      const isBuildQuery = /castle|fortress|tower|house|shelter|room|roof|wall|bridge|redstone|farm.*auto|interior/.test(cleanQuery);
+      const searchTerm = isBuildQuery ? `Tutorial ${cleanQuery} construction` : cleanQuery;
+      const wikiUrl = `https://minecraft.wiki/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTerm)}&utf8=&format=json`;
       const res = await fetch(wikiUrl, {
         headers: { 'User-Agent': 'MinecraftAICivilization/1.0 (Autonomous Agent Sovereign Learning)' },
         signal: AbortSignal.timeout(priority === 'hazard' ? 1500 : 3500),
@@ -213,7 +218,31 @@ class WebKnowledgeClient {
       );
     }
 
-    // --- Non-hazard informational entries (unchanged priority/routing) ---
+    // --- Non-hazard informational entries (specific architectural topics first, generic catch-all last) ---
+    if (query.includes('castle') || query.includes('fortress') || query.includes('keep') || query.includes('stronghold')) {
+      return info(`• [Castle & Fortress Construction]: Plan the footprint first — mark the perimeter with a temporary block (dirt) before committing real materials, so wall lines and corner towers line up. Standard layout: a rectangular or square outer wall (stone brick/cobblestone) at least 4-5 blocks high with crenellations (alternating raised blocks) along the top, a corner tower at each corner (taller than the wall, tapered top), and a single gatehouse entrance narrower than the rest of the wall for defensibility. Mix block variants (stone bricks, cobblestone, andesite, cracked stone bricks) rather than one uniform block — pure monotone walls read as flat/unfinished. Interior needs at minimum: a great hall (largest room, central), sleeping quarters, and storage — small castles fail most often by having an impressive wall shell with nothing built inside it.`);
+    }
+    if (query.includes('foundation') || query.includes('layout') || query.includes('floorplan') || (query.includes('build') && query.includes('plan'))) {
+      return info(`• [Building Fundamentals]: Start with a flat foundation (clear/fill terrain to level ground first). Common proportions: single-room starter ~5x5 to 7x7 interior; multi-room needs interior walls at least 1 block thick with doorway gaps 1 wide x 2 tall. Leave a 1-2 block gap between foundation and roof for a window row. Symmetry (mirrored left/right walls) reads as more intentional than asymmetric block placement.`);
+    }
+    if (query.includes('roof') || query.includes('gable') || query.includes('slope') || query.includes('pitch')) {
+      return info(`• [Roofing Techniques]: Stairs blocks create sloped roofs — place ascending stairs inward from each wall edge toward a center ridge for a gable roof. A simple flat roof uses slabs (half-blocks) for a lower-profile look. For pointed/pyramid roofs, inset each successive layer by 1 block on all sides as you build upward. Overhang the roof 1 block past the walls to shed rain visually and block phantom dive-attacks at windows.`);
+    }
+    if (query.includes('redstone') || query.includes('circuit') || (query.includes('door') && query.includes('auto'))) {
+      return info(`• [Redstone Basics]: A redstone torch inverts signal (off when powered, on when not) — the basis of a NOT gate. Repeaters extend signal range (max 15 blocks per unpowered wire run) and can delay signal 1-4 ticks. A basic hidden piston door: pressure plate -> redstone wire -> sticky piston pulling/pushing a wall block. Redstone lamps light on power without consuming a block slot like torches. Comparators read container fill-level or compare two signal strengths — useful for auto-detecting when a chest/furnace needs restocking.`);
+    }
+    if (query.includes('farm') && (query.includes('auto') || query.includes('redstone') || query.includes('harvest'))) {
+      return info(`• [Automated Farming]: Water-flow harvesting: place farmland in a channel, flood briefly with a water source to instantly sweep grown crops (fully mature only) into a collection point — doesn't work on unripe crops, so timing/observation matters. Villager-free auto-farms are riskier to build reliably; simpler and more robust is a manually-tended plot with a dedicated 'farmer' role, which is closer to what farmer.js already does.`);
+    }
+    if (query.includes('bridge') || query.includes('scaffold') || query.includes('tower') || query.includes('watchtower')) {
+      return info(`• [Vertical & Span Structures]: Scaffolding blocks let an agent build safely upward without fall risk — climb by jumping while looking up, descend by holding sneak. For a watchtower, a tapered base (wider at ground, narrower at top) is structurally readable and needs fewer blocks than a uniform column. Bridges over ravines/lava: build with the agent facing the gap and placing blocks at feet-level while walking backward (classic 'bridge clutch'), or use scaffolding blocks which auto-extend when walked off the edge.`);
+    }
+    if (query.includes('room') || query.includes('interior') || query.includes('furnish') || query.includes('decorat')) {
+      return info(`• [Interior Design Basics]: A room reads as furnished with just a few placed elements: a bed (sleeping), a crafting table + furnace (workstation corner), a chest or barrel (storage), and a light source (lantern/torch, avoid bare torches on walls for a nicer look — use lanterns hanging from fence posts or item frames). Rugs (carpet blocks) and a rotated stair/slab as a 'chair' add cheap detail. Keep a consistent block palette per room (2-3 wood/stone types max) rather than mixing every material available — visual coherence matters more than variety.`);
+    }
+    if (query.includes('wall') || query.includes('perimeter') || query.includes('gate') || (query.includes('fence') && query.includes('defen'))) {
+      return info(`• [Perimeter & Defensive Walls]: A settlement wall needs to be at least 3 blocks high (spiders can climb but not clear a 3-block vertical face without a diagonal surface) with an overhang or smooth top to prevent climbing entirely. A single gatehouse choke point is easier to defend/light than multiple entrances. Torches or lanterns every 6-8 blocks along the inside face keep the light level high enough to prevent hostile spawns near the wall itself.`);
+    }
     if (query.includes('build') || query.includes('shelter') || query.includes('cabin') || query.includes('house')) {
       return info(`• [Architecture Wiki]: A secure survival shelter requires a 4x4 or 5x5 perimeter of solid blocks (oak planks/cobblestone), at least 3 blocks high, with an entrance door and roof to prevent phantom and spider attacks. Place torches for lighting (light level > 0 stops hostile mob spawns).`);
     }
