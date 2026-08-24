@@ -24,6 +24,7 @@ pip-delete-this-directory.txt
 logs/
 logs_dump/
 logs_dump_v1/
+logs_dump_v2/
 *.gz
 *.tar.gz
 *.dump
