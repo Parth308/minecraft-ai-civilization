@@ -9,10 +9,23 @@ class ReflectionEngine {
     this.chat = chatActuator;
     this.lastReflectionTime = Date.now();
     this.allowProfileWrite = false; // Micro-reflection writes ONLY to vector store / diary; never mutates profile.md directly
+    this.unsharedLessons = []; // Known-but-unshared lessons tracking (for diagnostic & organic gossip)
   }
 
   get agentId() {
     return this.persona.agentId || 'UnknownAgent';
+  }
+
+  getUnsharedLessons() {
+    return [...this.unsharedLessons];
+  }
+
+  /**
+   * Returns a lesson eligible for gossip during high-trust dialogue.
+   */
+  getLessonForGossip() {
+    if (this.unsharedLessons.length === 0) return null;
+    return this.unsharedLessons[Math.floor(Math.random() * this.unsharedLessons.length)];
   }
 
   async runReflection(recentEvents = [], stats = {}) {
@@ -28,7 +41,8 @@ Reply ONLY with a valid JSON object:
 {
   "diaryEntry": "your 2-sentence journal entry",
   "lifeLesson": "one key tactical or philosophical principle learned",
-  "newGoal": "optional ambitious new goal or null"
+  "newGoal": "optional ambitious new goal or null",
+  "severity": 0.8
 }`;
 
     try {
@@ -62,7 +76,7 @@ Reply ONLY with a valid JSON object:
           }]);
         }
 
-        // Cross-Agent Lesson Sharing based on Privacy Preference
+        // Cross-Agent Lesson Sharing based on Severity-Weighted Effective Openness
         if (response.lifeLesson) {
           await this._handleLessonSharing(response);
         }
@@ -76,38 +90,66 @@ Reply ONLY with a valid JSON object:
   }
 
   async _handleLessonSharing(reflectionResponse) {
-    const privacy = this.persona?.privacyPreference || 'ask';
     const serviceUrl = this.memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
     const lessonText = reflectionResponse.lifeLesson;
 
+    // Detect hazard/survival severity
+    const lower = (lessonText + ' ' + (reflectionResponse.diaryEntry || '')).toLowerCase();
+    const isHazard = lower.includes('death') || lower.includes('freeze') || lower.includes('snow') ||
+                    lower.includes('frost') || lower.includes('lava') || lower.includes('fire') ||
+                    lower.includes('drown') || lower.includes('fall') || lower.includes('starv') ||
+                    lower.includes('killed') || lower.includes('zombie') || lower.includes('skeleton') ||
+                    lower.includes('hazard');
+
+    let severity = typeof reflectionResponse.severity === 'number' ? reflectionResponse.severity : (isHazard ? 0.90 : 0.30);
+    const effective = this.persona?.calculateEffectiveOpenness ? this.persona.calculateEffectiveOpenness(severity) : {
+      effectivePrivacy: this.persona?.privacyPreference || 'ask',
+      effectiveOpenness: this.persona?.traits?.openness || 0.5
+    };
+
+    const privacy = effective.effectivePrivacy;
+    const lessonEntry = {
+      agentId: this.agentId,
+      lesson: lessonText,
+      severity,
+      baseOpenness: effective.baseOpenness,
+      effectiveOpenness: effective.effectiveOpenness,
+      isPublic: privacy === 'public',
+      status: privacy === 'public' ? 'shared' : (privacy === 'ask' ? 'ask_pending' : 'unshared_private'),
+      context: { diary: reflectionResponse.diaryEntry, newGoal: reflectionResponse.newGoal, isHazard },
+      confidence: privacy === 'public' ? Math.max(0.65, effective.effectiveOpenness) : 0.40,
+      timestamp: Date.now()
+    };
+
     if (privacy === 'public') {
-      logger.info('ReflectionEngine', `[PRIVACY: public] Automatically sharing lesson to civ ledger for ${this.agentId}`);
+      logger.info('ReflectionEngine', `[PRIVACY: public | severity: ${severity}] Automatically sharing lesson to civ ledger for ${this.agentId} (effectiveOpenness: ${effective.effectiveOpenness})`);
       try {
         await fetch(`${serviceUrl}/api/ledger/lessons`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentId: this.agentId,
-            lesson: lessonText,
-            isPublic: true,
-            context: { diary: reflectionResponse.diaryEntry, newGoal: reflectionResponse.newGoal },
-            confidence: 0.85
-          })
+          body: JSON.stringify(lessonEntry)
         });
       } catch (err) {
         logger.debug('ReflectionEngine', `Failed to post shared lesson to ledger: ${err.message}`);
       }
-    } else if (privacy === 'private') {
-      logger.info('ReflectionEngine', `[PRIVACY: private] ${this.agentId} kept lesson private. Saved to local memory only.`);
-    } else if (privacy === 'ask') {
-      logger.info('ReflectionEngine', `[PRIVACY: ask] ${this.agentId} prompting in-game before sharing lesson.`);
-      this.pendingLesson = {
-        lesson: lessonText,
-        context: { diary: reflectionResponse.diaryEntry, newGoal: reflectionResponse.newGoal },
-        timestamp: Date.now()
-      };
-      if (this.chat && typeof this.chat.say === 'function') {
-        this.chat.say(`I learned something: "${lessonText}" — should I share it with the others?`);
+    } else {
+      // Record unshared lesson in local tracker and register in ledger as unshared diagnostic
+      this.unsharedLessons.push(lessonEntry);
+      if (this.unsharedLessons.length > 50) this.unsharedLessons.shift();
+
+      logger.info('ReflectionEngine', `[PRIVACY: ${privacy} | severity: ${severity}] ${this.agentId} tracked unshared lesson (effectiveOpenness: ${effective.effectiveOpenness}). Stored for local memory & organic gossip.`);
+      try {
+        await fetch(`${serviceUrl}/api/ledger/lessons`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...lessonEntry, isPublic: false })
+        });
+      } catch (err) {
+        logger.debug('ReflectionEngine', `Failed to register unshared diagnostic lesson to ledger: ${err.message}`);
+      }
+
+      if (privacy === 'ask') {
+        this.pendingLesson = lessonEntry;
       }
     }
   }
@@ -120,11 +162,9 @@ Reply ONLY with a valid JSON object:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: this.agentId,
-          lesson: this.pendingLesson.lesson,
+          ...this.pendingLesson,
           isPublic: true,
-          context: this.pendingLesson.context,
-          confidence: 0.85
+          status: 'shared_after_ask'
         })
       }).catch(() => {});
       logger.info('ReflectionEngine', `[PRIVACY: ask -> approved] ${this.agentId} shared pending lesson to civ ledger.`);

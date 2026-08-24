@@ -1,3 +1,8 @@
+param(
+    [string]$Server = "user@100.65.166.23",
+    [int]$Tail = 8000
+)
+
 $targetDir = "logs\server_logs_current"
 if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
@@ -15,9 +20,10 @@ $containers = @(
 )
 
 foreach ($c in $containers) {
-    Write-Host "Fetching logs for $c..."
-    $cmd = "docker logs --timestamps --tail 5000 $c"
-    ssh -o StrictHostKeyChecking=no user@100.65.166.23 $cmd > "$targetDir\$c.log" 2>&1
+    Write-Host "Fetching logs for $c (tail: $Tail)..."
+    $cmd = "docker logs --timestamps --tail $Tail $c"
+    $logContent = ssh -o StrictHostKeyChecking=no $Server $cmd 2>&1
+    [System.IO.File]::WriteAllLines("$targetDir\$c.log", $logContent, [System.Text.Encoding]::UTF8)
 }
 
 Write-Host "Done! Files in ${targetDir}:"

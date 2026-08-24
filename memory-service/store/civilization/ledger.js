@@ -35,6 +35,8 @@ class CivilizationLedger {
     try {
       const data = JSON.parse(fs.readFileSync(LEDGER_PATH, 'utf-8'));
       if (!Array.isArray(data.sharedLessons)) data.sharedLessons = [];
+      if (!Array.isArray(data.unsharedLessons)) data.unsharedLessons = [];
+      if (!Array.isArray(data.deaths)) data.deaths = [];
       if (!Array.isArray(data.trades)) data.trades = [];
       if (!Array.isArray(data.territoryClaims)) data.territoryClaims = [];
       if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
@@ -42,7 +44,7 @@ class CivilizationLedger {
       return data;
     } catch (err) {
       logger.error('CivLedger', 'Failed to read ledger file', err);
-      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], trades: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [] };
+      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], unsharedLessons: [], deaths: [], trades: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [] };
     }
   }
 
@@ -96,6 +98,29 @@ class CivilizationLedger {
     detailedLogger.logCivilizationMilestone('shared_goal_proposed', `Shared goal proposed by ${creatorAgentId}`, goal);
     this.addChronicleEntry(`The Grand Undertaking: "${description}" Proposed`, `Agent ${creatorAgentId} rallied the community to coordinate on a shared goal requiring ${goal.requiredAgents} agents.`, [creatorAgentId], 'shared_goal_proposed');
     return { success: true, goal };
+  }
+
+  recordDeath(agentId, deathCause, position = {}, penalizedRules = [], scarSummary = '') {
+    const data = this.getLedger();
+    if (!Array.isArray(data.deaths)) data.deaths = [];
+    const entry = {
+      id: `death_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      agentId,
+      deathCause: deathCause || 'hazard',
+      position,
+      penalizedRules: Array.isArray(penalizedRules) ? penalizedRules : [],
+      scarSummary,
+      timestamp: new Date().toISOString()
+    };
+    data.deaths.push(entry);
+    this.saveLedger(data);
+    logger.warn('CivLedger', `[DEATH RECORDED] ${agentId} died from ${entry.deathCause}. Penalized rules: ${entry.penalizedRules.join(', ') || 'none'}`);
+    this.addChronicleEntry(`Fallen Settler: ${agentId} succumbed to ${entry.deathCause}`, `Agent ${agentId} was felled by ${entry.deathCause} at X:${position.x ?? '?'} Y:${position.y ?? '?'} Z:${position.z ?? '?'}. Behavioral scar added.`, [agentId], 'agent_death');
+    return entry;
+  }
+
+  getDeaths() {
+    return this.getLedger().deaths || [];
   }
 
   joinSharedGoal(goalId, agentId) {
@@ -244,29 +269,47 @@ class CivilizationLedger {
     return this.getLedger().trades || [];
   }
 
-  recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8) {
+  recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8, severity = 0.5, status = null) {
     if (!lesson) return { saved: false, reason: 'Empty lesson' };
     const data = this.getLedger();
     if (!Array.isArray(data.sharedLessons)) data.sharedLessons = [];
+    if (!Array.isArray(data.unsharedLessons)) data.unsharedLessons = [];
 
-    if (isPublic === true) {
-      const entry = {
-        agentId,
-        lesson,
-        context,
-        confidence: typeof confidence === 'number' ? confidence : 0.8,
-        sharedAt: new Date().toISOString()
-      };
+    const isPublicBool = isPublic === true || isPublic === 'true';
+    const lessonStatus = status || (isPublicBool ? 'shared' : 'unshared_private');
+
+    const entry = {
+      id: `lsn_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      agentId,
+      lesson,
+      context,
+      severity: typeof severity === 'number' ? Number(severity.toFixed(2)) : 0.5,
+      confidence: typeof confidence === 'number' ? Number(confidence.toFixed(2)) : (isPublicBool ? 0.8 : 0.4),
+      isPublic: isPublicBool,
+      status: lessonStatus,
+      timestamp: new Date().toISOString()
+    };
+
+    if (isPublicBool) {
       data.sharedLessons.push(entry);
       this.saveLedger(data);
-      logger.info('CivLedger', `[SHARED LESSON] ${agentId} publicly shared hard-won lesson: "${lesson}"`);
-      detailedLogger.logCivilizationMilestone('lesson_shared', `Lesson shared publicly by ${agentId}`, { lesson, confidence });
+      logger.info('CivLedger', `[SHARED LESSON] ${agentId} publicly shared hard-won lesson (severity: ${entry.severity}): "${lesson}"`);
+      detailedLogger.logCivilizationMilestone('lesson_shared', `Lesson shared publicly by ${agentId}`, { lesson, confidence: entry.confidence, severity: entry.severity });
       this.addChronicleEntry(`Emergent Wisdom: ${agentId} Shares Philosophy`, `A foundational lesson was entered into global civilization knowledge: "${lesson}"`, [agentId], 'wisdom_shared');
       return { saved: true, sharedPublicly: true, lesson: entry };
     } else {
-      logger.info('CivLedger', `[PRIVATE LESSON] ${agentId} opted to keep lesson private. Not saved to public ledger.`);
-      return { saved: true, sharedPublicly: false, reason: 'Stored in private agent memory only' };
+      // Diagnostic tracking for known-but-unshared lessons
+      data.unsharedLessons.push(entry);
+      if (data.unsharedLessons.length > 100) data.unsharedLessons.shift();
+      this.saveLedger(data);
+      logger.info('CivLedger', `[KNOWN-BUT-UNSHARED LESSON] ${agentId} lesson registered as unshared diagnostic (status: ${lessonStatus}, severity: ${entry.severity}): "${lesson}"`);
+      return { saved: true, sharedPublicly: false, status: lessonStatus, lesson: entry };
     }
+  }
+
+  getUnsharedLessons() {
+    const data = this.getLedger();
+    return data.unsharedLessons || [];
   }
 
   recordTreaty(proposer, target, treatyType, honorsStatus = true) {

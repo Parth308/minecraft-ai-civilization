@@ -56,6 +56,9 @@ class DynamicRuleEngine {
     const now = Date.now();
     
     for (const rule of this.learnedRules) {
+      // Death-penalized hazard rules have permanent negative weighting and are exempt from standard upward decay
+      if (rule.deathPenalty?.permanent) continue;
+
       const lastActive = rule.lastReinforcedAt || rule.createdAt || now;
       if (now - lastActive > maxAgeMs) {
         rule.confidence = Math.max(0, Number((rule.confidence * 0.9).toFixed(2)));
@@ -63,10 +66,11 @@ class DynamicRuleEngine {
       }
     }
 
-    // Prune rules with confidence < 0.2 or non-actuation actions
+    // Prune rules with confidence < 0.2 or non-actuation actions (exempting permanent death-penalized records kept for causal history)
     const beforePrune = this.learnedRules.length;
     this.learnedRules = this.learnedRules.filter(r => {
-      if (r.confidence < 0.2 || r.action === 'PLAN' || r.action === 'IDLE') {
+      if (r.action === 'PLAN' || r.action === 'IDLE') return false;
+      if (r.confidence < 0.2 && !r.deathPenalty?.permanent) {
         logger.info('DynamicRules', `[PRUNE] Pruned stale rule ${r.id} (${r.action}) due to low confidence (${r.confidence})`);
         return false;
       }
@@ -89,13 +93,68 @@ class DynamicRuleEngine {
       rule.hitCount = (rule.hitCount || 0) + 1;
       logger.info('DynamicRules', `[REINFORCE SUCCESS] Bumped rule ${rule.id} confidence to ${rule.confidence} (+0.05)`);
     } else {
-      rule.confidence = Math.max(0, Number((rule.confidence - 0.15).toFixed(2)));
+      rule.confidence = Math.max(0.05, Number((rule.confidence - 0.15).toFixed(2)));
       logger.warn('DynamicRules', `[REINFORCE FAILURE] Asymmetric penalty on rule ${rule.id}: confidence dropped to ${rule.confidence} (-0.15)`);
-      if (rule.confidence < 0.2) {
+      if (rule.confidence < 0.2 && !rule.deathPenalty?.permanent) {
         this.learnedRules = this.learnedRules.filter(r => r.id !== ruleId);
         logger.info('DynamicRules', `[PRUNE] Deleted failing rule ${rule.id} (confidence dropped below 0.2)`);
       }
     }
+  }
+
+  /**
+   * Death-driven negative reinforcement:
+   * Walks back the last N decisions leading to death.
+   * Full penalty (-0.40) applied to immediate rule active at death.
+   * Reduced penalty (-0.15, ~35% strength) applied to 1-2 preceding rules in causal chain.
+   * Local-first: immediately changes the agent's own decision tree weighting.
+   */
+  penalizeFatalDecisionChain(recentDecisions = [], deathCause = 'hazard') {
+    const penalizedRuleIds = [];
+    if (!Array.isArray(recentDecisions) || recentDecisions.length === 0) return penalizedRuleIds;
+
+    const chain = recentDecisions.slice(-5).reverse(); // Walk backwards from time of death
+    let isImmediate = true;
+    let precedingCount = 0;
+
+    for (const step of chain) {
+      const ruleId = step.ruleId || step.meta?.ruleId;
+      const ruleAction = step.action;
+      const targetRule = this.learnedRules.find(r => r.id === ruleId || (r.action === ruleAction && isImmediate));
+
+      if (targetRule) {
+        if (!penalizedRuleIds.includes(targetRule.id)) {
+          const prevConf = targetRule.confidence;
+          if (isImmediate) {
+            // Full strength penalty on immediate fatal call
+            targetRule.confidence = Math.max(0.05, Number((targetRule.confidence - 0.40).toFixed(2)));
+            targetRule.deathPenalty = {
+              deathCause,
+              penaltyStrength: 0.40,
+              permanent: true,
+              timestamp: Date.now()
+            };
+            logger.warn('DynamicRules', `[DEATH PENALTY - IMMEDIATE] Fatal rule ${targetRule.id} (${targetRule.action}) penalized: ${prevConf} -> ${targetRule.confidence} (-0.40) tied to ${deathCause}`);
+            penalizedRuleIds.push(targetRule.id);
+            isImmediate = false;
+          } else if (precedingCount < 2) {
+            // Reduced strength penalty (~35%) on preceding 1-2 causal steps
+            targetRule.confidence = Math.max(0.10, Number((targetRule.confidence - 0.15).toFixed(2)));
+            targetRule.deathPenalty = {
+              deathCause,
+              penaltyStrength: 0.15,
+              permanent: true,
+              timestamp: Date.now()
+            };
+            logger.warn('DynamicRules', `[DEATH PENALTY - CAUSAL CHAIN] Preceding rule ${targetRule.id} (${targetRule.action}) penalized: ${prevConf} -> ${targetRule.confidence} (-0.15) tied to ${deathCause}`);
+            penalizedRuleIds.push(targetRule.id);
+            precedingCount++;
+          }
+        }
+      }
+    }
+
+    return penalizedRuleIds;
   }
 
   evaluateDynamicRules(senses, stats) {
@@ -155,22 +214,48 @@ class DynamicRuleEngine {
         const ruleId = `shared_${(item.agentId || 'peer').toLowerCase()}_${this.learnedRules.length + 1}`;
         const existing = this.learnedRules.find(r => r.reason.includes(item.lesson));
         if (!existing) {
+          // Public/severe hazard lessons seed with higher trust (0.60-0.70) than baseline (0.40)
+          const severity = typeof item.severity === 'number' ? item.severity : 0.5;
+          const initialConfidence = Number(Math.min(0.75, Math.max(0.40, 0.40 + (severity * 0.30))).toFixed(2));
+
           this.learnedRules.push({
             id: ruleId,
             patternSituation: situationName,
             action: 'WANDER',
-            confidence: 0.40, // Trust others' experience less (0.40) until reinforced
+            confidence: initialConfidence,
             reason: `[Shared Civ Lesson from ${item.agentId}]: ${item.lesson}`,
             hitCount: 0,
             isSharedPeerLesson: true,
+            severity,
             createdAt: Date.now(),
             lastReinforcedAt: Date.now()
           });
-          logger.info('DynamicRules', `[SHARED SEED] Seeded rule ${ruleId} from ${item.agentId}'s shared lesson with initial confidence 0.40`);
+          logger.info('DynamicRules', `[SHARED SEED - SEVERITY WEIGHTED] Seeded rule ${ruleId} from ${item.agentId}'s shared lesson with trust ${initialConfidence} (severity: ${severity})`);
         }
       }
     } catch (err) {
       logger.debug('DynamicRules', `Failed to seed shared lessons from ledger: ${err.message}`);
+    }
+  }
+
+  seedFromGossip(sender, tipMessage, informalConfidence = 0.32) {
+    if (!tipMessage) return;
+    const ruleId = `gossip_${(sender || 'peer').toLowerCase()}_${this.learnedRules.length + 1}`;
+    const cleanTip = tipMessage.replace(/^(hey|yo|look|listen|watch out),?\s*/i, '').substring(0, 120);
+    const existing = this.learnedRules.find(r => r.reason.includes(cleanTip));
+    if (!existing) {
+      this.learnedRules.push({
+        id: ruleId,
+        patternSituation: 'GOSSIP_HEARING',
+        action: 'WANDER',
+        confidence: informalConfidence, // Gossip seeds lower (0.30-0.35) due to informal channel
+        reason: `[Gossiped Advice from ${sender}]: ${cleanTip}`,
+        hitCount: 0,
+        isGossipLesson: true,
+        createdAt: Date.now(),
+        lastReinforcedAt: Date.now()
+      });
+      logger.info('DynamicRules', `[GOSSIP SEED] Seeded informal rule ${ruleId} from ${sender} with trust ${informalConfidence}`);
     }
   }
 

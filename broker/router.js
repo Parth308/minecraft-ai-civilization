@@ -276,16 +276,19 @@ class ProviderRouter {
     // Live Web Knowledge Search & Research Task Mode
     let webFacts = null;
     if (taskType === 'RESEARCH') {
+      const isHazard = !!situationPayload.isHazard;
       const searchQuery = situationPayload.researchQuery ||
                           situationPayload.topCandidate?.reason ||
                           situationPayload.topCandidate?.name ||
                           situationPayload.activeGoal ||
                           'minecraft recipes crafting mechanics';
       
-      if (!this.rateLimiter.isAgentTaskBlocked(agentId, 'RESEARCH')) {
-        logger.info('Router', `[RESEARCH] WebKnowledgeClient invoked for query '${searchQuery}' by agent ${agentId} BEFORE hitting LLM provider`);
-        webFacts = await this.webKnowledge.searchKnowledge(searchQuery);
-        this.rateLimiter.markAgentTaskCooldown(agentId, 'RESEARCH', 300000); // Max 1 RESEARCH call per agent per 5 minutes
+      if (isHazard || !this.rateLimiter.isAgentTaskBlocked(agentId, 'RESEARCH')) {
+        logger.info('Router', `[RESEARCH${isHazard ? ' - HAZARD EMERGENCY PRIORITY' : ''}] WebKnowledgeClient invoked for query '${searchQuery}' by agent ${agentId} BEFORE hitting LLM provider`);
+        webFacts = await this.webKnowledge.searchKnowledge(searchQuery, { priority: isHazard ? 'hazard' : 'normal' });
+        if (!isHazard && (!webFacts || !webFacts.isHazard)) {
+          this.rateLimiter.markAgentTaskCooldown(agentId, 'RESEARCH', 300000); // Max 1 non-hazard RESEARCH call per agent per 5 minutes
+        }
       } else {
         logger.info('Router', `[RESEARCH] Agent ${agentId} RESEARCH is on 5m rate-limit cooldown. Checking knowledge cache.`);
         webFacts = await this.webKnowledge.searchKnowledge(searchQuery); // Resolves from memory cache if query was seen
@@ -535,9 +538,9 @@ GOAL & HISTORY:
 Active goal: ${payload.activeGoal || 'none - pick one'}
 Recent actions: ${payload.recentEvents || 'none'}
 Memories: ${JSON.stringify(memories)}
-${_renderSkills(skills)}${webFacts ? 'Minecraft Wiki:\n' + webFacts + '\n' : ''}
+${_renderSkills(skills)}${webFacts ? 'Minecraft Wiki & Survival Facts:\n' + (typeof webFacts === 'object' && webFacts.text ? webFacts.text : webFacts) + '\n' : ''}
 ${_renderAffordances(payload.affordances)}${_renderLastActionResult(payload.lastActionResult)}
-${payload.stuckWarning ? '⚠️ CRITICAL STAGNATION ALERT:\n' + payload.stuckWarning + '\nDO NOT repeat the same unrewarded action. Formulate a multi-step PLAN or pivot strategy.\n' : ''}
+${payload.isHazard ? `⚠️ CRITICAL ENVIRONMENTAL HAZARD ALERT (${payload.hazardType || 'mortal threat'}):\nYou are under immediate threat of environmental damage or death! Review the hazard counter-strategies above (e.g. Leather Boots against powder snow, Water Bucket against fire/fall, Torch air pocket against drowning). Formulate an immediate counter-action and record a durable tactic in tacticLearned!\n` : ''}${payload.stuckWarning ? '⚠️ CRITICAL STAGNATION ALERT:\n' + payload.stuckWarning + '\nDO NOT repeat the same unrewarded action. Formulate a multi-step PLAN or pivot strategy.\n' : ''}
 
 RULE ENGINE SAYS:
 Best guess: ${top.name} (confidence ${top.confidence}) - "${top.reason}"

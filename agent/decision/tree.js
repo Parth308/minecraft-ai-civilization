@@ -87,8 +87,34 @@ class DecisionTree {
 
     logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
 
-    if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop) {
-      const isResearchNeeded = (
+    // Environmental Hazard Detection & Counter-Strategy Tagging
+    const biomeLower = (agentState.biome || senses.getBiome?.() || '').toLowerCase();
+    const isColdBiome = biomeLower.includes('snow') || biomeLower.includes('ice') || biomeLower.includes('frozen') || biomeLower.includes('peak') || biomeLower.includes('cold') || biomeLower.includes('grove');
+    const isFreezingRisk = isColdBiome && (stats.health < 20 || (topCandidate.reason || '').toLowerCase().includes('snow') || (topCandidate.reason || '').toLowerCase().includes('freeze'));
+    const isFireRisk = senses.isOnFire?.() || agentState.isOnFire || (topCandidate.reason || '').toLowerCase().includes('lava') || (topCandidate.reason || '').toLowerCase().includes('fire');
+    const isWaterRisk = (senses.isInWater?.() || agentState.isInWater) && (stats.health < 16 || senses.bot?.oxygenLevel < 15);
+    const isMobRisk = (senses.getNearbyHostileMobs?.(8)?.length || 0) >= 2 || (stats.health <= 10 && (senses.getNearbyHostileMobs?.(12)?.length || 0) > 0);
+
+    const isHazard = isFreezingRisk || isFireRisk || isWaterRisk || isMobRisk;
+    let hazardType = null;
+    let hazardResearchQuery = null;
+
+    if (isFreezingRisk) {
+      hazardType = 'powder_snow';
+      hazardResearchQuery = 'minecraft powder snow freezing damage counter leather boots';
+    } else if (isFireRisk) {
+      hazardType = 'lava';
+      hazardResearchQuery = 'minecraft lava fire damage water bucket counter';
+    } else if (isWaterRisk) {
+      hazardType = 'drowning';
+      hazardResearchQuery = 'minecraft drowning underwater oxygen torch air pocket counter';
+    } else if (isMobRisk) {
+      hazardType = 'mob_swarm';
+      hazardResearchQuery = 'minecraft hostile mob swarm pillar defense tactics';
+    }
+
+    if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop || isHazard) {
+      const isResearchNeeded = isHazard || (
         topCandidate.name === 'CRAFT' ||
         topCandidate.name === 'BUILD' ||
         topCandidate.reason?.toLowerCase().includes('unknown') ||
@@ -100,13 +126,16 @@ class DecisionTree {
         agentState.activeGoal?.toLowerCase().includes('build')
       );
 
-      const taskType = isStuckInLoop ? 'PLAN' : (topCandidate.name === 'TALK' ? 'CHAT' : (isResearchNeeded ? 'RESEARCH' : 'REASONING'));
-      const taskHint = isStuckInLoop ? 'PLAN' : (isResearchNeeded ? 'RESEARCH' : null);
+      const taskType = isStuckInLoop ? 'PLAN' : (isHazard || isResearchNeeded ? 'RESEARCH' : (topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING'));
+      const taskHint = isStuckInLoop ? 'PLAN' : (isHazard || isResearchNeeded ? 'RESEARCH' : null);
       
       const payload = {
         agentId: senses.bot?.username || persona?.agentId || 'Agent',
         taskType,
         taskHint,
+        isHazard,
+        hazardType,
+        researchQuery: hazardResearchQuery || null,
         isStuckInLoop,
         stuckWarning: isStuckInLoop ? `You have been looping on '${topCandidate.name}' for multiple cycles without finding trees/progress. Think like a real human player: break this loop. Formulate a multi-step objective, head towards high elevation/vantage point, punch tall grass for seeds, search near rivers, or find companions.` : null,
         topCandidate,
@@ -148,6 +177,23 @@ class DecisionTree {
       // Replicate learned decision into local dynamic rule engine and long-term skills.md!
       this.dynamicRuleEngine.learnRule(payload, escalationResult);
 
+      // If a severe hazard counter-strategy was learned, immediately seed into dynamic rules and share with ledger
+      if (isHazard && escalationResult.tacticLearned) {
+        const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+        fetch(`${memUrl}/api/ledger/lessons`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: senses.bot?.username || 'Agent',
+            lesson: `[Hazard Counter-Strategy: ${hazardType || 'survival'}] ${escalationResult.tacticLearned}`,
+            isPublic: true,
+            severity: 0.90,
+            confidence: 0.85,
+            context: { isHazard: true, hazardType }
+          })
+        }).catch(() => {});
+      }
+
       // Apply emotion updates if returned by LLM
       if (escalationResult.emotionDelta) {
         if (escalationResult.emotionDelta.anger) statsManager.addAnger(escalationResult.emotionDelta.anger);
@@ -172,7 +218,7 @@ class DecisionTree {
         costUsd: typeof escalationResult.costUsd === 'number' ? escalationResult.costUsd : null,
         latencyMs: typeof escalationResult.latencyMs === 'number' ? escalationResult.latencyMs : null,
         webKnowledgeUsed: !!escalationResult.webKnowledgeUsed,
-        reason: escalationResult.reason || 'Escalated to LLM for autonomous reasoning',
+        reason: escalationResult.reason || (isHazard ? `Autonomous hazard counter-strategy executed for ${hazardType}` : 'Escalated to LLM for autonomous reasoning'),
         tacticLearned: escalationResult.tacticLearned || null,
         chatMessage: escalationResult.chatMessage || null,
         newGoal: escalationResult.newGoal || null,

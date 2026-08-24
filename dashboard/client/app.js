@@ -881,12 +881,30 @@
 
   // ── Page: Chronicle ───────────────────────────────────────────────
   let cachedChronicle = [];
+  let cachedLessons = { sharedLessons: [], unsharedLessons: [] };
+  let cachedDeaths = [];
+
   async function fetchChronicle() {
     try {
-      const r = await fetch('/api/dashboard/chronicle');
-      if (r.ok) {
-        const d = await r.json();
+      const [rChron, rLess, rDeath] = await Promise.all([
+        fetch('/api/dashboard/chronicle'),
+        fetch('/api/dashboard/lessons'),
+        fetch('/api/dashboard/deaths')
+      ]);
+      if (rChron.ok) {
+        const d = await rChron.json();
         cachedChronicle = d.chronicle || [];
+      }
+      if (rLess.ok) {
+        const d = await rLess.json();
+        cachedLessons = {
+          sharedLessons: d.sharedLessons || [],
+          unsharedLessons: d.unsharedLessons || []
+        };
+      }
+      if (rDeath.ok) {
+        const d = await rDeath.json();
+        cachedDeaths = d.deaths || [];
       }
     } catch (_) {}
   }
@@ -903,16 +921,89 @@
       shared_goal_completed: '🏆',
       wisdom_shared: '💡',
       lesson_shared: '💡',
+      agent_death: '💀',
       milestone: '⭐'
     };
 
+    const shared = cachedLessons.sharedLessons || [];
+    const unshared = cachedLessons.unsharedLessons || [];
+
     return `
       <div class="page-header">
-        <div class="page-title">Civilization Chronicle &amp; Lore</div>
-        <div class="page-desc">The living story of the world — emergent treaties, territorial claims, shared achievements, and cultural philosophy</div>
+        <div class="page-title">Civilization Chronicle &amp; Knowledge Repository</div>
+        <div class="page-desc">The living story of the world — emergent wisdom, shared &amp; unshared life lessons, hazard casualties, and historical lore</div>
       </div>
 
+      <!-- Knowledge Ledger: Shared & Unshared Lessons -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card" style="padding:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-weight:700;font-size:14px;color:var(--text-bright)">💡 Shared Knowledge Ledger (${shared.length})</div>
+            <span class="badge badge-success" style="font-size:10px">Public Wisdom</span>
+          </div>
+          ${shared.length === 0 ? '<div class="empty-state">No public lessons shared yet.</div>' : `
+            <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+              ${shared.map(l => `
+                <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:8px 12px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-weight:600;font-size:12px;color:var(--accent)">${esc(l.agentId)}</span>
+                    <div style="display:flex;gap:4px">
+                      <span class="badge badge-warning" style="font-size:9px">Sev: ${(l.severity ?? 0.5).toFixed(1)}</span>
+                      <span class="badge badge-neutral" style="font-size:9px">Trust: ${(l.confidence ?? 0.8).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div style="font-size:12px;color:var(--text-dim);line-height:1.4">"${esc(l.lesson)}"</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-weight:700;font-size:14px;color:var(--text-bright)">🔒 Unshared / Gossip Lessons (${unshared.length})</div>
+            <span class="badge badge-warning" style="font-size:10px">Diagnostic</span>
+          </div>
+          ${unshared.length === 0 ? '<div class="empty-state">No private/unshared lessons tracked.</div>' : `
+            <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+              ${unshared.map(l => `
+                <div style="background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08);border-radius:6px;padding:8px 12px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-weight:600;font-size:12px;color:var(--text-dim)">${esc(l.agentId)}</span>
+                    <span class="badge badge-danger" style="font-size:9px">${esc(l.status || 'private')}</span>
+                  </div>
+                  <div style="font-size:12px;color:var(--text-faint);line-height:1.4">"${esc(l.lesson)}"</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+
+      <!-- Casualties & Death Scars -->
+      ${cachedDeaths.length > 0 ? `
+        <div class="card" style="padding:16px;margin-bottom:16px;border-left:4px solid var(--danger, #ef4444)">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">💀 Hazard Casualties &amp; Penalized Decision Chains</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${cachedDeaths.map(d => `
+              <div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:10px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span style="font-weight:700;font-size:13px;color:#fca5a5">${esc(d.agentId)} felled by: ${esc(d.deathCause)}</span>
+                  <span class="num" style="font-size:11px;color:var(--text-faint)">${new Date(d.timestamp).toLocaleTimeString('en-US')}</span>
+                </div>
+                ${d.penalizedRules && d.penalizedRules.length > 0 ? `
+                  <div style="margin-top:6px;font-size:11px;color:var(--text-dim)">
+                    <strong style="color:#f87171">Penalized Dynamic Rules:</strong> ${d.penalizedRules.map(r => `<span class="badge badge-danger" style="font-size:9px;margin-right:4px">${esc(r)}</span>`).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
       <div class="card" style="padding:16px">
+        <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📜 Historical Chronicle Log</div>
         ${cachedChronicle.length === 0 ? '<div class="empty-state">The world is young. No historical chronicle entries recorded yet…</div>' : `
           <div style="display:flex;flex-direction:column;gap:12px">
             ${cachedChronicle.map(entry => {

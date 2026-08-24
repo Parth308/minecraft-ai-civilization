@@ -1,12 +1,22 @@
 const logger = require('../../shared/logger');
 
 class SocialDialogueEngine {
-  constructor(brainClient, persona, goalManager, relationshipTracker, factionManager = null) {
+  constructor(brainClient, persona, goalManager, relationshipTracker, factionManager = null, dynamicRuleEngine = null, reflectionEngine = null) {
     this.brainClient = brainClient;
     this.persona = persona;
     this.goalManager = goalManager;
     this.relationships = relationshipTracker;
     this.factionManager = factionManager;
+    this.dynamicRuleEngine = dynamicRuleEngine;
+    this.reflectionEngine = reflectionEngine;
+  }
+
+  setReflectionEngine(refEngine) {
+    this.reflectionEngine = refEngine;
+  }
+
+  setDynamicRuleEngine(ruleEngine) {
+    this.dynamicRuleEngine = ruleEngine;
   }
 
   async processIncomingChat(sender, message, civContext = {}) {
@@ -14,6 +24,18 @@ class SocialDialogueEngine {
 
     logger.info('SocialDialogue', `Processing chat from [${sender}]: "${message}"`);
     const relationship = this.relationships.get(sender);
+
+    // 1. Organic Gossip/Lesson Leaking for "ask" or "private" lessons
+    let gossipLesson = null;
+    const refEngine = this.reflectionEngine || civContext.reflectionEngine;
+    if (refEngine && typeof refEngine.getLessonForGossip === 'function') {
+      const senderTrust = relationship?.trust ?? 50;
+      const traits = this.persona.traits || {};
+      const canGossip = senderTrust >= 40 || (traits.sociability || 0.5) >= 0.60;
+      if (canGossip && Math.random() < 0.40) {
+        gossipLesson = refEngine.getLessonForGossip();
+      }
+    }
 
     const payload = {
       taskType: 'SOCIAL_CHAT',
@@ -24,7 +46,10 @@ class SocialDialogueEngine {
       persona: this.persona.getPersonaPromptContext(),
       goals: this.goalManager.getGoalContext(),
       diplomacy: this.factionManager ? this.factionManager.getDiplomaticContext() : {},
-      civContext: civContext
+      civContext: {
+        ...civContext,
+        gossipEligibleLesson: gossipLesson ? gossipLesson.lesson : null
+      }
     };
 
     try {
@@ -41,8 +66,21 @@ class SocialDialogueEngine {
         this.goalManager.setGoal(response.newGoal);
       }
 
-      // Shared Goal Recruitment Evaluation
+      // 2. Incoming Informal Lesson Hearing from Peer Chat
+      const ruleEngine = this.dynamicRuleEngine || civContext.dynamicRuleEngine;
       const lower = message.toLowerCase();
+      const isSurvivalTip = lower.includes('freeze') || lower.includes('powder snow') || lower.includes('boots') ||
+                            lower.includes('lava') || lower.includes('fire') || lower.includes('drown') ||
+                            lower.includes('avoid') || lower.includes('watch out') || lower.includes('learned') ||
+                            lower.includes('lesson') || lower.includes('tip:');
+
+      if (isSurvivalTip && ruleEngine && typeof ruleEngine.seedFromGossip === 'function') {
+        const senderTrust = (relationship?.trust ?? 50) / 100;
+        const informalConfidence = Number(Math.min(0.40, Math.max(0.25, 0.30 + (senderTrust - 0.5) * 0.15)).toFixed(2));
+        ruleEngine.seedFromGossip(sender, message, informalConfidence);
+      }
+
+      // Shared Goal Recruitment Evaluation
       if ((lower.includes('shared goal') || lower.includes('community project') || lower.includes('let\'s build') || lower.includes('need volunteers')) &&
           civContext.activeSharedGoals && civContext.activeSharedGoals.length > 0) {
         const tr = this.persona.traits || {};

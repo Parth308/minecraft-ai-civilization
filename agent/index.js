@@ -188,6 +188,8 @@ function createAgent() {
   const memoryClient = new MemoryClient(config.username);
   const reflection = new ReflectionEngine(brainClient, persona, memoryClient, chat);
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
+  dialogueEngine.setReflectionEngine(reflection);
+  dialogueEngine.setDynamicRuleEngine(decisionTree.dynamicRuleEngine);
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
   });
@@ -391,6 +393,7 @@ function createAgent() {
             ts: new Date().toISOString(),
             action: decision.action,
             source: decisionSource,
+            ruleId: decision.ruleId || decision.meta?.ruleId || null,
             confidence: decision.confidence ?? null,
             provider: decision.provider || null,
             model: decision.model || null,
@@ -933,8 +936,48 @@ function createAgent() {
     stats.addHappiness(-50);
     stats.addAnger(30);
     detailedLogger.logCombat(bot.username, 'AGENT DIED', { deathPosition: position, cause });
-    persona.evolveFromExperience('death', { cause: cause || 'mortal wound / hazard' });
-    eventBuffer.addEvent('death', { position, cause, scarSummary: persona.getScarSummary() });
+
+    // 1. Local-first negative reinforcement on fatal decision chain
+    const penalizedRules = decisionTree?.dynamicRuleEngine?.penalizeFatalDecisionChain(
+      agentState.recentDecisions,
+      cause || 'mortal wound / hazard'
+    ) || [];
+
+    // 2. Persona scarring with deathCause and penalizedRules
+    persona.evolveFromExperience('death', {
+      cause: cause || 'mortal wound / hazard',
+      penalizedRules
+    });
+
+    eventBuffer.addEvent('death', {
+      position,
+      cause,
+      penalizedRules,
+      scarSummary: persona.getScarSummary()
+    });
+
+    // 3. Register death in memory service ledger for civilization audit
+    const serviceUrl = memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+    fetch(`${serviceUrl}/api/ledger/deaths`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId: bot.username,
+        deathCause: cause || 'fatal hazard',
+        position,
+        penalizedRules,
+        scarSummary: persona.getScarSummary()
+      })
+    }).catch(() => {});
+
+    // 4. Trigger immediate high-severity reflection so death lesson forms and propagates
+    reflection.runReflection(
+      [
+        ...(agentState.recentDecisions || []).slice(-5).map(d => ({ event: 'decision', action: d.action, reason: d.reason })),
+        { event: 'death', cause, position, penalizedRules }
+      ],
+      stats.getSummary()
+    );
   });
 
   events.on('agentRespawn', () => {

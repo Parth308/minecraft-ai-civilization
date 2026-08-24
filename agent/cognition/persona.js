@@ -249,6 +249,24 @@ class DynamicPersona {
     };
   }
 
+  /**
+   * Calculates effective openness blended with lesson severity.
+   * Severe hazard lessons raise the odds of public sharing without overriding personality.
+   * effectiveOpenness = baseOpenness + severity * severityWeight (severityWeight = 0.35)
+   */
+  calculateEffectiveOpenness(severity = 0.5) {
+    const baseOpenness = this.traits?.openness ?? 0.50;
+    const severityWeight = 0.35;
+    const effective = Math.min(0.99, Math.max(0.01, Number((baseOpenness + (severity * severityWeight)).toFixed(2))));
+    const effectivePrivacy = effective >= 0.60 ? 'public' : (effective <= 0.35 ? 'private' : 'ask');
+    return {
+      baseOpenness,
+      effectiveOpenness: effective,
+      effectivePrivacy,
+      severity
+    };
+  }
+
   setPrivacyPreference(pref) {
     if (['public', 'private', 'ask'].includes(pref)) {
       this.privacyPreference = pref;
@@ -282,6 +300,7 @@ class DynamicPersona {
     switch (eventType) {
       case 'death': {
         const cause = (typeof impact === 'object' && impact?.cause) ? impact.cause : 'fatal hazard';
+        const penalizedRules = (typeof impact === 'object' && impact?.penalizedRules) ? impact.penalizedRules : [];
         const prevCaution = this.traits.caution;
         const prevAmbition = this.traits.ambition;
 
@@ -294,12 +313,14 @@ class DynamicPersona {
         this.scarHistory.push({
           event: 'death',
           cause,
+          deathCause: cause,
+          penalizedRules,
           cautionDelta,
           ambitionDelta,
           timestamp: new Date().toISOString()
         });
 
-        logger.warn('Persona', `[TRAIT SCARRING] ${this.agentId} permanently scarred by death (${cause}): Caution -> ${this.traits.caution} (+${cautionDelta}), Ambition -> ${this.traits.ambition} (${ambitionDelta})`);
+        logger.warn('Persona', `[TRAIT SCARRING] ${this.agentId} permanently scarred by death (${cause}): Caution -> ${this.traits.caution} (+${cautionDelta}), Ambition -> ${this.traits.ambition} (${ambitionDelta})${penalizedRules.length > 0 ? ` | Penalized Rules: ${penalizedRules.join(', ')}` : ''}`);
         break;
       }
 

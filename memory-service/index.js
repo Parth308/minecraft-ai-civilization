@@ -144,15 +144,38 @@ app.get('/api/ledger', (req, res) => {
 
 // Shared Lessons Endpoints
 app.get('/api/ledger/lessons', (req, res) => {
-  res.json({ count: ledger.getSharedLessons().length, sharedLessons: ledger.getSharedLessons() });
+  res.json({
+    count: ledger.getSharedLessons().length,
+    sharedLessons: ledger.getSharedLessons(),
+    unsharedCount: ledger.getUnsharedLessons().length,
+    unsharedLessons: ledger.getUnsharedLessons()
+  });
+});
+
+app.get('/api/ledger/lessons/unshared', (req, res) => {
+  res.json({ count: ledger.getUnsharedLessons().length, unsharedLessons: ledger.getUnsharedLessons() });
 });
 
 app.post('/api/ledger/lessons', (req, res) => {
-  const { agentId, lesson, isPublic, context, confidence } = req.body;
+  const { agentId, lesson, isPublic, context, confidence, severity, status } = req.body;
   if (!agentId || !lesson) {
     return res.status(400).json({ error: 'agentId and lesson string required' });
   }
-  const result = ledger.recordLesson(agentId, lesson, isPublic, context, confidence);
+  const result = ledger.recordLesson(agentId, lesson, isPublic, context, confidence, severity, status);
+  res.json(result);
+});
+
+// Deaths / Hazard Casualties Endpoints
+app.get('/api/ledger/deaths', (req, res) => {
+  res.json({ count: ledger.getDeaths().length, deaths: ledger.getDeaths() });
+});
+
+app.post('/api/ledger/deaths', (req, res) => {
+  const { agentId, deathCause, position, penalizedRules, scarSummary } = req.body;
+  if (!agentId) {
+    return res.status(400).json({ error: 'agentId required' });
+  }
+  const result = ledger.recordDeath(agentId, deathCause, position, penalizedRules, scarSummary);
   res.json(result);
 });
 
