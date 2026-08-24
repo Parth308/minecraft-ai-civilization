@@ -37,10 +37,11 @@ async function queryCerebras(apiKey, prompt, options = {}) {
 
       const latencyMs = Date.now() - t0;
 
-      if (response.status === 429) {
+      if (response.status === 429 || response.status === 402 || response.status === 403) {
+        // Rate/quota/access blocks apply account-wide — trying more models cannot help
         const errText = await response.text().catch(() => '');
-        const error = new Error(`Cerebras API Rate Limit Exceeded (429) | ${errText}`);
-        error.status = 429;
+        const error = new Error(`Cerebras API blocked (HTTP ${response.status}) | ${errText.slice(0, 150)}`);
+        error.status = response.status;
         throw error;
       }
 

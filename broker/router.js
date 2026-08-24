@@ -35,9 +35,9 @@ const BENCHMARK_RATES_PER_MTOK = {
   SiliconFlow: { input: 0.00, output: 0.00, name: 'SiliconFlow Qwen3-8B / DS-R1-Distill (Permanent $0 Models)' },
   Zhipu:       { input: 0.00, output: 0.00, name: 'Zhipu GLM-4-Flash (Free Tier)' },
   Mistral:     { input: 0.50, output: 1.50, name: 'Mistral Experiment Plan (~1B tokens/month free)' },
-  GithubModels:{ input: 0.00, output: 0.00, name: 'GitHub Models GPT-4o-mini (Free w/ GitHub PAT)' },
+  GithubModels:{ input: 0.00, output: 0.00, name: 'GitHub Models (⚠️ PLATFORM RETIRING - brownout 404/410s)' },
   LiteRouter:  { input: 0.00, output: 0.00, name: 'LiteRouter :free Models (Unlimited calls / ~7s cooldown)' },
-  TokenReply:  { input: 0.00, output: 0.00, name: 'TokenReply Free Models (Check-in Gated Allowance)' },
+  TokenReply:  { input: 0.00, output: 0.00, name: 'TokenReply Free Models (-free suffix IDs, verified live)' },
   Pollinations:{ input: 0.00, output: 0.00, name: 'Pollinations (Anonymous Lane UNVERIFIED - 402 observed 2026-08)' },
   Agnes:       { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
   LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' }
@@ -201,13 +201,13 @@ class ProviderRouter {
     let baseOrder;
     if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'GithubModels', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'LiteRouter', 'Gemini', 'LLM7', 'Agnes'];
+      baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'LiteRouter', 'GithubModels', 'Gemini', 'LLM7', 'Agnes'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'GithubModels', 'Nvidia', 'OpenRouter', 'LiteRouter', 'LLM7'];
+      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'OpenRouter', 'LiteRouter', 'LLM7', 'GithubModels'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
-      baseOrder = ['Groq', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LiteRouter', 'LLM7', 'Pollinations', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini'];
+      baseOrder = ['Groq', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LiteRouter', 'LLM7', 'Pollinations', 'TokenReply', 'OpenRouter', 'Agnes', 'GithubModels', 'Gemini'];
     }
 
     // Filter to configured, non-rate-limited providers
