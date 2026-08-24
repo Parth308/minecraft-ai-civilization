@@ -12,6 +12,8 @@ module.exports = {
     zhipu: process.env.ZHIPU_API_KEY,
     mistral: process.env.MISTRAL_API_KEY,
     githubModels: process.env.GITHUB_MODELS_TOKEN,
+    literouter: process.env.LITEROUTER_API_KEY,
+    tokenreply: process.env.TOKENREPLY_API_KEY,
     pollinations: process.env.POLLINATIONS_API_KEY || 'unused',
     agnes: process.env.AGNES_API_KEY,
     llm7: process.env.LLM7_API_KEY || 'unused'

@@ -7,6 +7,8 @@ const querySiliconFlow = require('./providers/siliconflow');
 const queryZhipu = require('./providers/zhipu');
 const queryMistral = require('./providers/mistral');
 const queryGitHubModels = require('./providers/githubmodels');
+const queryLiteRouter = require('./providers/literouter');
+const queryTokenReply = require('./providers/tokenreply');
 const queryPollinations = require('./providers/pollinations');
 const queryAgnes = require('./providers/agnes');
 const queryLLM7 = require('./providers/llm7');
@@ -34,6 +36,8 @@ const BENCHMARK_RATES_PER_MTOK = {
   Zhipu:       { input: 0.00, output: 0.00, name: 'Zhipu GLM-4-Flash (Free Tier)' },
   Mistral:     { input: 0.50, output: 1.50, name: 'Mistral Experiment Plan (~1B tokens/month free)' },
   GithubModels:{ input: 0.00, output: 0.00, name: 'GitHub Models GPT-4o-mini (Free w/ GitHub PAT)' },
+  LiteRouter:  { input: 0.00, output: 0.00, name: 'LiteRouter :free Models (Unlimited calls / ~7s cooldown)' },
+  TokenReply:  { input: 0.00, output: 0.00, name: 'TokenReply Free Models (Check-in Gated Allowance)' },
   Pollinations:{ input: 0.00, output: 0.00, name: 'Pollinations (Anonymous Lane UNVERIFIED - 402 observed 2026-08)' },
   Agnes:       { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
   LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' }
@@ -62,6 +66,8 @@ class ProviderRouter {
       Zhipu: { name: 'Zhipu', key: config.keys.zhipu, fn: queryZhipu },
       Mistral: { name: 'Mistral', key: config.keys.mistral, fn: queryMistral },
       GithubModels: { name: 'GithubModels', key: config.keys.githubModels, fn: queryGitHubModels },
+      LiteRouter: { name: 'LiteRouter', key: config.keys.literouter, fn: queryLiteRouter },
+      TokenReply: { name: 'TokenReply', key: config.keys.tokenreply, fn: queryTokenReply },
       Pollinations: { name: 'Pollinations', key: config.keys.pollinations, fn: queryPollinations },
       Agnes: { name: 'Agnes', key: config.keys.agnes, fn: queryAgnes },
       LLM7: { name: 'LLM7', key: config.keys.llm7, fn: queryLLM7 }
@@ -195,13 +201,13 @@ class ProviderRouter {
     let baseOrder;
     if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'GithubModels', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes'];
+      baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'GithubModels', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'LiteRouter', 'Gemini', 'LLM7', 'Agnes'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'GithubModels', 'Nvidia', 'OpenRouter', 'LLM7'];
+      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'GithubModels', 'Nvidia', 'OpenRouter', 'LiteRouter', 'LLM7'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
-      baseOrder = ['Groq', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LLM7', 'Pollinations', 'OpenRouter', 'Agnes', 'Gemini'];
+      baseOrder = ['Groq', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LiteRouter', 'LLM7', 'Pollinations', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini'];
     }
 
     // Filter to configured, non-rate-limited providers
