@@ -114,6 +114,7 @@ class SocialDialogueEngine {
           speakerOwesYou: (society?.openDebts || []).filter(d => d.creditor.toLowerCase() === this.persona.agentId.toLowerCase() && d.debtor.toLowerCase() === sender.toLowerCase()).map(d => `${d.amount}x ${d.item}`)
         },
         intelMarket: (society?.intelListings || []).slice(0, 5).map(i => `"${i.title}" — ${i.priceAmount}x ${i.priceItem} (seller: ${i.seller})`),
+        marketPrices: (society?.marketHighlights || []).slice(0, 6).map(m => `${m.item}: ~${m.average} ${m.unitCurrency} (from ${m.samples} trades)`),
         tensionWithSpeaker: (() => {
           const g = society?.topGrievances || [];
           return g.filter(x => (x.by.toLowerCase() === sender.toLowerCase() && x.against.toLowerCase() === this.persona.agentId.toLowerCase()) ||

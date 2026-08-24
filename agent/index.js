@@ -975,6 +975,20 @@ function createAgent() {
       })
     }).catch(() => {});
 
+    // The world remembers where agents fell — a shared haunted-geography emerges
+    if (position && typeof position.x === 'number') {
+      fetch(`${serviceUrl}/api/society/places`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: bot.username,
+          x: position.x, z: position.z, y: position.y,
+          sentiment: -0.8,
+          label: `Died here to ${cause || 'hazard'}`
+        })
+      }).catch(() => {});
+    }
+
     // 3b. Death costs MIND, not life: traumatic amnesia erases a chunk of learned
     // skills/memories. This is why elders (long survival without dying) are rare
     // and their knowledge is genuinely precious.

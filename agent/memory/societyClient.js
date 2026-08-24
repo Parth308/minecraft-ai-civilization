@@ -168,6 +168,61 @@ class SocietyClient {
       return {};
     });
   }
+
+  // ── Wallets / market / place-memory ────────────────────────────────────────
+
+  transfer(toAgent, currency, amount, reason = '') {
+    return fetch(`${this.serviceUrl}/api/society/wallets/transfer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromAgent: this.agentId, toAgent, currency, amount, reason })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Transfer failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  mint(currency, amount, reason) {
+    return fetch(`${this.serviceUrl}/api/society/wallets/mint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, currency, amount, reason })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Mint failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  walletBalance() {
+    return fetch(`${this.serviceUrl}/api/society/wallets/${encodeURIComponent(this.agentId)}`)
+      .then(r => r.json()).catch(() => ({ balances: {} }));
+  }
+
+  marketPrice(item) {
+    return fetch(`${this.serviceUrl}/api/society/market/price/${encodeURIComponent(item)}`)
+      .then(r => r.json()).catch(() => ({ average: null }));
+  }
+
+  rememberPlace(x, z, sentiment, label, radius = 16, y = null) {
+    return fetch(`${this.serviceUrl}/api/society/places`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, x, z, sentiment, label, radius, y })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Place memory failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  async placesNear(x, z, radius = 24) {
+    const ctx = await this.getContext(true);
+    // Place memories are agent-scoped; filter the shared snapshot locally
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/places/near?agentId=${encodeURIComponent(this.agentId)}&x=${Math.round(x)}&z=${Math.round(z)}&radius=${radius}`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return (await res.json()).places || [];
+    } catch { /* fall through */ }
+    return [];
+  }
 }
 
 module.exports = SocietyClient;

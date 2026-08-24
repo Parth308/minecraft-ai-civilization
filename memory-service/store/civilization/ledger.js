@@ -283,6 +283,23 @@ class CivilizationLedger {
     this.saveLedger(data);
     logger.info('CivLedger', `[TRADE RECORDED] ${agentA} <-> ${agentB}: ${JSON.stringify(itemsGiven)} for ${JSON.stringify(itemsReceived)} (Fairness: ${entry.fairnessScore})`);
     detailedLogger.logCivilizationMilestone('trade_executed', `Trade between ${agentA} and ${agentB}`, entry);
+
+    // Barter cross-rates feed the market price memory — economies develop
+    // a sense of "what things usually go for" from real observed trades.
+    try {
+      const { sharedStore } = require('../../society');
+      const given = Array.isArray(itemsGiven) ? itemsGiven : [];
+      const received = Array.isArray(itemsReceived) ? itemsReceived : [];
+      for (const g of given) {
+        for (const r of received) {
+          if (!g.item || !r.item || !g.count || !r.count) continue;
+          sharedStore.recordPrice(g.item, r.count / g.count, r.item, `trade:${entry.id}`);
+          sharedStore.recordPrice(r.item, g.count / r.count, g.item, `trade:${entry.id}`);
+        }
+      }
+    } catch (priceErr) {
+      logger.debug('CivLedger', `Price memory skipped: ${priceErr.message}`);
+    }
     return { saved: true, trade: entry };
   }
 

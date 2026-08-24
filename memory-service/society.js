@@ -29,6 +29,9 @@ class SocietyStore {
         debts: [],
         intel: [],
         grievances: [],
+        wallets: {},
+        priceMemory: {},
+        placeMemories: [],
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -49,10 +52,13 @@ class SocietyStore {
       if (!Array.isArray(data.debts)) data.debts = [];
       if (!Array.isArray(data.intel)) data.intel = [];
       if (!Array.isArray(data.grievances)) data.grievances = [];
+      if (!data.wallets || typeof data.wallets !== 'object') data.wallets = {};
+      if (!data.priceMemory || typeof data.priceMemory !== 'object') data.priceMemory = {};
+      if (!Array.isArray(data.placeMemories)) data.placeMemories = [];
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
-      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], updatedAt: new Date().toISOString() };
+      return { reputation: {}, gossip: [], notices: [], conventions: {}, pledges: [], property: {}, accessLog: [], accusations: [], debts: [], intel: [], grievances: [], wallets: {}, priceMemory: {}, placeMemories: [], updatedAt: new Date().toISOString() };
     }
   }
 
@@ -484,6 +490,98 @@ class SocietyStore {
     return this.load().grievances.slice(-limit).reverse();
   }
 
+  // ── Currency Wallets & Market Price Memory ───────────────────────────────────
+
+  _wallet(data, agentId) {
+    if (!data.wallets[agentId]) data.wallets[agentId] = {};
+    return data.wallets[agentId];
+  }
+
+  walletBalance(agentId, currency = null) {
+    const w = this.load().wallets[agentId] || {};
+    return currency ? { agentId, currency, balance: w[currency] || 0 } : { agentId, balances: w };
+  }
+
+  // Zero-sum movement — wealth is created only via mint() below
+  transfer(fromAgent, toAgent, currency, amount, reason = '') {
+    const amt = Math.floor(Number(amount));
+    if (!fromAgent || !toAgent || fromAgent === toAgent) return { success: false, reason: 'Distinct parties required' };
+    if (!currency || !Number.isFinite(amt) || amt <= 0) return { success: false, reason: 'Valid currency and positive amount required' };
+
+    const data = this.load();
+    const from = this._wallet(data, fromAgent);
+    if ((from[currency] || 0) < amt) {
+      return { success: false, reason: `Insufficient funds: has ${from[currency] || 0} ${currency}, needs ${amt}` };
+    }
+    from[currency] -= amt;
+    const to = this._wallet(data, toAgent);
+    to[currency] = (to[currency] || 0) + amt;
+    this.save(data);
+    logger.info('SocietyStore', `[TRANSFER] ${fromAgent} -> ${toAgent}: ${amt} ${currency} (${reason})`);
+    return { success: true, fromBalance: from[currency], toBalance: to[currency] };
+  }
+
+  // Bootstrap issuance for a young economy. Loudly logged; gate with env if abused.
+  mint(agentId, currency, amount, reason = 'economy bootstrap') {
+    const amt = Math.floor(Number(amount));
+    if (!agentId || !currency || !Number.isFinite(amt) || amt <= 0) return { success: false, reason: 'Invalid mint' };
+    if (process.env.SOCIETY_MINT_DISABLED === 'true') return { success: false, reason: 'Minting disabled' };
+    const data = this.load();
+    const w = this._wallet(data, agentId);
+    w[currency] = (w[currency] || 0) + amt;
+    this.save(data);
+    logger.warn('SocietyStore', `[MINT] ${agentId} +${amt} ${currency} (${reason})`);
+    return { success: true, balance: w[currency] };
+  }
+
+  // Every observed trade feeds the market memory. unitPrice expressed in units of
+  // unitCurrency per ONE of `item`.
+  recordPrice(item, unitAmount, unitCurrency, source = 'trade') {
+    const data = this.load();
+    if (!data.priceMemory[item]) data.priceMemory[item] = [];
+    data.priceMemory[item].push({ unitPrice: Number(unitAmount), unitCurrency, source, ts: new Date().toISOString() });
+    if (data.priceMemory[item].length > 20) data.priceMemory[item].splice(0, data.priceMemory[item].length - 20);
+    this.save(data);
+  }
+
+  getMarketPrice(item) {
+    const samples = (this.load().priceMemory[item] || []).slice(-10);
+    if (samples.length === 0) return { item, samples: 0, average: null, lastUnit: null, unitCurrency: null };
+    const avg = samples.reduce((sum, s) => sum + s.unitPrice, 0) / samples.length;
+    const last = samples[samples.length - 1];
+    return { item, samples: samples.length, average: Number(avg.toFixed(2)), lastUnit: last.unitPrice, unitCurrency: last.unitCurrency };
+  }
+
+  // ── Place-Memory (geography that remembers what happened there) ─────────────
+
+  rememberPlace(agentId, x, z, sentiment, label, radius = 16, y = null) {
+    const s = Math.max(-1, Math.min(1, Number(sentiment)));
+    if (!agentId || !Number.isFinite(s)) return { success: false, reason: 'agentId and numeric sentiment required' };
+    const data = this.load();
+    const entry = {
+      id: `plc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      agentId,
+      x: Math.round(x), y: y == null ? null : Math.round(y), z: Math.round(z),
+      sentiment: Number(s.toFixed(2)),
+      label: String(label).slice(0, 100),
+      radius,
+      timestamp: new Date().toISOString()
+    };
+    data.placeMemories.push(entry);
+    if (data.placeMemories.length > 150) data.placeMemories.splice(0, data.placeMemories.length - 150);
+    this.save(data);
+    logger.info('SocietyStore', `[PLACE MEMORY] ${agentId} @ (${entry.x},${entry.z}): "${label}" (${entry.sentiment})`);
+    return { success: true, place: entry };
+  }
+
+  getPlacesNear(agentId, x, z, radius = 24) {
+    const data = this.load().placeMemories.filter(p =>
+      p.agentId === agentId &&
+      Math.hypot(p.x - x, p.z - z) <= Math.max(radius, p.radius || 16)
+    );
+    return data.slice(-6);
+  }
+
   getContextSnapshot() {
     const data = this.load();
     return {
@@ -494,6 +592,10 @@ class SocietyStore {
       openDebts: data.debts.filter(d => d.status === 'open').slice(-10),
       intelListings: data.intel.filter(i => i.status === 'listed').slice(-8),
       topGrievances: data.grievances.slice(-8).reverse(),
+      marketHighlights: Object.keys(data.priceMemory)
+        .map(item => ({ item, ...this.getMarketPrice(item) }))
+        .filter(m => m.samples > 0)
+        .slice(0, 10),
       recentGossip: data.gossip.slice(-12),
       reputationHighlights: Object.entries(data.reputation)
         .map(([agentId, r]) => ({ agentId, score: r.score }))
@@ -623,6 +725,41 @@ function societyRoutes(app) {
     const { a, b } = req.query;
     if (!a || !b) return res.status(400).json({ error: 'a and b required' });
     res.json({ a, b, tension: store.tensionBetween(a, b) });
+  });
+
+  app.get('/api/society/wallets/:agentId', (req, res) => {
+    res.json(store.walletBalance(req.params.agentId, req.query.currency || null));
+  });
+
+  app.post('/api/society/wallets/transfer', (req, res) => {
+    const { fromAgent, toAgent, currency, amount, reason } = req.body || {};
+    res.json(store.transfer(fromAgent, toAgent, currency, amount, reason));
+  });
+
+  app.post('/api/society/wallets/mint', (req, res) => {
+    const { agentId, currency, amount, reason } = req.body || {};
+    res.json(store.mint(agentId, currency, amount, reason));
+  });
+
+  app.get('/api/society/market/price/:item', (req, res) => {
+    res.json(store.getMarketPrice(decodeURIComponent(req.params.item)));
+  });
+
+  app.post('/api/society/market/price', (req, res) => {
+    const { item, unitAmount, unitCurrency, source } = req.body || {};
+    store.recordPrice(item, unitAmount, unitCurrency, source);
+    res.json({ success: true });
+  });
+
+  app.post('/api/society/places', (req, res) => {
+    const { agentId, x, z, sentiment, label, radius, y } = req.body || {};
+    res.json(store.rememberPlace(agentId, x, z, sentiment, label, radius, y));
+  });
+
+  app.get('/api/society/places/near', (req, res) => {
+    const { agentId, x, z, radius } = req.query;
+    if (!agentId || x == null || z == null) return res.status(400).json({ error: 'agentId, x, z required' });
+    res.json({ places: store.getPlacesNear(agentId, Number(x), Number(z), Number(radius) || 24) });
   });
 
   app.get('/api/society/context', (req, res) => {

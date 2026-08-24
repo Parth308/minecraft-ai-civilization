@@ -197,9 +197,13 @@ class ProviderRouter {
     };
   }
 
-  getPreferredProviders(taskType = 'REASONING') {
+  getPreferredProviders(taskType = 'REASONING', criticality = 'normal') {
     let baseOrder;
-    if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
+    if (criticality === 'critical') {
+      // Emergencies get the smartest available brains first — quota thrift is
+      // irrelevant when the agent is on fire (sometimes literally).
+      baseOrder = ['Groq', 'Mistral', 'OpenRouter', 'LiteRouter', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'GithubModels', 'Gemini', 'LLM7', 'Agnes'];
+    } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
       baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'LiteRouter', 'GithubModels', 'Gemini', 'LLM7', 'Agnes'];
     } else if (taskType === 'REFLECTION') {
@@ -322,7 +326,12 @@ class ProviderRouter {
       webFacts = await this.webKnowledge.searchKnowledge(searchQuery);
     }
 
-    const available = this.getPreferredProviders(taskType);
+    // Criticality scoring: hazards and loop-breaks are emergencies; idle chatter
+    // burns the cheapest lanes so premium quota survives for moments that matter.
+    const criticality = (situationPayload.isHazard || situationPayload.isStuckInLoop)
+      ? 'critical'
+      : (taskType === 'SOCIAL_CHAT' ? 'routine' : 'normal');
+    const available = this.getPreferredProviders(taskType, criticality);
 
     if (available.length === 0) {
       logger.warn('Router', `No unblocked LLM providers available for task '${taskType}'! Using fallback.`);

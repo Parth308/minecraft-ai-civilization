@@ -121,7 +121,16 @@ class DecisionTree {
     let societyContext = null;
     try {
       const societyAgentId = senses.bot?.username || persona?.agentId || 'Agent';
-      societyContext = await SocietyClient.forAgent(societyAgentId).getContext();
+      const client = SocietyClient.forAgent(societyAgentId);
+      societyContext = await client.getContext();
+
+      // Geography that remembers: emotional weight of nearby places colors
+      // decisions here. The agent feels the history of the ground it stands on.
+      const pos = senses.bot?.entity?.position;
+      if (pos && typeof pos.x === 'number') {
+        const near = await client.placesNear(pos.x, pos.z, 24);
+        if (near.length > 0) societyContext.nearbyPlaceMemories = near;
+      }
     } catch { /* society knowledge is optional */ }
 
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop || isHazard) {
@@ -186,7 +195,8 @@ class DecisionTree {
           openPledges: (societyContext.openPledges || []).slice(0, 8).map(p => `${p.agentId}: ${p.description}`),
           recentNotices: (societyContext.notices || []).slice(0, 4).map(n => `[${n.type}] ${n.title}`),
           reputationHighlights: societyContext.reputationHighlights || [],
-          openAccusations: (societyContext.openAccusations || []).slice(0, 4).map(a => `${a.accuser} vs ${a.accused}: theft @${a.chestKey} (${a.evidenceCount} evidence records)`)
+          openAccusations: (societyContext.openAccusations || []).slice(0, 4).map(a => `${a.accuser} vs ${a.accused}: theft @${a.chestKey} (${a.evidenceCount} evidence records)`),
+          nearbyPlaceMemories: (societyContext.nearbyPlaceMemories || []).map(p => `(${p.x},${p.z}): ${p.label} [feeling: ${p.sentiment}]`)
         } : null
       };
 
