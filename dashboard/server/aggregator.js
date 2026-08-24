@@ -23,20 +23,24 @@ function parseAgentEndpoints() {
     }
   }
 
-  // Also include explicit single-agent env vars if provided
+  // Include explicit single-agent env vars if provided
   if (process.env.AGENT_ALPHA_STATUS_URL) list.push({ name: 'Agent_Alpha', url: process.env.AGENT_ALPHA_STATUS_URL.trim() });
   if (process.env.AGENT_BETA_STATUS_URL)  list.push({ name: 'Agent_Beta',  url: process.env.AGENT_BETA_STATUS_URL.trim() });
   if (process.env.AGENT_GAMMA_STATUS_URL) list.push({ name: 'Agent_Gamma', url: process.env.AGENT_GAMMA_STATUS_URL.trim() });
 
-  // Default fallback candidates if none configured
-  if (list.length === 0) {
-    list.push(
-      { name: 'Agent_Alpha', url: 'http://agent-alpha:3010' },
-      { name: 'Agent_Beta',  url: 'http://agent-beta:3011' },
-      { name: 'Agent_Gamma', url: 'http://agent-gamma:3012' },
-      { name: 'Agent_Local', url: 'http://localhost:3010' }
-    );
+  // Standard Docker network default endpoints
+  const standard = [
+    { name: 'Agent_Alpha', url: 'http://agent-alpha:3010' },
+    { name: 'Agent_Beta',  url: 'http://agent-beta:3011' },
+    { name: 'Agent_Gamma', url: 'http://agent-gamma:3012' }
+  ];
+
+  for (const s of standard) {
+    if (!list.some(e => e.name === s.name || e.url === s.url)) {
+      list.push(s);
+    }
   }
+
   return list;
 }
 
@@ -291,7 +295,7 @@ class Aggregator {
 
   async _pollAgentEndpoint(endpoint) {
     try {
-      const res = await fetch(`${endpoint.url}/status`, { signal: AbortSignal.timeout(2000) });
+      const res = await fetch(`${endpoint.url}/status`, { signal: AbortSignal.timeout(1500) });
       const data = await res.json();
 
       // Diff chat — surface new messages to the global feed
@@ -305,8 +309,15 @@ class Aggregator {
       }
 
       endpoint.lastSeen = Date.now();
+      endpoint.failures = 0;
       return { ...data, _reachable: true, _endpointUrl: endpoint.url };
     } catch (err) {
+      endpoint.failures = (endpoint.failures || 0) + 1;
+      // If dynamic container hash endpoint fails 3 times, remove it
+      if (endpoint.dynamic && endpoint.failures >= 3) {
+        this.agentEndpoints.delete(endpoint.url);
+      }
+
       const prev = this.state.agents.find(a => a.username === endpoint.name || a._endpointUrl === endpoint.url);
       return {
         username: prev?.username || endpoint.name,
