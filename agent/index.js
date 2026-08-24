@@ -710,26 +710,26 @@ function createAgent() {
             if (cobbleCount >= 8) {
               await inventory.craftItem('furnace', 1);
               const table = senses.getNearbyBlock('crafting_table', 4);
-              if (table) {
-                const placePos = table.position.offset(1, 0, 0);
-                const refBlock = bot.blockAt(placePos.offset(0, -1, 0));
-                if (refBlock && refBlock.name !== 'air') {
-                  await inventory.placeBlock('furnace', refBlock, new (require('vec3'))(0, 1, 0));
-                  furnaceBlock = senses.getNearbyBlock('furnace', 6);
-                }
+              const placeBase = table ? table.position.offset(1, 0, 0) : bot.entity.position.offset(1, 0, 0);
+              const refBlock = bot.blockAt(placeBase.offset(0, -1, 0));
+              if (refBlock && refBlock.name !== 'air') {
+                await inventory.placeBlock('furnace', refBlock, new (require('vec3'))(0, 1, 0));
+                furnaceBlock = senses.getNearbyBlock('furnace', 6);
               }
             }
           }
-          if (furnaceBlock && smeltInput) {
+          if (furnaceBlock) {
             try {
               const furnace = await bot.openFurnace(furnaceBlock);
-              const rawItem = bot.inventory?.items().find(i => i.name === smeltInput);
-              const fuelItem = bot.inventory?.items().find(i => i.name === 'coal' || i.name === 'charcoal' || i.name.includes('plank') || i.name.includes('log'));
+              const smeltableKeywords = ['raw_', 'beef', 'porkchop', 'mutton', 'chicken', 'salmon', 'cod', 'potato', 'clay', 'sand', 'cobblestone'];
+              const rawItem = (smeltInput ? bot.inventory?.items().find(i => i.name === smeltInput) : null) ||
+                              bot.inventory?.items().find(i => smeltableKeywords.some(k => i.name.includes(k) && !i.name.startsWith('cooked')));
+              const fuelItem = bot.inventory?.items().find(i => i.name === 'coal' || i.name === 'charcoal' || i.name.includes('plank') || i.name.includes('log') || i.name === 'stick');
               if (rawItem && fuelItem) {
                 await furnace.putInput(rawItem.type, null, Math.min(rawItem.count, 8));
                 await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 2));
                 logger.info('AgentLoop', `Loaded furnace: ${rawItem.name} + ${fuelItem.name}`);
-                eventBuffer.addEvent('smeltItem', { input: smeltInput });
+                eventBuffer.addEvent('smeltItem', { input: rawItem.name });
                 actionSuccess = true;
               }
               furnace.close();

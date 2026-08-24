@@ -9,20 +9,8 @@ function evaluateMine(senses, stats) {
                      senses.hasItem('netherite_pickaxe');
 
   // Check wood inventory
-  const logCount = senses.countItem('log') || (
-    senses.countItem('oak_log') +
-    senses.countItem('birch_log') +
-    senses.countItem('spruce_log') +
-    senses.countItem('jungle_log') +
-    senses.countItem('acacia_log') +
-    senses.countItem('dark_oak_log') +
-    senses.countItem('mangrove_log') +
-    senses.countItem('cherry_log')
-  );
-  const plankCount = senses.countItem('oak_planks') +
-                     senses.countItem('birch_planks') +
-                     senses.countItem('spruce_planks');
-
+  const logCount = senses.countItem('log');
+  const plankCount = senses.countItem('planks');
   const cobbleCount = senses.countItem('cobblestone') + senses.countItem('cobbled_deepslate');
 
   // Priority 1: Bootstrap wood gathering (< 8 wood materials) — gather essential wood for crafting
