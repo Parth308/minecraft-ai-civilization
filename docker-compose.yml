@@ -77,6 +77,8 @@ services:
     environment:
       MEMORY_PORT: 3002
       BROKER_URL: "http://brain-broker:3001"
+      # Heap below container cap: vector-index snapshots spike RAM transiently.
+      NODE_OPTIONS: "--max-old-space-size=192"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
       NVIDIA_MODEL: "${NVIDIA_MODEL:-meta/llama-3.1-8b-instruct}"
@@ -116,6 +118,9 @@ services:
     environment:
       BROKER_PORT: 3001
       MEMORY_SERVICE_URL: "http://memory-service:3002"
+      # Heap must be explicitly capped below the container limit or the
+      # kernel OOM-kills this process before V8 garbage collection triggers.
+      NODE_OPTIONS: "--max-old-space-size=192"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       GROQ_API_KEY: "${GROQ_API_KEY}"
       GROQ_MODEL: "${GROQ_MODEL:-llama-3.1-8b-instant}"
@@ -194,7 +199,7 @@ services:
       STATUS_HOST: "agent-alpha"
       STATUS_PORT: "3010"
       VIEWER_PORT: "3020"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3010/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -212,7 +217,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -238,7 +243,7 @@ services:
       STATUS_HOST: "agent-beta"
       STATUS_PORT: "3011"
       VIEWER_PORT: "3021"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3011/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -256,7 +261,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -282,7 +287,7 @@ services:
       STATUS_HOST: "agent-gamma"
       STATUS_PORT: "3012"
       VIEWER_PORT: "3022"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3012/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -300,7 +305,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -328,7 +333,7 @@ services:
       STATUS_HOST: "agent-delta"
       STATUS_PORT: "3013"
       VIEWER_PORT: "3023"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3013/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -346,7 +351,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -372,7 +377,7 @@ services:
       STATUS_HOST: "agent-echo"
       STATUS_PORT: "3014"
       VIEWER_PORT: "3024"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3014/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -390,7 +395,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -416,7 +421,7 @@ services:
       STATUS_HOST: "agent-foxtrot"
       STATUS_PORT: "3015"
       VIEWER_PORT: "3025"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3015/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -434,7 +439,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -460,7 +465,7 @@ services:
       STATUS_HOST: "agent-golf"
       STATUS_PORT: "3016"
       VIEWER_PORT: "3026"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3016/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -478,7 +483,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -504,7 +509,7 @@ services:
       STATUS_HOST: "agent-hotel"
       STATUS_PORT: "3017"
       VIEWER_PORT: "3027"
-      NODE_OPTIONS: "--max-old-space-size=400"
+      NODE_OPTIONS: "--max-old-space-size=512"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3017/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 15s
@@ -522,7 +527,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 512M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -539,6 +544,8 @@ services:
       VIEWER_PORT: 3004
       BROKER_URL: "http://brain-broker:3001"
       MEMORY_SERVICE_URL: "http://memory-service:3002"
+      # Heap below container cap: prismarine-viewer + SpectatorBot chunk caches grow.
+      NODE_OPTIONS: "--max-old-space-size=384"
       AGENT_ALPHA_STATUS_URL: "http://agent-alpha:3010"
       AGENT_BETA_STATUS_URL: "http://agent-beta:3011"
       AGENT_GAMMA_STATUS_URL: "http://agent-gamma:3012"

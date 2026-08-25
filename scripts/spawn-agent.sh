@@ -14,8 +14,8 @@ echo "    Container:    $CONTAINER_NAME"
 docker run -d \
   --name "$CONTAINER_NAME" \
   --network "minecraft-community_minecraft-network" \
-  --memory="256m" \
-  --cpus="0.5" \
+  --memory="768m" \
+  --cpus="0.6" \
   -e MC_HOST="minecraft-server" \
   -e MC_PORT=25565 \
   -e MC_USERNAME="$AGENT_NAME" \
@@ -25,6 +25,7 @@ docker run -d \
   -e CONFIDENCE_THRESHOLD="0.6" \
   -e BROKER_URL="http://brain-broker:3001" \
   -e MEMORY_SERVICE_URL="http://memory-service:3002" \
+  -e NODE_OPTIONS="--max-old-space-size=512" \
   --restart unless-stopped \
   minecraft-community_agent-alpha:latest
 
