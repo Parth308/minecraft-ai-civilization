@@ -178,6 +178,12 @@ class DecisionTree {
         client.setLastPosition(pos.x, pos.z);
         const near = await client.placesNear(pos.x, pos.z, 24);
         if (near.length > 0) societyContext.nearbyPlaceMemories = near;
+        // Field observations other settlers logged nearby — offered as hints,
+        // never instructions.
+        try {
+          const dRes = await fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/world/discoveries?x=${Math.round(pos.x)}&z=${Math.round(pos.z)}&radius=64&limit=5`, { signal: AbortSignal.timeout(3000) });
+          if (dRes.ok) societyContext.nearbyDiscoveries = (await dRes.json()).discoveries || [];
+        } catch { /* optional context */ }
       }
     } catch { /* society knowledge is optional */ }
 
@@ -244,7 +250,8 @@ class DecisionTree {
           recentNotices: (societyContext.notices || []).slice(0, 4).map(n => `[${n.type}] ${n.title}`),
           reputationHighlights: societyContext.reputationHighlights || [],
           openAccusations: (societyContext.openAccusations || []).slice(0, 4).map(a => `${a.accuser} vs ${a.accused}: theft @${a.chestKey} (${a.evidenceCount} evidence records)`),
-          nearbyPlaceMemories: (societyContext.nearbyPlaceMemories || []).map(p => `(${p.x},${p.z}): ${p.label} [feeling: ${p.sentiment}]`)
+          nearbyPlaceMemories: (societyContext.nearbyPlaceMemories || []).map(p => `(${p.x},${p.z}): ${p.label} [feeling: ${p.sentiment}]`),
+          nearbyDiscoveries: (societyContext.nearbyDiscoveries || []).map(d => `${d.item} @(${d.x},${d.z}) — seen by ${d.agentId}`)
         } : null,
         innerLife: {
           mood: emo.mood,

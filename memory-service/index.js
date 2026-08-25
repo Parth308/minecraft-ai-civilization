@@ -105,6 +105,48 @@ app.post('/api/memory/consolidate', async (req, res) => {
   res.json(result);
 });
 
+// Shared World Knowledge — settlers' field observations, queryable by area.
+// Pure information service: contributing records facts; nobody is obliged to
+// read or act on them.
+const WORLD_DISCOVERIES_PATH = path.join(config.baseStorePath, '..', 'store', 'world_discoveries.json');
+
+function readDiscoveries() {
+  try {
+    if (!fs.existsSync(WORLD_DISCOVERIES_PATH)) return [];
+    return JSON.parse(fs.readFileSync(WORLD_DISCOVERIES_PATH, 'utf8'));
+  } catch { return []; }
+}
+
+app.post('/api/world/discoveries', (req, res) => {
+  const { agentId, kind, item, x, y, z, note } = req.body || {};
+  if (!agentId || !item || x === undefined || z === undefined) {
+    return res.status(400).json({ error: 'agentId, item, x, z required' });
+  }
+  const discoveries = readDiscoveries();
+  const entry = {
+    agentId,
+    kind: kind || 'ore',
+    item: String(item).slice(0, 60),
+    x: Math.round(Number(x)), y: Math.round(Number(y) || 0), z: Math.round(Number(z)),
+    note: String(note || '').slice(0, 120),
+    timestamp: Date.now()
+  };
+  discoveries.push(entry);
+  fs.writeFileSync(WORLD_DISCOVERIES_PATH, JSON.stringify(discoveries.slice(-500)));
+  res.json({ saved: true });
+});
+
+app.get('/api/world/discoveries', (req, res) => {
+  const { x, z, radius = '64', item, limit = '5' } = req.query;
+  let list = readDiscoveries();
+  if (x !== undefined && z !== undefined) {
+    const cx = Number(x), cz = Number(z), r2 = Number(radius) * Number(radius);
+    list = list.filter(d => (d.x - cx) ** 2 + (d.z - cz) ** 2 <= r2);
+  }
+  if (item) list = list.filter(d => d.item.includes(String(item)));
+  res.json({ count: list.length, discoveries: list.slice(-parseInt(limit, 10) || 5) });
+});
+
 // Goal Persistence (restart-safe objectives per agent)
 app.get('/api/memory/goal', (req, res) => {
   const { agentId } = req.query;

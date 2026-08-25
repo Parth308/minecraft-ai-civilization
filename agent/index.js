@@ -264,6 +264,7 @@ function createAgent() {
   const PLAYER_CHAT_COOLDOWN_MS = 1800; // min 1.8s between replies to player
   let lastOutgoingChat = 0;             // global outgoing chat throttle
   let lastTorchPlacement = 0;
+  let lastDiscoveryPost = 0;
   const lastDeathLessonAt = {};
 
   const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
@@ -438,6 +439,27 @@ function createAgent() {
         } catch { /* profession tracking is advisory */ }
       }, 90000);
       professionTimer.unref?.();
+
+      // Heap watchdog: samples RSS/heap growth every 10s. If heap approaches
+      // the V8 cap we exit(0) CLEANLY — docker restarts a fresh process with
+      // zero crash side-effects — and the growth log names what is leaking.
+      let _lastHeapLog = 0;
+      const heapTimer = setInterval(() => {
+        try {
+          const mu = process.memoryUsage();
+          const mb = n => Math.round(n / 1048576);
+          if (Date.now() - _lastHeapLog > 60000) {
+            _lastHeapLog = Date.now();
+            logger.info('AgentLoop', `[HEAP] rss=${mb(mu.rss)}MB heapUsed=${mb(mu.heapUsed)}MB external=${mb(mu.external)}MB arrayBuffers=${mb(mu.arrayBuffers)}MB`);
+          }
+          if (mu.heapUsed > 440 * 1048576) {
+            logger.error('AgentLoop', `[HEAP WATCHDOG] heapUsed=${mb(mu.heapUsed)}MB approaching cap — clean restart (growth trend in [HEAP] logs above)`);
+            detailedLogger.logCognition(bot.username, 'Clean restart triggered by heap watchdog');
+            process.exit(0);
+          }
+        } catch { /* watchdog must never throw */ }
+      }, 10000);
+      heapTimer.unref?.();
 
       // Main Agent Loop (Tick-based with agent-staggered start to prevent API congestion)
       const staggerDelay = config.username === 'Agent_Alpha' ? 0 : config.username === 'Agent_Beta' ? 350 : 700;
@@ -757,6 +779,26 @@ function createAgent() {
         case 'BUILD': {
           const buildType = decision.buildType || 'shelter';
           logger.info('AgentLoop', `Executing autonomous BUILD action: ${buildType}`);
+
+          // A memorial is the agent's own choice when a place-memory moves
+          // them — one block, placed where they stand. Nothing auto-triggers it.
+          if (buildType === 'memorial') {
+            const groundBelow = bot.entity?.position ? bot.blockAt(bot.entity.position.offset(0, -1, 0)) : null;
+            if (groundBelow) {
+              const placed = await inventory.placeBlock('torch', groundBelow);
+              if (placed) {
+                eventBuffer.addEvent('memorialPlaced', { position: bot.entity.position });
+                detailedLogger.logCognition(bot.username, 'Placed a memorial at a meaningful place');
+                actionSuccess = true;
+              } else {
+                actionSuccess = false;
+              }
+            } else {
+              actionSuccess = false;
+            }
+            break;
+          }
+
           const didBuild = await builder.buildShelter();
           if (didBuild && Date.now() - lastOutgoingChat > 3000) {
             lastOutgoingChat = Date.now();
@@ -1257,6 +1299,21 @@ function createAgent() {
   events.on('blockBroken', ({ blockName, position }) => {
     detailedLogger.logInventory(bot.username, `Block Excavation Completed: ${blockName}`, { position });
     eventBuffer.addEvent('blockBroken', { blockName, position });
+    // Log valuable finds to the shared world-knowledge pool — a record of
+    // fact, offered to whoever may care. Purely informational.
+    if (/ore|ancient_debris/.test(blockName) && Date.now() - (lastDiscoveryPost || 0) > 10000 && position) {
+      lastDiscoveryPost = Date.now();
+      fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/world/discoveries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: bot.username,
+          kind: 'ore',
+          item: blockName,
+          x: position.x, y: position.y, z: position.z
+        })
+      }).catch(() => {});
+    }
     // Spontaneous celebratory chat when striking valuable ores
     const rareOres = ['diamond_ore', 'deepslate_diamond_ore', 'ancient_debris', 'gold_ore', 'emerald_ore'];
     if (rareOres.some(r => blockName.includes(r)) && Date.now() - lastOutgoingChat > 5000) {
