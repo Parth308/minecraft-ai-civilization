@@ -156,6 +156,29 @@ class GoalManager {
       lifeAspiration: this.lifeAspiration
     };
   }
+
+  toSnapshot() {
+    return {
+      currentGoal: this.currentGoal,
+      lifeAspiration: this.lifeAspiration,
+      activePlan: this.activePlan,
+      savedAt: new Date().toISOString()
+    };
+  }
+
+  restoreFromSnapshot(snap) {
+    if (!snap || !snap.currentGoal || !snap.currentGoal.description) return false;
+    this.currentGoal = snap.currentGoal;
+    if (snap.currentGoal.status === 'active') {
+      this.personalGoals = [this.currentGoal];
+    }
+    if (snap.lifeAspiration) this.lifeAspiration = snap.lifeAspiration;
+    if (snap.activePlan && Array.isArray(snap.activePlan.steps) && snap.activePlan.idx < snap.activePlan.steps.length) {
+      this.activePlan = snap.activePlan;
+    }
+    logger.info('Goals', `[GOAL RESTORED] ${this.agentId}: "${this.currentGoal.description}" (snapshot from ${snap.savedAt || 'unknown'})`);
+    return true;
+  }
 }
 
 module.exports = GoalManager;

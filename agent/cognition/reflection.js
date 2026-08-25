@@ -32,10 +32,30 @@ class ReflectionEngine {
     this.lastReflectionTime = Date.now();
     logger.info('ReflectionEngine', `[source: agent-diary] Running per-event micro-reflection for ${this.agentId}...`);
 
+    // Ground the reflection in consolidated long-term knowledge so insights
+    // compound instead of re-deriving lessons already stored in sections.
+    let memoryDigest = '';
+    try {
+      const memUrl = this.memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+      const res = await fetch(
+        `${memUrl}/api/memory/query?agentId=${encodeURIComponent(this.agentId)}&limit=8`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const lines = (data.memories || [])
+          .map(m => (typeof m === 'string' ? m : m.text))
+          .filter(Boolean);
+        if (lines.length > 0) {
+          memoryDigest = `\nLong-Term Memory (established knowledge — build on it, don't contradict or repeat it):\n${lines.map(l => `- ${l}`).join('\n')}\n`;
+        }
+      }
+    } catch { /* digest is optional context */ }
+
     const prompt = `You are ${this.agentId}, an autonomous Minecraft player with personality: ${JSON.stringify(this.persona.getPersonaPromptContext ? this.persona.getPersonaPromptContext() : this.persona)}.
 Current Vitals & Emotions: ${JSON.stringify(stats)}
 Recent Experiences: ${JSON.stringify(recentEvents.slice(-10))}
-
+${memoryDigest}
 Write a short (2-sentence) reflective diary entry in your personal journal about what you experienced today, what you learned, and your immediate ambition for tomorrow.
 You have complete inner freedom. If your experiences stir spiritual or existential thought, you may express it — but only if it arises naturally from YOUR own reflections. Never invent belief for its own sake.
 Reply ONLY with a valid JSON object:

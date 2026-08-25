@@ -1,16 +1,52 @@
 const logger = require('../../shared/logger');
 
+const PREFERRED_MODELS = [
+  'llama-3.3-70b',
+  'qwen-3-32b',
+  'gpt-oss-120b',
+  'gpt-oss-20b',
+  'llama3.1-8b'
+];
+
+let modelListCache = null;
+
+// Model names on Cerebras rotate without notice (404 "Model does not exist").
+// Discovering the live catalog turns hard failures into automatic selection.
+async function fetchAvailableModels(apiKey) {
+  if (modelListCache && Date.now() - modelListCache.at < 3600000) {
+    return modelListCache.ids;
+  }
+  const res = await fetch('https://api.cerebras.ai/v1/models', {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(5000)
+  });
+  if (!res.ok) throw new Error(`Cerebras models list HTTP ${res.status}`);
+  const data = await res.json();
+  const ids = (data.data || []).map(m => m.id);
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error('Cerebras models list empty');
+  modelListCache = { at: Date.now(), ids };
+  logger.info('CerebrasProvider', `Discovered ${ids.length} available models: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? '...' : ''}`);
+  return ids;
+}
+
+function pickCandidates(envModel, availableIds) {
+  const wanted = [...new Set([envModel, ...PREFERRED_MODELS].filter(Boolean))];
+  if (!availableIds) return wanted;
+  const usable = wanted.filter(m => availableIds.includes(m));
+  return usable.length > 0 ? usable : wanted;
+}
+
 async function queryCerebras(apiKey, prompt, options = {}) {
   if (!apiKey) throw new Error('CEREBRAS_API_KEY is not configured');
 
-  const candidateModels = [
-    ...new Set([
-      process.env.CEREBRAS_MODEL,
-      'gpt-oss-120b',
-      'zai-glm-4.7',
-      'gpt-oss-20b'
-    ].filter(Boolean))
-  ];
+  let availableIds = null;
+  try {
+    availableIds = await fetchAvailableModels(apiKey);
+  } catch (err) {
+    logger.debug('CerebrasProvider', `Model discovery skipped (${err.message}) — using preference list`);
+  }
+
+  const candidateModels = pickCandidates(process.env.CEREBRAS_MODEL, availableIds);
 
   let lastError = null;
   const t0 = Date.now();

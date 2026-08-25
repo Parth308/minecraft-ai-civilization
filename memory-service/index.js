@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { initializeAgentMemoryFiles, getSectionFilePath, parseSectionFile, writeSectionFile, SECTIONS } = require('./sections/schema');
+const { initializeAgentMemoryFiles, getAgentDirectory, getSectionFilePath, parseSectionFile, writeSectionFile, SECTIONS } = require('./sections/schema');
 const EventRouter = require('./router');
 const MemoryCompactor = require('./sections/compactor');
 const MemoryScheduler = require('./scheduler');
@@ -103,6 +103,31 @@ app.post('/api/memory/consolidate', async (req, res) => {
   await vectorStore.indexSectionEntries(agentId, section, parsed.entries);
 
   res.json(result);
+});
+
+// Goal Persistence (restart-safe objectives per agent)
+app.get('/api/memory/goal', (req, res) => {
+  const { agentId } = req.query;
+  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  const goalPath = path.join(getAgentDirectory(agentId), 'goal.json');
+  try {
+    if (!fs.existsSync(goalPath)) return res.json({ snapshot: null });
+    res.json({ snapshot: JSON.parse(fs.readFileSync(goalPath, 'utf8')) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/memory/goal', (req, res) => {
+  const { agentId, snapshot } = req.body;
+  if (!agentId || !snapshot) return res.status(400).json({ error: 'agentId and snapshot required' });
+  try {
+    const goalPath = path.join(getAgentDirectory(agentId), 'goal.json');
+    fs.writeFileSync(goalPath, JSON.stringify(snapshot, null, 2));
+    res.json({ saved: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Query Memory (Semantic Vector Search with Fallback)
@@ -248,6 +273,31 @@ app.post('/api/ledger/debts/settle', (req, res) => {
     return res.status(400).json({ error: 'debtId required' });
   }
   const result = ledger.settleDebt(debtId, settledBy);
+  res.json(result);
+});
+
+// Faction Endpoints
+app.get('/api/ledger/factions', (req, res) => {
+  const { member } = req.query;
+  const factions = ledger.getFactions(member || null);
+  res.json({ count: factions.length, factions });
+});
+
+app.post('/api/ledger/factions', (req, res) => {
+  const { name, founderId, charter } = req.body;
+  if (!name || !founderId) {
+    return res.status(400).json({ error: 'name and founderId required' });
+  }
+  const result = ledger.createFaction(name, founderId, charter);
+  res.json(result);
+});
+
+app.post('/api/ledger/factions/join', (req, res) => {
+  const { factionId, agentId } = req.body;
+  if (!factionId || !agentId) {
+    return res.status(400).json({ error: 'factionId and agentId required' });
+  }
+  const result = ledger.joinFaction(factionId, agentId);
   res.json(result);
 });
 

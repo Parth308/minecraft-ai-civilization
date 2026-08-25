@@ -861,7 +861,9 @@
                   <td class="num"><span class="green">$0.00</span> <span style="color:var(--text-faint);font-size:11px">(${fmtCost(p.savedUsd)} saved)</span></td>
                   <td class="num">${p.avgLatencyMs != null ? fmtMs(p.avgLatencyMs) : '—'}</td>
                   <td>${r?.blocked
-                    ? `<span class="badge badge-offline">COOLDOWN ${Math.ceil(r.cooldownRemainingMs / 1000)}s</span>`
+                    ? (r.quarantinedByBreaker
+                      ? `<span class="badge badge-offline">⚡ BREAKER ${Math.ceil(r.cooldownRemainingMs / 60000)}m</span>`
+                      : `<span class="badge badge-offline">COOLDOWN ${Math.ceil(r.cooldownRemainingMs / 1000)}s</span>`)
                     : p.configured ? '<span class="badge badge-online">READY</span>'
                     : '<span class="badge badge-neutral">OFF</span>'}</td>
                 </tr>`;
@@ -883,17 +885,25 @@
   let cachedChronicle = [];
   let cachedLessons = { sharedLessons: [], unsharedLessons: [] };
   let cachedDeaths = [];
+  let cachedTrades = [];
+  let cachedDebts = [];
+  let cachedSharedGoals = [];
+  let cachedFactions = [];
 
   async function fetchChronicle() {
     try {
-      const [rChron, rLess, rDeath] = await Promise.all([
+      const [rChron, rLess, rDeath, rTrades, rDebts, rGoals, rFactions] = await Promise.all([
         fetch('/api/dashboard/chronicle'),
         fetch('/api/dashboard/lessons'),
-        fetch('/api/dashboard/deaths')
+        fetch('/api/dashboard/deaths'),
+        fetch('/api/dashboard/trades'),
+        fetch('/api/dashboard/debts'),
+        fetch('/api/dashboard/shared-goals'),
+        fetch('/api/dashboard/factions')
       ]);
       if (rChron.ok) {
         const d = await rChron.json();
-        cachedChronicle = d.chronicle || [];
+        cachedChronicle = d.chronicle || d.chronicleEntries || [];
       }
       if (rLess.ok) {
         const d = await rLess.json();
@@ -906,6 +916,10 @@
         const d = await rDeath.json();
         cachedDeaths = d.deaths || [];
       }
+      if (rTrades.ok) cachedTrades = (await rTrades.json()).trades || [];
+      if (rDebts.ok) cachedDebts = (await rDebts.json()).debts || [];
+      if (rGoals.ok) cachedSharedGoals = (await rGoals.json()).sharedGoals || [];
+      if (rFactions.ok) cachedFactions = (await rFactions.json()).factions || [];
     } catch (_) {}
   }
   setInterval(fetchChronicle, 5000);
@@ -1002,6 +1016,12 @@
         </div>
       ` : ''}
 
+      <!-- Civilization Newspaper: chronicle grouped by day with economy digest -->
+      ${renderNewspaper()}
+
+      <!-- Shared Projects & Factions -->
+      ${renderProjectsAndFactions()}
+
       <div class="card" style="padding:16px">
         <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📜 Historical Chronicle Log</div>
         ${cachedChronicle.length === 0 ? '<div class="empty-state">The world is young. No historical chronicle entries recorded yet…</div>' : `
@@ -1029,6 +1049,89 @@
             }).join('')}
           </div>
         `}
+      </div>
+    `;
+  }
+
+  function renderNewspaper() {
+    const byDay = {};
+    for (const entry of cachedChronicle) {
+      const day = entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Unknown Date';
+      (byDay[day] = byDay[day] || []).push(entry);
+    }
+    const days = Object.keys(byDay).sort((a, b) => new Date(b) - new Date(a)).slice(0, 7);
+    const deathsToday = cachedDeaths.length;
+    const openDebts = cachedDebts.filter(d => d.status === 'open').length;
+    const settledDebts = cachedDebts.filter(d => d.status === 'settled').length;
+
+    return `
+      <div class="card" style="padding:16px;margin-bottom:16px;border-top:3px solid var(--accent, #6366f1)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px">
+          <div style="font-weight:800;font-size:18px;color:var(--text-bright)">📰 The Daily Cobblestone</div>
+          <span style="font-size:11px;color:var(--text-faint)">Trades ${cachedTrades.length} · IOUs open ${openDebts} / settled ${settledDebts} · Fallen ${deathsToday}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-faint);margin-bottom:12px">All the news fit to smelt — civilization headlines, newest days first.</div>
+        ${days.length === 0 ? '<div class="empty-state">No editions yet — history awaits its first headline.</div>' : days.map(day => `
+          <div style="margin-bottom:14px">
+            <div style="font-weight:700;font-size:12px;color:var(--accent);border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:4px;margin-bottom:8px">${esc(day)}</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${(byDay[day] || []).slice(0, 12).map(e => `
+                <div style="display:flex;gap:8px;align-items:baseline">
+                  <span style="font-size:10px;color:var(--text-faint);min-width:52px">${new Date(e.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span style="font-size:13px;color:var(--text-dim)"><b style="color:var(--text-bright)">${esc(e.headline)}</b>${e.detail ? ` — ${esc(String(e.detail).slice(0, 110))}` : ''}</span>
+                </div>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>
+    `;
+  }
+
+  function renderProjectsAndFactions() {
+    const activeGoals = cachedSharedGoals.filter(g => g.status === 'active');
+    const doneGoals = cachedSharedGoals.filter(g => g.status !== 'active');
+    const goalCard = g => {
+      const contribs = Array.isArray(g.contributions) ? g.contributions : Object.entries(g.contributions || {}).map(([k, v]) => ({ agentId: k, ...v }));
+      const totalNeeded = Array.isArray(g.requiredContributions) ? g.requiredContributions.reduce((s, r) => s + (r.count || 0), 0) : null;
+      const totalGiven = contribs.reduce((s, c) => s + (c.count || 0), 0);
+      const pct = totalNeeded ? Math.min(100, Math.round(totalGiven / totalNeeded * 100)) : null;
+      return `
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px 14px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:700;font-size:13px;color:var(--text-bright)">🌟 ${esc(g.description)}</span>
+            <span class="badge ${g.status === 'active' ? 'badge-online' : 'badge-success'}" style="font-size:9px">${esc(g.status)}</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--text-dim)">
+            <span class="badge badge-neutral" style="font-size:9px">👥 ${(g.participants || []).length}/${g.requiredAgents ?? '?'} builders</span>
+            ${pct != null ? `<span class="badge badge-warning" style="font-size:9px">${pct}% supplied</span>` : ''}
+            <span style="margin-left:auto;color:var(--text-faint)">by ${esc(g.creator || g.creatorAgentId || '?')}</span>
+          </div>
+          ${pct != null ? `<div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--accent,#6366f1)"></div></div>` : ''}
+        </div>`;
+    };
+    const factionCard = f => `
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px 14px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-weight:700;font-size:13px;color:var(--text-bright)">🚩 ${esc(f.name)}</span>
+          <span class="badge badge-neutral" style="font-size:9px">${(f.members || []).length}/4</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Members: ${esc((f.members || []).join(', '))}${f.charter ? ` — "${esc(f.charter)}"` : ''}</div>
+      </div>`;
+
+    return `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🏗️ Shared Projects (${activeGoals.length} active / ${doneGoals.length} done)</div>
+          ${cachedSharedGoals.length === 0 ? '<div class="empty-state">No collaborative projects proposed yet.</div>' : `
+            <div style="max-height:320px;overflow-y:auto">
+              ${activeGoals.map(goalCard).join('')}
+              ${doneGoals.map(goalCard).join('')}
+            </div>`}
+        </div>
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🚩 Factions (${cachedFactions.length})</div>
+          ${cachedFactions.length === 0 ? '<div class="empty-state">No factions founded yet — trust someone first.</div>' : `
+            <div style="max-height:320px;overflow-y:auto">${cachedFactions.map(factionCard).join('')}</div>`}
+        </div>
       </div>
     `;
   }

@@ -374,6 +374,52 @@ class CivilizationLedger {
     return data.debts.filter(d => d.status === 'open' && (d.creditorId === agentId || d.debtorId === agentId));
   }
 
+  createFaction(name, founderId, charter = '') {
+    const data = this.getLedger();
+    if (!Array.isArray(data.factions)) data.factions = [];
+    const existing = data.factions.find(f => f.members.includes(founderId));
+    if (existing) return { saved: false, reason: `${founderId} already belongs to faction '${existing.name}'`, faction: existing };
+    const faction = {
+      id: `faction_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      name: String(name).slice(0, 60),
+      founderId,
+      members: [founderId],
+      charter: String(charter || '').slice(0, 300),
+      createdAt: new Date().toISOString()
+    };
+    data.factions.push(faction);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[FACTION FOUNDED] ${founderId} founded '${name}'`);
+    detailedLogger.logCivilizationMilestone('faction_founded', `${founderId} founded faction ${name}`, faction);
+    this.addChronicleEntry(`Faction Born: "${name}"`, `Founded by ${founderId}${charter ? ` — charter: ${charter}` : ''}.`, [founderId], 'faction_founded');
+    return { saved: true, faction };
+  }
+
+  joinFaction(factionId, agentId) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.factions)) data.factions = [];
+    const faction = data.factions.find(f => f.id === factionId);
+    if (!faction) return { saved: false, reason: 'Faction not found' };
+    if (faction.members.length >= 4) return { saved: false, reason: 'Faction is full' };
+    if (faction.members.includes(agentId)) return { saved: true, faction, alreadyMember: true };
+
+    const previous = data.factions.find(f => f.id !== factionId && f.members.includes(agentId));
+    if (previous) return { saved: false, reason: `${agentId} already belongs to faction '${previous.name}'` };
+
+    faction.members.push(agentId);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[FACTION JOINED] ${agentId} joined '${faction.name}' (${faction.members.length}/4 members)`);
+    this.addChronicleEntry(`Banners Unite: ${agentId} Joins "${faction.name}"`, `The faction grows to ${faction.members.length} members.`, [agentId, faction.founderId], 'faction_joined');
+    return { saved: true, faction };
+  }
+
+  getFactions(memberOf = null) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.factions)) return [];
+    if (memberOf) return data.factions.filter(f => f.members.includes(memberOf));
+    return data.factions;
+  }
+
   recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8, severity = 0.5, status = null) {
     if (!lesson) return { saved: false, reason: 'Empty lesson' };
     const data = this.getLedger();

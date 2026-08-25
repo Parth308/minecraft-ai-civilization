@@ -19,6 +19,31 @@ const MemoryClient = require('./memory/client');
 const BrainClient = require('./brain-client/client');
 const DynamicPersona = require('./cognition/persona');
 const GoalManager = require('./cognition/goals');
+
+// Goals survive container restarts: every mutation re-POSTs a snapshot to the
+// memory service, and the snapshot is restored into a freshly booted agent.
+function persistGoalAcrossRestarts(goalManager) {
+  const baseUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+  const save = () => {
+    fetch(`${baseUrl}/api/memory/goal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: goalManager.agentId, snapshot: goalManager.toSnapshot() })
+    }).catch(() => {});
+  };
+  for (const method of ['setGoal', 'setPlan', 'clearPlan', 'markGoalCompleted']) {
+    const original = goalManager[method].bind(goalManager);
+    goalManager[method] = (...args) => {
+      const result = original(...args);
+      save();
+      return result;
+    };
+  }
+  fetch(`${baseUrl}/api/memory/goal?agentId=${encodeURIComponent(goalManager.agentId)}`)
+    .then(r => (r.ok ? r.json() : null))
+    .then(data => data?.snapshot && goalManager.restoreFromSnapshot(data.snapshot))
+    .catch(() => {});
+}
 const SocialDialogueEngine = require('./social/dialogue');
 const FactionAffiliationManager = require('./social/factions');
 const BuilderSkill = require('./skills/builder');
@@ -210,8 +235,10 @@ function createAgent() {
   const persona = new DynamicPersona(config.username, config.personalitySeed);
   currentPersona = persona;
   const goalManager = new GoalManager(config.username, persona);
+  persistGoalAcrossRestarts(goalManager);
   const brainClient = new BrainClient(config.brokerUrl);
   const factionManager = new FactionAffiliationManager(config.username, persona);
+  factionManager.restoreFromLedger(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002').catch(() => {});
   const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships, factionManager);
   const builder = new BuilderSkill(bot, inventory, movement, goalManager);
   bot.goalManager = goalManager;
@@ -703,6 +730,12 @@ function createAgent() {
             logger.info('AgentLoop', `Executing TRADE with ${tradePartner}: ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
             await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
             eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer });
+            factionManager.considerAllianceWith(tradePartner).then(announcement => {
+              if (announcement && Date.now() - lastOutgoingChat > 3000) {
+                lastOutgoingChat = Date.now();
+                chat.say(announcement);
+              }
+            }).catch(() => {});
           } else {
             // Broadcast trade desire to world if no partner specified
             if (Date.now() - lastOutgoingChat > 3000) {
