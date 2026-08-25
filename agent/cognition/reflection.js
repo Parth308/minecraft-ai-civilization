@@ -37,8 +37,11 @@ class ReflectionEngine {
     let memoryDigest = '';
     try {
       const memUrl = this.memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+      const seedText = recentEvents.slice(-5)
+        .map(e => [e.action, e.reason, e.event].filter(Boolean).join(' '))
+        .join('; ') || 'recent survival experiences';
       const res = await fetch(
-        `${memUrl}/api/memory/query?agentId=${encodeURIComponent(this.agentId)}&limit=8`,
+        `${memUrl}/api/memory/query?agentId=${encodeURIComponent(this.agentId)}&query=${encodeURIComponent(seedText.slice(0, 300))}&limit=8`,
         { signal: AbortSignal.timeout(4000) }
       );
       if (res.ok) {

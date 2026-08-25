@@ -241,9 +241,20 @@ class ProviderRouter {
     return active;
   }
 
+  _memoryQueryText(situation) {
+    // Situation name alone ("MINE") retrieves generic noise. Reason strings,
+    // hazards, and goals carry the semantics that match stored memories.
+    return [
+      situation?.name,
+      situation?.reason,
+      situation?.hazardType ? `${situation.hazardType} danger` : null,
+      situation?.activeGoal
+    ].filter(Boolean).join(' ').slice(0, 300);
+  }
+
   async fetchRelevantMemories(agentId, situation) {
     try {
-      const query = situation.name || '';
+      const query = this._memoryQueryText(situation);
       const response = await fetch(`${this.memoryServiceUrl}/api/memory/query?agentId=${agentId || 'Agent_Alpha'}&query=${encodeURIComponent(query)}&limit=3`);
       if (!response.ok) return [];
       const data = await response.json();
@@ -256,7 +267,7 @@ class ProviderRouter {
 
   async fetchRelevantSkills(agentId, situation) {
     try {
-      const query = situation.name || '';
+      const query = this._memoryQueryText(situation);
       const response = await fetch(`${this.memoryServiceUrl}/api/memory/query?agentId=${agentId || 'Agent_Alpha'}&query=${encodeURIComponent(query)}&limit=3&section=skills`);
       if (!response.ok) return [];
       const data = await response.json();

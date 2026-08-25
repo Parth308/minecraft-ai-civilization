@@ -13,6 +13,15 @@ class EmbeddingClient {
     this.ollamaHost = ollamaHost;
     this.ollamaModel = ollamaModel;
     this.dimension = 768;
+    // Identical texts recur constantly (cached broker decisions replay the
+    // same situation strings). One LRU-ish cache entry saves an ollama round
+    // trip — and ollama CPU was the box's top bottleneck.
+    this._cache = new Map();
+    this._cacheMax = 2000;
+  }
+
+  _cacheKey(text) {
+    return crypto.createHash('sha1').update(text).digest('hex');
   }
 
   getEffectiveProvider() {
@@ -29,37 +38,52 @@ class EmbeddingClient {
   async getEmbedding(text) {
     if (!text || typeof text !== 'string') text = JSON.stringify(text || '');
 
+    const key = this._cacheKey(text);
+    if (this._cache.has(key)) return this._cache.get(key);
+
     const effective = this.getEffectiveProvider();
+    let vector;
 
     // 1. Try Ollama nomic-embed-text
     if (effective === 'ollama') {
       try {
-        return await this.getOllamaEmbedding(text);
+        vector = await this.getOllamaEmbedding(text);
       } catch (err) {
         logger.warn('EmbeddingClient', `Ollama (${this.ollamaModel}) failed (${err.message}). Trying secondary provider.`);
         if (this.apiKey) {
           try {
-            return await this.getGeminiEmbedding(text);
+            vector = await this.getGeminiEmbedding(text);
           } catch (gErr) {
             logger.warn('EmbeddingClient', `Gemini embedding fallback failed (${gErr.message}). Using local deterministic engine.`);
+            vector = this.getLocalEmbedding(text);
           }
+        } else {
+          vector = this.getLocalEmbedding(text);
         }
-        return this.getLocalEmbedding(text);
       }
     }
 
     // 2. Try Gemini
-    if (effective === 'gemini') {
+    if (vector === undefined && effective === 'gemini') {
       try {
-        return await this.getGeminiEmbedding(text);
+        vector = await this.getGeminiEmbedding(text);
       } catch (err) {
         logger.warn('EmbeddingClient', `Gemini embedding failed (${err.message}). Falling back to local embedding engine.`);
-        return this.getLocalEmbedding(text);
+        vector = this.getLocalEmbedding(text);
       }
     }
 
-    // 3. Deterministic Local N-gram Fallback
-    return this.getLocalEmbedding(text);
+    if (vector === undefined) {
+      // 3. Deterministic Local N-gram Fallback
+      vector = this.getLocalEmbedding(text);
+    }
+
+    if (this._cache.size >= this._cacheMax) {
+      const oldest = this._cache.keys().next().value;
+      this._cache.delete(oldest);
+    }
+    this._cache.set(key, vector);
+    return vector;
   }
 
   // Ollama Embeddings API (nomic-embed-text: 768 dimensions)
