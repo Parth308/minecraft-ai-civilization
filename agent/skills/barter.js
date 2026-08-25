@@ -92,7 +92,8 @@ class BarterSkill {
       this.relationships.updateTrust(partnerName, 10);
       this.relationships.updateAffinity(partnerName, 5);
 
-      // Record trade into civilization ledger
+      // Record trade into civilization ledger; any IOU this delivery covers
+      // is settled server-side and echoed back so the agent can acknowledge it socially
       fetch(`${this.memoryServiceUrl}/api/ledger/trades`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,6 +104,11 @@ class BarterSkill {
           itemsReceived: [{ item: wantItem, count: wantCount, value: valueWant }],
           fairnessScore: fairness
         })
+      }).then(r => r.json()).then(result => {
+        if (Array.isArray(result?.settledDebts) && result.settledDebts.length > 0) {
+          this.chat.say(`and that clears my ${giveItem} debt, ${partnerName}. we're square now!`);
+          logger.info('Barter', `Trade settled ${result.settledDebts.length} open debt(s) with ${partnerName}`);
+        }
       }).catch(err => logger.debug('Barter', `Failed to log trade to ledger: ${err.message}`));
 
       return { success: true, fairnessScore: fairness };

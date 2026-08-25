@@ -224,6 +224,33 @@ app.post('/api/ledger/trades', (req, res) => {
   res.json(result);
 });
 
+// Debt / IOU Endpoints
+app.get('/api/ledger/debts', (req, res) => {
+  const { agentId } = req.query;
+  if (agentId) {
+    return res.json({ count: ledger.getOpenDebts(agentId).length, debts: ledger.getOpenDebts(agentId) });
+  }
+  res.json({ debts: ledger.getLedger().debts || [] });
+});
+
+app.post('/api/ledger/debts', (req, res) => {
+  const { creditorId, debtorId, item, count, reason } = req.body;
+  if (!creditorId || !debtorId || !item || !count) {
+    return res.status(400).json({ error: 'creditorId, debtorId, item, and count required' });
+  }
+  const result = ledger.addDebt(creditorId, debtorId, item, count, reason);
+  res.json(result);
+});
+
+app.post('/api/ledger/debts/settle', (req, res) => {
+  const { debtId, settledBy } = req.body;
+  if (!debtId) {
+    return res.status(400).json({ error: 'debtId required' });
+  }
+  const result = ledger.settleDebt(debtId, settledBy);
+  res.json(result);
+});
+
 // Territory Claims Endpoints
 app.get('/api/ledger/territory/all', (req, res) => {
   res.json({ count: ledger.getTerritoryClaims().length, claims: ledger.getTerritoryClaims() });

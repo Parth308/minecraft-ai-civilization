@@ -236,6 +236,8 @@ function createAgent() {
   const AGENT_CHAT_COOLDOWN_MS = 6000;  // min 6s between replies to same sender
   const PLAYER_CHAT_COOLDOWN_MS = 1800; // min 1.8s between replies to player
   let lastOutgoingChat = 0;             // global outgoing chat throttle
+  let lastTorchPlacement = 0;
+  const lastDeathLessonAt = {};
 
   const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
 
@@ -716,6 +718,39 @@ function createAgent() {
         case 'EXPLORE':
         case ACTIONS.WANDER:
         case 'WANDER': {
+          const botPos = bot.entity?.position;
+
+          // Standing beside lethal terrain — step directly away before wandering
+          if (botPos && typeof senses.hazardProximity === 'function') {
+            const near = senses.hazardProximity(2.5);
+            if (near) {
+              const away = botPos.minus(near.block.position).normalize().scale(8);
+              const target = botPos.plus(away);
+              logger.warn('AgentLoop', `Hazard escape: moving away from ${near.block.name} at ${near.distance.toFixed(1)} blocks`);
+              movement.goto(target.x, botPos.y, target.z, 2);
+              actionSuccess = true;
+              break;
+            }
+          }
+
+          // Dark + underground + carrying torches → light the worksite
+          if (
+            botPos && botPos.y < 55 &&
+            typeof senses.getLightLevel === 'function' &&
+            senses.getLightLevel() < 7 &&
+            Date.now() - lastTorchPlacement > 30000
+          ) {
+            const hasTorch = (agentState.inventory || []).some(i => i.name === 'torch');
+            const groundBelow = botPos ? bot.blockAt(botPos.offset(0, -1, 0)) : null;
+            if (hasTorch && groundBelow) {
+              const placed = await inventory.placeBlock('torch', groundBelow);
+              if (placed) {
+                lastTorchPlacement = Date.now();
+                eventBuffer.addEvent('torchPlaced', { position: { x: botPos.x, y: botPos.y, z: botPos.z } });
+              }
+            }
+          }
+
           // Pick a direction based on ambition — ambitious agents explore further
           const exploreDist = Math.round(16 + (persona.traits?.ambition || 0.5) * 24);
           logger.info('AgentLoop', `Executing ${decision.action} action (range: ${exploreDist} blocks)`);
@@ -1047,6 +1082,30 @@ function createAgent() {
         scarSummary: persona.getScarSummary()
       })
     }).catch(() => {});
+
+    // Deterministic hazard lesson posted straight to the civ ledger — the
+    // LLM reflection path can be provider-starved, but civilization-level
+    // learning from a death must never depend on quota. Throttled per cause.
+    const deathLessonKey = `${bot.username}:${cause || 'hazard'}`;
+    if (Date.now() - (lastDeathLessonAt[deathLessonKey] || 0) > 600000) {
+      lastDeathLessonAt[deathLessonKey] = Date.now();
+      fetch(`${serviceUrl}/api/ledger/lessons`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: bot.username,
+          lesson: `Died to ${cause || 'hazard'} at X:${position?.x ?? '?'} Y:${position?.y ?? '?'} Z:${position?.z ?? '?'} — treat that terrain/situation as lethal`,
+          severity: 0.9,
+          baseOpenness: persona?.traits?.openness ?? 0.5,
+          effectiveOpenness: 1.0,
+          isPublic: true,
+          status: 'shared',
+          context: { deterministic: true, penalizedRules },
+          confidence: 0.75,
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+    }
 
     // The world remembers where agents fell — a shared haunted-geography emerges
     if (position && typeof position.x === 'number') {

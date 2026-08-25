@@ -33,6 +33,9 @@ class DecisionTree {
     if (this._evalCount % 30 === 0) {
       const agentId = senses.bot?.username || persona?.agentId || 'Agent';
       this.dynamicRuleEngine.pollRuleAdjustments(agentId, process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
+      // Re-seed from the civ ledger so deaths that happened after this agent
+      // spawned still propagate as caution rules (spawn-time seeding alone misses them).
+      this.dynamicRuleEngine.seedFromSharedLessons(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
     }
 
     const staticCandidates = [

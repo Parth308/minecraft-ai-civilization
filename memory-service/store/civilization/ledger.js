@@ -21,6 +21,7 @@ class CivilizationLedger {
         laws: [],
         sharedLessons: [],
         trades: [],
+        debts: [],
         territoryClaims: [],
         sharedGoals: [],
         chronicleEntries: [],
@@ -38,13 +39,14 @@ class CivilizationLedger {
       if (!Array.isArray(data.unsharedLessons)) data.unsharedLessons = [];
       if (!Array.isArray(data.deaths)) data.deaths = [];
       if (!Array.isArray(data.trades)) data.trades = [];
+      if (!Array.isArray(data.debts)) data.debts = [];
       if (!Array.isArray(data.territoryClaims)) data.territoryClaims = [];
       if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
       if (!Array.isArray(data.chronicleEntries)) data.chronicleEntries = [];
       return data;
     } catch (err) {
       logger.error('CivLedger', 'Failed to read ledger file', err);
-      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], unsharedLessons: [], deaths: [], trades: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [] };
+      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], unsharedLessons: [], deaths: [], trades: [], debts: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [] };
     }
   }
 
@@ -284,6 +286,31 @@ class CivilizationLedger {
     logger.info('CivLedger', `[TRADE RECORDED] ${agentA} <-> ${agentB}: ${JSON.stringify(itemsGiven)} for ${JSON.stringify(itemsReceived)} (Fairness: ${entry.fairnessScore})`);
     detailedLogger.logCivilizationMilestone('trade_executed', `Trade between ${agentA} and ${agentB}`, entry);
 
+    // Handing goods to a creditor auto-settles a matching open IOU —
+    // debts clear through real deliveries, not just promises.
+    const delivered = Array.isArray(itemsGiven) ? itemsGiven : [];
+    const settledDebts = [];
+    if (!Array.isArray(data.debts)) data.debts = [];
+    for (const g of delivered) {
+      const match = data.debts.find(d =>
+        d.status === 'open' &&
+        d.debtorId === agentA &&
+        d.creditorId === agentB &&
+        d.item === g.item &&
+        g.count >= d.count
+      );
+      if (match) {
+        match.status = 'settled';
+        match.settledAt = new Date().toISOString();
+        match.settledViaTrade = entry.id;
+        settledDebts.push(match);
+        logger.info('CivLedger', `[DEBT SETTLED] ${match.debtorId} repaid ${match.count}x ${match.item} to ${match.creditorId} via trade ${entry.id}`);
+        this.addChronicleEntry(`Debt Cleared: ${match.debtorId} Repays ${match.creditorId}`, `${match.count}x ${match.item} delivered, honouring the outstanding obligation.`, [match.debtorId, match.creditorId], 'debt_settled');
+      }
+    }
+
+    this.saveLedger(data);
+
     // Barter cross-rates feed the market price memory — economies develop
     // a sense of "what things usually go for" from real observed trades.
     try {
@@ -300,11 +327,51 @@ class CivilizationLedger {
     } catch (priceErr) {
       logger.debug('CivLedger', `Price memory skipped: ${priceErr.message}`);
     }
-    return { saved: true, trade: entry };
+    return { saved: true, trade: entry, settledDebts };
   }
 
   getTrades() {
     return this.getLedger().trades || [];
+  }
+
+  addDebt(creditorId, debtorId, item, count, reason = '') {
+    const data = this.getLedger();
+    if (!Array.isArray(data.debts)) data.debts = [];
+    const debt = {
+      id: `debt_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      creditorId,
+      debtorId,
+      item,
+      count: parseInt(count, 10) || 1,
+      reason: String(reason || '').slice(0, 200),
+      status: 'open',
+      createdAt: new Date().toISOString()
+    };
+    data.debts.push(debt);
+    this.saveLedger(data);
+    logger.info('CivLedger', `[DEBT RECORDED] ${debtorId} owes ${creditorId}: ${debt.count}x ${item}${reason ? ` (${reason})` : ''}`);
+    this.addChronicleEntry(`IOU Struck: ${debtorId} Owes ${creditorId}`, `${debt.count}x ${item} promised${reason ? ` — "${reason}"` : ''}.`, [creditorId, debtorId], 'debt_created');
+    return { saved: true, debt };
+  }
+
+  settleDebt(debtId, settledBy) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.debts)) return { saved: false, reason: 'No debts recorded' };
+    const debt = data.debts.find(d => d.id === debtId && d.status === 'open');
+    if (!debt) return { saved: false, reason: 'Open debt not found' };
+    debt.status = 'settled';
+    debt.settledAt = new Date().toISOString();
+    if (settledBy) debt.settledBy = settledBy;
+    this.saveLedger(data);
+    logger.info('CivLedger', `[DEBT SETTLED] ${debt.debtorId} repaid ${debt.count}x ${debt.item} to ${debt.creditorId}`);
+    this.addChronicleEntry(`Debt Cleared: ${debt.debtorId} Repays ${debt.creditorId}`, `${debt.count}x ${debt.item} obligation honourably discharged.`, [debt.creditorId, debt.debtorId], 'debt_settled');
+    return { saved: true, debt };
+  }
+
+  getOpenDebts(agentId) {
+    const data = this.getLedger();
+    if (!Array.isArray(data.debts)) return [];
+    return data.debts.filter(d => d.status === 'open' && (d.creditorId === agentId || d.debtorId === agentId));
   }
 
   recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8, severity = 0.5, status = null) {

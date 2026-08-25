@@ -132,6 +132,7 @@ class ProviderRouter {
     s.successes += 1;
     s.totalLatencyMs += latencyMs || 0;
     s.lastUsedAt = new Date().toISOString();
+    this.rateLimiter.recordSuccess(name);
 
     const inTok = usage?.inputTokens ?? 0;
     const outTok = usage?.outputTokens ?? 0;
@@ -147,6 +148,7 @@ class ProviderRouter {
     s.failures += 1;
     s.lastUsedAt = new Date().toISOString();
     if (err && err.status === 429) s.rateLimited += 1;
+    this.rateLimiter.recordFailure(name, err?.status || null);
   }
 
   _logEscalation(event) {

@@ -57,6 +57,29 @@ async function callConsolidationProvider(provider, prompt) {
   return text;
 }
 
+// Collapse near-identical event summaries (differing only in numbers/coords)
+// into one line with a repeat count. Threshold 3 keeps legitimate distinct
+// facts (individual trades, unique discoveries) verbatim while killing
+// coordinate spam like 9 consecutive "mineblock iron_ore" lines.
+function aggregateRepeatedPatterns(summaries) {
+  const patternCounts = new Map();
+  const orderedPatterns = [];
+
+  for (const summary of summaries) {
+    const pattern = summary.replace(/\d+(\.\d+)?/g, '#');
+    if (!patternCounts.has(pattern)) {
+      patternCounts.set(pattern, { count: 0, sample: summary });
+      orderedPatterns.push(pattern);
+    }
+    patternCounts.get(pattern).count++;
+  }
+
+  return orderedPatterns.map(pattern => {
+    const { count, sample } = patternCounts.get(pattern);
+    return count >= 3 ? `${sample} (and ${count - 1} similar recent events)` : sample;
+  });
+}
+
 class MemoryCompactor {
   constructor(brokerClient = null) {
     this.brokerUrl = config.brokerUrl;
@@ -80,7 +103,7 @@ class MemoryCompactor {
       const parsed = parseSectionFile(filePath);
 
       parsed.frontmatter.last_updated = new Date().toISOString();
-      for (const item of newSummaries) {
+      for (const item of aggregateRepeatedPatterns(newSummaries)) {
         parsed.entries.push(`- ${item}`);
       }
 

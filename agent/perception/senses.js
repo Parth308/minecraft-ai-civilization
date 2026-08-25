@@ -153,6 +153,30 @@ class Senses {
     return this.getNearbyBlock('lava', maxDistance);
   }
 
+  getNearbyHazards(maxDistance = 4, count = 8) {
+    if (!this.bot.entity) return [];
+    const hazardKeywords = ['lava', 'fire', 'magma_block', 'cactus'];
+    const positions = this.bot.findBlocks({
+      matching: (block) => block && hazardKeywords.some(h => block.name.includes(h)),
+      maxDistance,
+      count
+    });
+    return positions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
+  }
+
+  hazardProximity(maxDistance = 3) {
+    const botPos = this.bot.entity?.position;
+    if (!botPos) return null;
+    let nearest = null;
+    for (const block of this.getNearbyHazards(maxDistance)) {
+      const distance = botPos.distanceTo(block.position);
+      if (!nearest || distance < nearest.distance) {
+        nearest = { block, distance };
+      }
+    }
+    return nearest;
+  }
+
   // ─── World State & Atmosphere ────────────────────────────────────────────────
 
   isNight() {

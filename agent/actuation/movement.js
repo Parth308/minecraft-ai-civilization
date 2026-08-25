@@ -89,11 +89,38 @@ class MovementActuator {
     this._shelter = null;
   }
 
+  // Bias away from nearby lethal blocks — random walks kept stepping into lava.
+  _hazardWithin(radius = 3) {
+    if (!this.bot.entity) return null;
+    const hazardKeywords = ['lava', 'fire', 'magma_block'];
+    try {
+      const found = this.bot.findBlocks({
+        matching: (block) => block && hazardKeywords.some(k => block.name.includes(k)),
+        maxDistance: radius,
+        count: 1
+      });
+      if (found.length === 0) return null;
+      const block = this.bot.blockAt(found[0]);
+      return block ? { block, distance: this.bot.entity.position.distanceTo(found[0]) } : null;
+    } catch {
+      return null;
+    }
+  }
+
   wander(radius = 15) {
     if (!this.bot.entity) return;
     const current = this.bot.entity.position;
-    const dx = Math.floor((Math.random() - 0.5) * radius * 2);
-    const dz = Math.floor((Math.random() - 0.5) * radius * 2);
+    let dx = Math.floor((Math.random() - 0.5) * radius * 2);
+    let dz = Math.floor((Math.random() - 0.5) * radius * 2);
+
+    const near = this._hazardWithin(3);
+    if (near) {
+      const away = current.minus(near.block.position);
+      dx = Math.sign(away.x || (Math.random() - 0.5)) * radius;
+      dz = Math.sign(away.z || (Math.random() - 0.5)) * radius;
+      logger.info('Actuation:Movement', `Hazard-biased wander: steering away from ${near.block.name} (${near.distance.toFixed(1)} blocks)`);
+    }
+
     detailedLogger.logMovement(this.agentId, 'Wandering around offset', { offset: { dx, dz }, destination: { x: current.x + dx, z: current.z + dz } });
     this.goto(current.x + dx, current.y, current.z + dz, 2);
   }

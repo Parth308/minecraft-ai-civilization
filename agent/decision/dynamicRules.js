@@ -209,10 +209,13 @@ class DynamicRuleEngine {
         // whenever survival or combat should take priority.
         const hostileCount = typeof senses.getNearbyHostileMobs === 'function'
           ? (senses.getNearbyHostileMobs(12) || []).length : 0;
+        const nearHazard = typeof senses.hazardProximity === 'function' &&
+                           !!senses.hazardProximity(2);
         const unsafe = stats.health < 10 ||
                        hostileCount >= 2 ||
                        senses.isOnFire?.() ||
-                       senses.isInWater?.();
+                       senses.isInWater?.() ||
+                       nearHazard;
         if (unsafe) conf = 0.10;
       }
 

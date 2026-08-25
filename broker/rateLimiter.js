@@ -9,14 +9,44 @@ class RateLimiter {
   constructor() {
     this.providerCooldowns = new Map(); // providerName -> timestamp when unblocked
     this.agentTaskCooldowns = new Map(); // `${agentId}:${taskType}` -> timestamp when unblocked
+    this.failureStreaks = new Map(); // providerName -> consecutive failure count
 
     // Observability counters (cumulative since process start)
     this.stats = {}; // providerName -> { hits, lastHitAt }
+    this.breakerTrips = {}; // providerName -> trip count
   }
 
   isBlocked(providerName) {
     const unblockTime = this.providerCooldowns.get(providerName) || 0;
     return Date.now() < unblockTime;
+  }
+
+  /**
+   * Circuit breaker: after BREAKER_THRESHOLD consecutive failures the provider
+   * is quarantined for QUARANTINE_MS instead of being retried on every single
+   * escalation. Permanent config errors (401/402/403/404/410) trip at 2 strikes;
+   * transient errors need 5.
+   */
+  recordFailure(providerName, errStatus = null) {
+    const permanent = [401, 402, 403, 404, 410].includes(errStatus);
+    const streak = (this.failureStreaks.get(providerName) || 0) + 1;
+    const threshold = permanent ? 2 : 5;
+    this.failureStreaks.set(providerName, streak);
+
+    if (streak >= threshold) {
+      const quarantineMs = permanent ? 3600000 : 1800000;
+      this.providerCooldowns.set(providerName, Date.now() + quarantineMs);
+      this.breakerTrips[providerName] = (this.breakerTrips[providerName] || 0) + 1;
+      logger.warn(
+        'RateLimiter',
+        `[CIRCUIT OPEN] Provider ${providerName} quarantined for ${quarantineMs / 1000}s after ${streak} consecutive failures (${errStatus || 'transient'})`
+      );
+      this.failureStreaks.set(providerName, 0);
+    }
+  }
+
+  recordSuccess(providerName) {
+    this.failureStreaks.delete(providerName);
   }
 
   isAgentTaskBlocked(agentId, taskType) {
@@ -55,11 +85,12 @@ class RateLimiter {
         blocked: Date.now() < unblockTime,
         blockedUntil: unblockTime > Date.now() ? new Date(unblockTime).toISOString() : null,
         cooldownRemainingMs: Math.max(0, unblockTime - Date.now()),
+        quarantinedByBreaker: !!this.breakerTrips[name],
         totalHits: s.hits,
         lastHitAt: s.lastHitAt
       };
     }
-    return { providers };
+    return { providers, breakerTrips: this.breakerTrips };
   }
 }
 
