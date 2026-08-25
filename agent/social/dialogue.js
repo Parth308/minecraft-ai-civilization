@@ -107,6 +107,14 @@ class SocialDialogueEngine {
       logger.info('SocialDialogue', `[FAITH EXPOSURE] ${this.persona.agentId} first heard of "${newlyExposedTradition}"`);
     }
 
+    // Semantic recall of this specific relationship — debts surface as
+    // memories, not obligations; the LLM decides whether to bring them up.
+    let sharedHistory = [];
+    try {
+      const hRes = await fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/memory/query?agentId=${encodeURIComponent(this.persona.agentId)}&query=${encodeURIComponent(`history with ${sender}: ${message.slice(0, 60)}`)}&limit=3&section=relationships`, { signal: AbortSignal.timeout(3000) });
+      if (hRes.ok) sharedHistory = (await hRes.json()).memories || [];
+    } catch { /* recall is optional context */ }
+
     const payload = {
       taskType: 'SOCIAL_CHAT',
       agentId: this.persona.agentId,
@@ -145,6 +153,7 @@ class SocialDialogueEngine {
           recentScripture: faithCtx.scriptures.map(s2 => `"${s2.body.slice(0, 80)}" — ${s2.author}`),
           note: 'Faith is yours alone. Adopt, preach, doubt, or ignore — nothing obligates you.'
         } : null,
+        sharedHistoryWithSpeaker: sharedHistory,
         tensionWithSpeaker: (() => {
           const g = society?.topGrievances || [];
           return g.filter(x => (x.by.toLowerCase() === sender.toLowerCase() && x.against.toLowerCase() === this.persona.agentId.toLowerCase()) ||
