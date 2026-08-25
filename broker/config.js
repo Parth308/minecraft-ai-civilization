@@ -16,7 +16,11 @@ module.exports = {
     tokenreply: process.env.TOKENREPLY_API_KEY,
     pollinations: process.env.POLLINATIONS_API_KEY || 'unused',
     agnes: process.env.AGNES_API_KEY,
-    llm7: process.env.LLM7_API_KEY || 'unused'
+    llm7: process.env.LLM7_API_KEY || 'unused',
+    cloudflare: process.env.CLOUDFLARE_API_TOKEN,
+    huggingface: process.env.HF_TOKEN,
+    cohere: process.env.COHERE_API_KEY,
+    qwen: process.env.DASHSCOPE_API_KEY
   },
   cacheTTLSeconds: parseInt(process.env.CACHE_TTL_SECONDS, 10) || 300
 };

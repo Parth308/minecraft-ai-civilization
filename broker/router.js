@@ -12,6 +12,10 @@ const queryTokenReply = require('./providers/tokenreply');
 const queryPollinations = require('./providers/pollinations');
 const queryAgnes = require('./providers/agnes');
 const queryLLM7 = require('./providers/llm7');
+const queryCloudflare = require('./providers/cloudflare');
+const queryHuggingFace = require('./providers/huggingface');
+const queryCohere = require('./providers/cohere');
+const queryQwen = require('./providers/qwen');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -70,7 +74,11 @@ class ProviderRouter {
       TokenReply: { name: 'TokenReply', key: config.keys.tokenreply, fn: queryTokenReply },
       Pollinations: { name: 'Pollinations', key: config.keys.pollinations, fn: queryPollinations },
       Agnes: { name: 'Agnes', key: config.keys.agnes, fn: queryAgnes },
-      LLM7: { name: 'LLM7', key: config.keys.llm7, fn: queryLLM7 }
+      LLM7: { name: 'LLM7', key: config.keys.llm7, fn: queryLLM7 },
+      Cloudflare: { name: 'Cloudflare', key: config.keys.cloudflare, fn: queryCloudflare },
+      HuggingFace: { name: 'HuggingFace', key: config.keys.huggingface, fn: queryHuggingFace },
+      Cohere: { name: 'Cohere', key: config.keys.cohere, fn: queryCohere },
+      Qwen: { name: 'Qwen', key: config.keys.qwen, fn: queryQwen }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -204,16 +212,16 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'Mistral', 'OpenRouter', 'LiteRouter', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'GithubModels', 'Gemini', 'LLM7', 'Agnes'];
+      baseOrder = ['Groq', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Cerebras', 'GithubModels', 'Gemini', 'LLM7', 'Agnes'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
       baseOrder = ['SiliconFlow', 'Groq', 'Cerebras', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'LiteRouter', 'GithubModels', 'Gemini', 'LLM7', 'Agnes'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'OpenRouter', 'LiteRouter', 'LLM7', 'GithubModels'];
+      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LiteRouter', 'LLM7', 'GithubModels'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
-      baseOrder = ['Groq', 'SiliconFlow', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LiteRouter', 'LLM7', 'Pollinations', 'TokenReply', 'OpenRouter', 'Agnes', 'GithubModels', 'Gemini'];
+      baseOrder = ['Groq', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Cerebras', 'Mistral', 'LiteRouter', 'LLM7', 'Pollinations', 'TokenReply', 'OpenRouter', 'Agnes', 'GithubModels', 'Gemini'];
     }
 
     // Filter to configured, non-rate-limited providers
