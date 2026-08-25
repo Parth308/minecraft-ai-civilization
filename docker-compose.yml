@@ -296,6 +296,228 @@ services:
       - minecraft-network
     restart: unless-stopped
 
+  # ── Expanded fleet (capacity-checked: 8 bots ≈ +750MB RAM, fits 16GB box
+  #    with ~9GB headroom). Personas are procedural-random per boot.
+  agent-delta:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-delta
+    expose:
+      - "3013" # /status endpoint for dashboard
+      - "3023" # Native 3D POV stream
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Delta"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "${PERSONALITY_SEED_DELTA:-random}"
+      CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.80}"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_HOST: "agent-delta"
+      STATUS_PORT: "3013"
+      VIEWER_PORT: "3023"
+      NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3013/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 512M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-echo:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-echo
+    expose:
+      - "3014"
+      - "3024"
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Echo"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "${PERSONALITY_SEED_ECHO:-random}"
+      CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.80}"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_HOST: "agent-echo"
+      STATUS_PORT: "3014"
+      VIEWER_PORT: "3024"
+      NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3014/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 512M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-foxtrot:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-foxtrot
+    expose:
+      - "3015"
+      - "3025"
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Foxtrot"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "${PERSONALITY_SEED_FOXTROT:-random}"
+      CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.80}"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_HOST: "agent-foxtrot"
+      STATUS_PORT: "3015"
+      VIEWER_PORT: "3025"
+      NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3015/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 512M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-golf:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-golf
+    expose:
+      - "3016"
+      - "3026"
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Golf"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "${PERSONALITY_SEED_GOLF:-random}"
+      CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.80}"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_HOST: "agent-golf"
+      STATUS_PORT: "3016"
+      VIEWER_PORT: "3026"
+      NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3016/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 512M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
+  agent-hotel:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    container_name: agent-hotel
+    expose:
+      - "3017"
+      - "3027"
+    environment:
+      MC_HOST: "minecraft-server"
+      MC_PORT: 25565
+      MC_USERNAME: "Agent_Hotel"
+      MC_VERSION: "1.20.4"
+      COMMAND_PREFIX: "!"
+      PERSONALITY_SEED: "${PERSONALITY_SEED_HOTEL:-random}"
+      CONFIDENCE_THRESHOLD: "${CONFIDENCE_THRESHOLD:-0.80}"
+      BROKER_URL: "http://brain-broker:3001"
+      MEMORY_SERVICE_URL: "http://memory-service:3002"
+      STATUS_HOST: "agent-hotel"
+      STATUS_PORT: "3017"
+      VIEWER_PORT: "3027"
+      NODE_OPTIONS: "--max-old-space-size=400"
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:3017/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      minecraft-server:
+        condition: service_started
+      brain-broker:
+        condition: service_healthy
+      memory-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 512M
+    networks:
+      - minecraft-network
+    restart: unless-stopped
+
   dashboard:
     build:
       context: .
@@ -311,6 +533,11 @@ services:
       AGENT_ALPHA_STATUS_URL: "http://agent-alpha:3010"
       AGENT_BETA_STATUS_URL: "http://agent-beta:3011"
       AGENT_GAMMA_STATUS_URL: "http://agent-gamma:3012"
+      AGENT_DELTA_STATUS_URL: "http://agent-delta:3013"
+      AGENT_ECHO_STATUS_URL: "http://agent-echo:3014"
+      AGENT_FOXTROT_STATUS_URL: "http://agent-foxtrot:3015"
+      AGENT_GOLF_STATUS_URL: "http://agent-golf:3016"
+      AGENT_HOTEL_STATUS_URL: "http://agent-hotel:3017"
       MC_HOST: "minecraft-server"
       MC_PORT: 25565
       MC_VERSION: "1.20.4"

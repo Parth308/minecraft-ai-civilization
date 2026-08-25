@@ -395,6 +395,50 @@ function createAgent() {
       // Seed dynamic rules from civilization shared lessons
       decisionTree.dynamicRuleEngine.seedFromSharedLessons(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
 
+      // Grounded curriculum check: when basics (tools/shelter) are missing,
+      // nudge the goal toward the next tech milestone every few minutes.
+      const curriculumTimer = setInterval(() => {
+        try {
+          if (Date.now() - (agentState._lastCurriculumAt || 0) < 300000) return;
+          const inv = (agentState.inventory || []).map(i => i.name);
+          const next = goalManager.nextTechObjective(inv);
+          const currentDesc = (goalManager.currentGoal?.description || '').toLowerCase();
+          const isWhimsical = ['trade', 'mine', 'explore', 'wander', 'talk'].includes(currentDesc.trim());
+          if (!next || !isWhimsical) return;
+          agentState._lastCurriculumAt = Date.now();
+          goalManager.setGoal(next.objective, { source: 'tech-curriculum', phase: next.phase });
+          chat.say(`new mission: ${next.objective}`);
+          eventBuffer.addEvent('newGoal', { ...next, source: 'curriculum' });
+        } catch { /* curriculum is advisory */ }
+      }, 120000);
+      curriculumTimer.unref?.();
+
+      // Emergent professions: dominant action over time becomes a social role.
+      let lastAnnouncedRole = null;
+      const professionTimer = setInterval(() => {
+        try {
+          const tally = agentState.actionTally || {};
+          const total = Object.values(tally).reduce((a, b) => a + b, 0);
+          if (total < 40) return;
+          const [topAction, count] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+          if (count / total < 0.4) return;
+          const ROLE_NAMES = { MINE: 'Miner', EXPLORE: 'Scout', WANDER: 'Scout', TRADE: 'Merchant', TALK: 'Diplomat', FARM: 'Farmer', CRAFT: 'Artisan', BUILD: 'Builder', FIGHT: 'Guard' };
+          const role = ROLE_NAMES[topAction];
+          if (role && role !== persona.emergentRole) {
+            persona.emergentRole = role;
+            logger.info('AgentLoop', `[PROFESSION] ${bot.username} has specialized as a ${role} (${count}/${total} actions)`);
+            detailedLogger.logCognition(bot.username, `Profession emerged: ${role}`, { topAction, share: Number((count / total).toFixed(2)) });
+            eventBuffer.addEvent('professionShift', { role, topAction });
+            if (lastAnnouncedRole !== role && Date.now() - lastOutgoingChat > 10000) {
+              lastAnnouncedRole = role;
+              lastOutgoingChat = Date.now();
+              chat.say(`I've found my calling — I'm the settlement's ${role.toLowerCase()} now.`);
+            }
+          }
+        } catch { /* profession tracking is advisory */ }
+      }, 90000);
+      professionTimer.unref?.();
+
       // Main Agent Loop (Tick-based with agent-staggered start to prevent API congestion)
       const staggerDelay = config.username === 'Agent_Alpha' ? 0 : config.username === 'Agent_Beta' ? 350 : 700;
       setTimeout(() => {
@@ -675,9 +719,18 @@ function createAgent() {
         case 'TALK': {
           // Always escalate TALK to LLM for authentic personality-driven speech
           require('./decision/rules/talk').markTalkExecuted();
-          const talkPartner = decision.meta?.partner ||
-            (senses.getNearbyPlayers(32)?.[0]?.username) ||
-            (bot.players ? Object.keys(bot.players).filter(n => n !== bot.username)[0] : null);
+          const isCitizen = n => n && n !== bot.username && !/spectate/i.test(n);
+          let talkPartner = decision.meta?.partner;
+          if (!isCitizen(talkPartner)) {
+            talkPartner = (senses.getNearbyPlayers(32) || []).map(p => p.username).find(isCitizen) ||
+              (bot.players ? Object.keys(bot.players).filter(isCitizen)[0] : null);
+          }
+          // Per-partner chatter cooldown — learned TALK rules previously spammed
+          // the same target every few seconds.
+          if (talkPartner && chatCooldowns.has(talkPartner) && Date.now() - chatCooldowns.get(talkPartner) < 45000) {
+            actionSuccess = false;
+            break;
+          }
           const talkSubject = decision.reason || `What's on your mind as ${persona.title || 'a settler'}?`;
           logger.info('AgentLoop', `Executing autonomous TALK${talkPartner ? ` with ${talkPartner}` : ' (shout to world)'}`);
           const talkReply = await dialogueEngine.processIncomingChat(
@@ -943,6 +996,10 @@ function createAgent() {
       const activeRuleId = decision.ruleId || decision.meta?.ruleId;
       if (activeRuleId && decisionTree?.dynamicRuleEngine) {
         decisionTree.dynamicRuleEngine.reinforceRule(activeRuleId, actionSuccess);
+      }
+      if (decision.action) {
+        agentState.actionTally = agentState.actionTally || {};
+        agentState.actionTally[decision.action] = (agentState.actionTally[decision.action] || 0) + 1;
       }
       agentState.lastActionResult = {
         action: decision.action,

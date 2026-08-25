@@ -21,6 +21,13 @@ class GoalManager {
   }
 
   setGoal(description, details = {}) {
+    // Churn guard: identical re-adoption inside 3 minutes means the LLM is
+    // thrashing, not deciding — keep the incumbent goal.
+    const age = Date.now() - new Date(this.currentGoal.createdAt).getTime();
+    if (description === this.currentGoal.description && age < 180000 && this.currentGoal.status === 'active') {
+      logger.debug('Goals', `[GOAL KEPT] ${this.agentId} re-adopted '${description}' within ${Math.round(age / 1000)}s — ignoring`);
+      return;
+    }
     this.currentGoal = {
       description,
       details,
@@ -30,6 +37,37 @@ class GoalManager {
     };
     this.personalGoals = [this.currentGoal];
     logger.info('Goals', `[NEW GOAL] ${this.agentId} adopted objective: "${description}"`);
+  }
+
+  /**
+   * Voyager-style grounded curriculum: propose the next milestone from actual
+   * progression state instead of letting the LLM invent whimsical objectives.
+   * Returns null when basics are covered — free will resumes from there.
+   */
+  nextTechObjective(inventoryItemNames = []) {
+    const has = name => inventoryItemNames.some(n => n.includes(name));
+    if (!has('pickaxe') && !has('crafting_table')) {
+      return { objective: 'Gather wood, then craft a crafting table and wooden pickaxe', phase: 'wood-age' };
+    }
+    if (!has('stone_pickaxe')) {
+      return { objective: 'Mine cobblestone and upgrade to stone tools', phase: 'stone-age' };
+    }
+    if (!has('furnace')) {
+      return { objective: 'Craft a furnace to unlock smelting', phase: 'smelting' };
+    }
+    if (has('raw_iron') && !has('iron_ingot')) {
+      return { objective: 'Smelt raw iron into ingots using coal in the furnace', phase: 'iron-age' };
+    }
+    if (!has('iron_pickaxe') && has('iron_ingot')) {
+      return { objective: 'Craft an iron pickaxe — the gateway to diamonds', phase: 'iron-tools' };
+    }
+    if (!has('shield')) {
+      return { objective: 'Craft a shield — creeper insurance', phase: 'defense' };
+    }
+    if (!has('bed')) {
+      return { objective: 'Secure a bed before nightfall — sleep resets spawn and skips monsters', phase: 'shelter' };
+    }
+    return null;
   }
 
   setAspiration(aspiration) {

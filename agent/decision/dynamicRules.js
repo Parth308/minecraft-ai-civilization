@@ -217,6 +217,13 @@ class DynamicRuleEngine {
                        senses.isInWater?.() ||
                        nearHazard;
         if (unsafe) conf = 0.10;
+      } else if (rule.action === 'TALK') {
+        // Learned talk rules looped endlessly at non-citizens (SpectatorBot)
+        // when no real conversation partner was around. Only fire when a
+        // genuine chat target is within conversational range.
+        const targets = typeof senses.getNearbyPlayers === 'function'
+          ? (senses.getNearbyPlayers(24) || []).filter(p => !/spectate/i.test(p.username)) : [];
+        if (targets.length === 0) conf = 0.10;
       }
 
       candidateActions.push({
