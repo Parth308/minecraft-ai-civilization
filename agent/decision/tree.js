@@ -302,7 +302,7 @@ class DecisionTree {
         escalated: true,
         source,
         speaker: payload.speaker || null,
-        whisper: !!(payload.privateChat || response.whisper),
+        whisper: !!(payload.privateChat || escalationResult.whisper),
         provider: escalationResult.provider || (isCached ? 'Cache' : isFallback ? 'Local Fallback' : 'Broker'),
         model: escalationResult.model || null,
         cached: isCached,
