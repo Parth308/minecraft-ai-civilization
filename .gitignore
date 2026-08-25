@@ -33,6 +33,7 @@ logs_dump_v*/
 *.log.gz
 memory-service/store/civilization/ledger.json
 memory-service/store/civilization/society.json
+memory-service/store/*.snapshot.json
 memory-service/civilization/*.json
 
 # Markdown files (allow README and agent knowledge base)

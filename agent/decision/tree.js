@@ -94,6 +94,22 @@ class DecisionTree {
       }
     }
 
+    // Mastery: accumulated learned rules per action = lived competence
+    const ruleCounts = {};
+    for (const r of (this.dynamicRuleEngine.learnedRules || [])) {
+      ruleCounts[r.action] = (ruleCounts[r.action] || 0) + 1;
+    }
+    for (const c of candidates) {
+      if (ruleCounts[c.name]) c.confidence += Math.min(0.04, ruleCounts[c.name] * 0.01);
+    }
+
+    // Mob grudges: repeated harm from a creature type hardens into targeted aggression
+    for (const c of candidates) {
+      if (c.name === 'FIGHT' && c.meta?.target?.name) {
+        c.confidence += beliefs.grudgeAgainst(c.meta.target.name) * 0.08;
+      }
+    }
+
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
     const topCandidate = candidates[0];
@@ -282,6 +298,8 @@ class DecisionTree {
         confidence: topCandidate.confidence,
         escalated: true,
         source,
+        speaker: payload.speaker || null,
+        whisper: !!(payload.privateChat || response.whisper),
         provider: escalationResult.provider || (isCached ? 'Cache' : isFallback ? 'Local Fallback' : 'Broker'),
         model: escalationResult.model || null,
         cached: isCached,

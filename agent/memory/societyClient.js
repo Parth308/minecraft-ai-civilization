@@ -37,11 +37,11 @@ class SocietyClient {
     }
   }
 
-  postGossip(aboutAgent, sentiment, fact) {
+  postGossip(aboutAgent, sentiment, fact, fidelity = 0.75) {
     return fetch(`${this.serviceUrl}/api/society/gossip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromAgent: this.agentId, aboutAgent, sentiment, fact })
+      body: JSON.stringify({ fromAgent: this.agentId, aboutAgent, sentiment, fact, fidelity })
     }).catch(err => logger.debug('SocietyClient', `Gossip post failed: ${err.message}`));
   }
 
@@ -242,6 +242,42 @@ class SocietyClient {
       body: JSON.stringify({ agentId: this.agentId, riteType, coords: this._lastPos || null })
     }).then(r => r.json()).catch(err => {
       logger.debug('SocietyClient', `Rite failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  // ── Job board ───────────────────────────────────────────────────────────────
+
+  postJob(title, description, currency, amount) {
+    return fetch(`${this.serviceUrl}/api/society/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ poster: this.agentId, title, description, currency, amount })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Job post failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  claimJob(jobId) {
+    return fetch(`${this.serviceUrl}/api/society/jobs/${jobId}/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worker: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Job claim failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  resolveJob(jobId, action) {
+    const byField = action === 'complete' ? 'byWorker' : 'byPoster';
+    return fetch(`${this.serviceUrl}/api/society/jobs/${jobId}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [byField]: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Job ${action} failed: ${err.message}`);
       return {};
     });
   }

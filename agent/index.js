@@ -132,6 +132,36 @@ statusServer.listen(config.statusPort, () => {
   setInterval(announceToDashboard, 15000);
   // Inner weather decays on its own clock — feelings fade if not refreshed
   setInterval(() => EmotionalState.forAgent(config.username).decay(), 60000);
+
+  // Periodic self-review: the agent audits its own behavior distribution and
+  // corrects imbalances through its own rule-adjustment channel (meta-learning).
+  const reviewHours = parseInt(process.env.SELF_REVIEW_INTERVAL_HOURS, 10) || 6;
+  setInterval(async () => {
+    try {
+      const recent = agentState.recentDecisions || [];
+      if (recent.length < 40) return;
+      const counts = {};
+      for (const d of recent.slice(-100)) counts[d.action] = (counts[d.action] || 0) + 1;
+      const total = Math.min(100, recent.length);
+      const fleeRatio = (counts.FLEE || 0) / total;
+      const exploreRatio = (counts.EXPLORE || 0) / total;
+
+      const serviceUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+      const adjustments = [];
+      if (fleeRatio > 0.45) adjustments.push({ ruleType: 'FLEE', situationPattern: 'self-review: chronic fleeing', recommendedConfidenceDelta: -0.06, reason: `${Math.round(fleeRatio * 100)}% of my last ${total} decisions were FLEE — I am letting fear run my life` });
+      if (exploreRatio > 0.5) adjustments.push({ ruleType: 'EXPLORE', situationPattern: 'self-review: aimless wandering', recommendedConfidenceDelta: -0.05, reason: `Half my life lately is wandering with nothing to show` });
+      for (const adj of adjustments) {
+        await fetch(`${serviceUrl}/api/rules/adjust`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: bot.username, ...adj })
+        });
+        logger.warn('AgentLoop', `[SELF-REVIEW] ${bot.username} self-corrected ${adj.ruleType}: ${adj.reason}`);
+      }
+    } catch (err) {
+      logger.debug('AgentLoop', `Self-review skipped: ${err.message}`);
+    }
+  }, reviewHours * 60 * 60 * 1000);
 });
 
 function createAgent() {
@@ -446,7 +476,13 @@ function createAgent() {
 
           if (decision.chatMessage && (Date.now() - lastOutgoingChat > 3000)) {
             lastOutgoingChat = Date.now();
-            chat.say(decision.chatMessage);
+            // Secrets stay private: whisper flag routes the reply to the sender alone
+            if (decision.whisper && decision.speaker && typeof chat.bot?.whisper === 'function') {
+              chat.bot.whisper(decision.speaker, decision.chatMessage);
+              logger.info('AgentLoop', `[WHISPER] -> ${decision.speaker}: "${decision.chatMessage.slice(0, 60)}"`);
+            } else {
+              chat.say(decision.chatMessage);
+            }
           }
 
           // Cancel combat loop if no longer fighting
@@ -862,15 +898,24 @@ function createAgent() {
     detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
     eventBuffer.addEvent('agentHurt', { health });
 
+    // Look for who hit us (nearest player or mob within 5 blocks)
+    const nearby = senses.getNearbyPlayers(5);
+    const nearbyMobs = senses.getNearbyHostileMobs(5);
+
     // Near-death fear imprint
     if (health <= 6) {
       EmotionalState.forAgent(bot.username).appraise('near_death', {}, persona?.traits || {});
       BeliefNetwork.forAgent(bot.username).learnFrom('near_death', {});
     }
 
-    // Look for who hit us (nearest player or mob within 5 blocks)
-    const nearby = senses.getNearbyPlayers(5);
-    const nearbyMobs = senses.getNearbyHostileMobs(5);
+    // Mob grudges: whoever's nearby when it hurts takes the blame
+    if (nearbyMobs && nearbyMobs.length > 0) {
+      const attackerType = nearbyMobs[0]?.name || nearbyMobs[0]?.mobType;
+      if (attackerType) {
+        EmotionalState.forAgent(bot.username).feel('anger', 0.15);
+        BeliefNetwork.forAgent(bot.username).noteMobGrudge(attackerType, 0.2);
+      }
+    }
 
     if (nearby && nearby.length > 0) {
       const attacker = nearby[0];
@@ -947,6 +992,17 @@ function createAgent() {
   events.on('playerLeft', ({ username }) => {
     detailedLogger.logSenses(bot.username, `Player left server: ${username}`);
     eventBuffer.addEvent('playerLeft', { username });
+  });
+
+  // Witnessing another's death stirs real grief — empathy scaled by bond
+  events.on('witnessedDeath', ({ victim }) => {
+    const rel = relationships?.get?.(victim);
+    const emo1 = EmotionalState.forAgent(bot.username);
+    emo1.appraise('witnessed_death', { affinity: rel?.affinity ?? 30 }, persona?.traits || {});
+    BeliefNetwork.forAgent(bot.username).learnFrom('witnessed_death');
+    if ((rel?.affinity ?? 0) >= 60) {
+      logger.warn('AgentLoop', `[GRIEF] ${bot.username} lost someone close: ${victim}`);
+    }
   });
 
   events.on('agentDeath', ({ position, cause }) => {
@@ -1177,7 +1233,7 @@ function createAgent() {
 
   events.on('playerWhisper', async ({ username, message }) => {
     eventBuffer.addEvent('playerWhisper', { username, message });
-    const reply = await dialogueEngine.processIncomingChat(username, message);
+    const reply = await dialogueEngine.processIncomingChat(username, message, { private: true });
     if (reply) {
       chat.whisper(username, reply);
     }

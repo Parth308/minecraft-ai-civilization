@@ -96,7 +96,7 @@ app.post('/api/memory/consolidate', async (req, res) => {
     return res.status(400).json({ error: 'agentId and section required' });
   }
 
-  const result = await compactor.consolidateSectionFile(agentId, section, process.env.GEMINI_API_KEY || '');
+  const result = await compactor.consolidateSectionFile(agentId, section);
   
   // Re-index section into vector store
   const parsed = parseSectionFile(getSectionFilePath(agentId, section));

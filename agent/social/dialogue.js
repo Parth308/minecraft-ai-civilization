@@ -117,6 +117,8 @@ class SocialDialogueEngine {
       goals: this.goalManager.getGoalContext(),
       diplomacy: this.factionManager ? this.factionManager.getDiplomaticContext() : {},
       conversationHistory: transcript.slice(0, -1).slice(-6),
+      privateChat: !!civContext.private,
+      societyFaith: faithCtx ? { yourState: faithCtx.state, yourTradition: faithCtx.tradition, yourPiety: faithCtx.piety } : null,
       society: {
         speakerReputationScore: speakerRep.score,
         heardAboutSpeaker,
@@ -294,6 +296,24 @@ class SocialDialogueEngine {
         } else if (fa.type === 'abandon') {
           await this.societyClient.setFaith('none', null);
           logger.info('SocialDialogue', `[FAITH ABANDONED] ${this.persona.agentId} let go of belief`);
+        }
+      }
+
+      // Job board agency: claim posted work, or post paid tasks of your own.
+      if (response.jobAction && response.jobAction.type) {
+        const ja = response.jobAction;
+        if (ja.type === 'claim' && ja.jobId) {
+          const res = await this.societyClient.claimJob(ja.jobId);
+          if (res.success) logger.warn('SocialDialogue', `[JOB CLAIMED] ${this.persona.agentId} claimed job ${ja.jobId}`);
+        } else if (ja.type === 'complete' && ja.jobId) {
+          const res = await this.societyClient.resolveJob(ja.jobId, 'complete');
+          if (res.success) {
+            logger.warn('SocialDialogue', `[JOB DONE] ${this.persona.agentId} completed job ${ja.jobId} (+${res.paid?.amount} ${res.paid?.currency})`);
+            EmotionalState.forAgent(this.persona.agentId).appraise('goal_progress', {}, this.persona.traits || {});
+          }
+        } else if (ja.type === 'post' && ja.title && ja.currency && ja.amount) {
+          const res = await this.societyClient.postJob(ja.title, ja.description || '', ja.currency, ja.amount);
+          if (res.success) logger.info('SocialDialogue', `[JOB POSTED] ${this.persona.agentId} hired help: "${ja.title}"`);
         }
       }
 

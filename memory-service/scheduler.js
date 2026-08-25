@@ -5,9 +5,8 @@ const { parseSectionFile, getSectionFilePath } = require('./sections/schema');
 const logger = require('../shared/logger');
 
 class MemoryScheduler {
-  constructor(compactor, apiKey = '') {
+  constructor(compactor) {
     this.compactor = compactor;
-    this.apiKey = apiKey || process.env.GEMINI_API_KEY || '';
     this.interval = null;
   }
 
@@ -42,7 +41,7 @@ class MemoryScheduler {
 
         if (exceedsEntries || exceedsBytes) {
           logger.warn('MemoryScheduler', `Soft cap exceeded for ${agentId}/${sectionName}.md (${parsed.entries.length} entries, ${stats.size} bytes). Triggering Tier 2 consolidation.`);
-          await this.compactor.consolidateSectionFile(agentId, sectionName, this.apiKey);
+          await this.compactor.consolidateSectionFile(agentId, sectionName);
         }
       }
     }

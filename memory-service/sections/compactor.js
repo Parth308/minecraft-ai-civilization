@@ -3,6 +3,60 @@ const { getSectionFilePath, parseSectionFile, writeSectionFile } = require('./sc
 const config = require('../config');
 const logger = require('../../shared/logger');
 
+const CONSOLIDATION_PROVIDERS = [
+  {
+    name: 'Nvidia',
+    endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    apiKeyEnv: 'NVIDIA_API_KEY',
+    modelEnv: 'NVIDIA_MODEL',
+    defaultModel: 'meta/llama-3.1-8b-instruct',
+    timeoutMs: 30000
+  },
+  {
+    name: 'Mistral',
+    endpoint: 'https://api.mistral.ai/v1/chat/completions',
+    apiKeyEnv: 'MISTRAL_API_KEY',
+    modelEnv: 'MISTRAL_MODEL',
+    defaultModel: 'mistral-small-latest',
+    timeoutMs: 30000
+  }
+];
+
+async function callConsolidationProvider(provider, prompt) {
+  const apiKey = process.env[provider.apiKeyEnv];
+  if (!apiKey) throw new Error(`${provider.apiKeyEnv} is not configured`);
+
+  const response = await fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: process.env[provider.modelEnv] || provider.defaultModel,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+      max_tokens: 2048
+    }),
+    signal: AbortSignal.timeout(provider.timeoutMs)
+  });
+
+  if (response.status === 429) {
+    const error = new Error(`${provider.name} rate limited (429)`);
+    error.status = 429;
+    throw error;
+  }
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`${provider.name} HTTP ${response.status} | ${errText.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error(`${provider.name} returned empty content`);
+  return text;
+}
+
 class MemoryCompactor {
   constructor(brokerClient = null) {
     this.brokerUrl = config.brokerUrl;
@@ -37,8 +91,8 @@ class MemoryCompactor {
     return { success: true, count: eventsList.length };
   }
 
-  // Tier 2: Consolidate oversized section file using LLM (Gemini Flash)
-  async consolidateSectionFile(agentId, sectionName, apiKey) {
+  // Tier 2: Consolidate oversized section file using an LLM (NVIDIA NIM -> Mistral)
+  async consolidateSectionFile(agentId, sectionName) {
     const filePath = getSectionFilePath(agentId, sectionName);
     if (!fs.existsSync(filePath)) return { skipped: true };
 
@@ -60,44 +114,44 @@ Instructions:
 3. Drop outdated temporary chatter, but preserve player trust, conflicts, discoveries, and coordinate facts.
 4. Output ONLY valid markdown bullet points starting with '-' and appropriate tags like [met], [conflict], [coop], [location], [skill], [damage]. No introductions or explanations.`;
 
-    try {
-      let compactedBody = '';
+    let compactedBody = '';
+    const providerErrors = [];
 
-      if (apiKey) {
-        // Direct call to Gemini Flash or through Broker
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        });
-        const data = await response.json();
-        compactedBody = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    for (const provider of CONSOLIDATION_PROVIDERS) {
+      try {
+        compactedBody = await callConsolidationProvider(provider, prompt);
+        break;
+      } catch (err) {
+        providerErrors.push(`${provider.name}: ${err.message}`);
+        logger.warn('MemoryCompactor', `Tier 2 provider ${provider.name} failed for ${agentId}/${sectionName}: ${err.message}`);
       }
-
-      if (!compactedBody) {
-        // Local heuristic fallback if LLM key unavailable
-        logger.warn('MemoryCompactor', 'LLM unavailable for Tier 2 compaction. Applying local deduplication.');
-        const unique = Array.from(new Set(parsed.entries));
-        compactedBody = unique.slice(-15).join('\n');
-      }
-
-      const newEntries = compactedBody
-        .split('\n')
-        .map(l => l.trim())
-        .filter(l => l.startsWith('-'));
-
-      parsed.frontmatter.last_consolidated = new Date().toISOString();
-      parsed.frontmatter.last_updated = new Date().toISOString();
-
-      writeSectionFile(filePath, parsed.frontmatter, newEntries);
-      logger.info('MemoryCompactor', `[Tier 2] Consolidated ${sectionName}.md for ${agentId}: ${parsed.entries.length} -> ${newEntries.length} entries.`);
-
-      return { success: true, originalCount: parsed.entries.length, newCount: newEntries.length };
-    } catch (err) {
-      logger.error('MemoryCompactor', `Tier 2 consolidation error for ${sectionName}:`, err);
-      return { success: false, error: err.message };
     }
+
+    if (!compactedBody) {
+      // Non-destructive fallback: keep the file intact and defer to the next sweep.
+      // Never truncate here — the old slice(-15) fallback silently shredded history.
+      logger.warn('MemoryCompactor', `LLM unavailable for Tier 2 compaction (${providerErrors.join(' | ')}). Deferring consolidation of ${agentId}/${sectionName} — file left intact.`);
+      return { skipped: true, reason: 'All consolidation providers unavailable', errors: providerErrors };
+    }
+
+    const newEntries = compactedBody
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.startsWith('-'));
+
+    if (newEntries.length === 0 || newEntries.length < parsed.entries.length * 0.3) {
+      // LLM output too sparse or malformed — keep original rather than lose knowledge
+      logger.warn('MemoryCompactor', `Tier 2 output suspicious (${newEntries.length} entries from ${parsed.entries.length}). Keeping ${agentId}/${sectionName} intact.`);
+      return { skipped: true, reason: 'Suspicious consolidation output rejected' };
+    }
+
+    parsed.frontmatter.last_consolidated = new Date().toISOString();
+    parsed.frontmatter.last_updated = new Date().toISOString();
+
+    writeSectionFile(filePath, parsed.frontmatter, newEntries);
+    logger.info('MemoryCompactor', `[Tier 2] Consolidated ${sectionName}.md for ${agentId}: ${parsed.entries.length} -> ${newEntries.length} entries.`);
+
+    return { success: true, originalCount: parsed.entries.length, newCount: newEntries.length };
   }
 }
 

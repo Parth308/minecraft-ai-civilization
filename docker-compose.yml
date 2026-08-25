@@ -78,11 +78,16 @@ services:
       MEMORY_PORT: 3002
       BROKER_URL: "http://brain-broker:3001"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
+      NVIDIA_MODEL: "${NVIDIA_MODEL:-meta/llama-3.1-8b-instruct}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      MISTRAL_MODEL: "${MISTRAL_MODEL:-mistral-small-latest}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-ollama}"
       OLLAMA_HOST: "http://ollama:11434"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-nomic-embed-text}"
     volumes:
-      - ./memory-service/store/agents:/app/memory-service/store/agents
+      # Full store mount so civilization ledger.json + vector snapshots persist
+      - ./memory-service/store:/app/memory-service/store
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
       interval: 10s

@@ -18,6 +18,7 @@ class SocietyStore {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (!fs.existsSync(this.filePath)) {
       fs.writeFileSync(this.filePath, JSON.stringify({
+        worldStartAt: new Date().toISOString(),
         reputation: {},
         gossip: [],
         notices: [],
@@ -35,6 +36,8 @@ class SocietyStore {
         faith: {},
         clans: {},
         recentRites: [],
+        jobs: [],
+        shops: {},
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -58,9 +61,12 @@ class SocietyStore {
       if (!data.wallets || typeof data.wallets !== 'object') data.wallets = {};
       if (!data.priceMemory || typeof data.priceMemory !== 'object') data.priceMemory = {};
       if (!Array.isArray(data.placeMemories)) data.placeMemories = [];
+      if (!data.worldStartAt) data.worldStartAt = new Date().toISOString();
       if (!data.faith || typeof data.faith !== 'object') data.faith = {};
       if (!data.clans || typeof data.clans !== 'object') data.clans = {};
       if (!Array.isArray(data.recentRites)) data.recentRites = [];
+      if (!Array.isArray(data.jobs)) data.jobs = [];
+      if (!data.shops || typeof data.shops !== 'object') data.shops = {};
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
@@ -75,7 +81,8 @@ class SocietyStore {
 
   // ── Gossip & Reputation ──────────────────────────────────────────────────────
 
-  addGossip(fromAgent, aboutAgent, sentiment, fact) {
+  // fidelity < 1 marks hearsay — retold rumors degrade and eventually read as vague "(hearsay)"
+  addGossip(fromAgent, aboutAgent, sentiment, fact, fidelity = 1) {
     const s = Number(sentiment);
     if (!fromAgent || !aboutAgent || !Number.isFinite(s)) {
       return { success: false, reason: 'fromAgent, aboutAgent and numeric sentiment required' };
@@ -91,6 +98,7 @@ class SocietyStore {
       about: aboutAgent,
       sentiment: Math.max(-1, Math.min(1, Number(s.toFixed(2)))),
       fact: String(fact || '').slice(0, 280),
+      fidelity: Math.max(0.2, Math.min(1, Number(fidelity) || 1)),
       timestamp: new Date().toISOString()
     };
     data.gossip.push(entry);
@@ -422,7 +430,132 @@ class SocietyStore {
     return filtered.slice(-limit);
   }
 
-  // ── Intel Marketplace (knowledge as property) ────────────────────────────────
+  // ── Job Board with Wallet Escrow ─────────────────────────────────────────────
+
+  postJob(poster, title, description, currency, amount) {
+    const amt = Math.floor(Number(amount));
+    if (!poster || !title || !currency || !Number.isFinite(amt) || amt <= 0) return { success: false, reason: 'poster, title, currency and positive amount required' };
+    const data = this.load();
+
+    // Escrow: payment leaves the poster's wallet immediately — trust by design
+    const wallet = this._wallet(data, poster);
+    if ((wallet[currency] || 0) < amt) return { success: false, reason: `Insufficient escrow funds (needs ${amt} ${currency})` };
+
+    const job = {
+      id: `job_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      poster,
+      title: String(title).slice(0, 100),
+      description: String(description || '').slice(0, 200),
+      payment: { currency, amount: amt },
+      status: 'open',
+      worker: null,
+      createdAt: new Date().toISOString()
+    };
+    wallet[currency] -= amt;
+    const escrow = this._wallet(data, `escrow:${job.id}`);
+    escrow[currency] = (escrow[currency] || 0) + amt;
+    data.jobs.push(job);
+    if (data.jobs.length > 80) data.jobs.splice(0, data.jobs.length - 80);
+    this.save(data);
+    logger.info('SocietyStore', `[JOB POSTED] ${poster}: "${job.title}" for ${amt} ${currency} (escrowed)`);
+    return { success: true, job };
+  }
+
+  claimJob(jobId, worker) {
+    const data = this.load();
+    const job = data.jobs.find(j => j.id === jobId && j.status === 'open');
+    if (!job) return { success: false, reason: 'Open job not found' };
+    if (job.poster === worker) return { success: false, reason: 'Cannot claim your own job' };
+    job.status = 'claimed';
+    job.worker = worker;
+    job.claimedAt = new Date().toISOString();
+    this.save(data);
+    logger.info('SocietyStore', `[JOB CLAIMED] ${worker} took "${job.title}"`);
+    return { success: true, job };
+  }
+
+  completeJob(jobId, byWorker) {
+    const data = this.load();
+    const job = data.jobs.find(j => j.id === jobId && j.status === 'claimed');
+    if (!job) return { success: false, reason: 'Claimed job not found' };
+    if (job.worker !== byWorker) return { success: false, reason: 'Only the claiming worker can complete' };
+
+    // Release escrow to worker + poster reputation for honest dealing
+    const escrow = data.wallets[`escrow:${job.id}`] || {};
+    const workerWallet = this._wallet(data, byWorker);
+    for (const [cur, amt] of Object.entries(escrow)) {
+      workerWallet[cur] = (workerWallet[cur] || 0) + amt;
+    }
+    delete data.wallets[`escrow:${job.id}`];
+    job.status = 'done';
+    job.completedAt = new Date().toISOString();
+
+    const rep = data.reputation[job.poster] || { score: 0, positives: 0, negatives: 0 };
+    rep.score = Math.min(100, rep.score + 4);
+    rep.positives++;
+    data.reputation[job.poster] = rep;
+    this.save(data);
+    logger.warn('SocietyStore', `[JOB DONE] ${byWorker} completed "${job.title}" — paid ${job.payment.amount} ${job.payment.currency}`);
+    return { success: true, job, paid: job.payment };
+  }
+
+  failJob(jobId, byPoster) {
+    const data = this.load();
+    const idx = data.jobs.findIndex(j => j.id === jobId && j.status === 'claimed');
+    if (idx === -1) return { success: false, reason: 'Claimed job not found' };
+    const job = data.jobs[idx];
+
+    // Refund escrow to poster
+    const escrowKey = `escrow:${idx.toString(36)}`;
+    const escrow = data.wallets[escrowKey] || {};
+    const posterWallet = this._wallet(data, job.poster);
+    for (const [cur, amt] of Object.entries(escrow)) {
+      posterWallet[cur] = (posterWallet[cur] || 0) + amt;
+    }
+    delete data.wallets[escrowKey];
+    job.status = 'failed';
+
+    // Worker earns a grievance from the poster — social consequence
+    if (byPoster === job.poster) {
+      data.grievances.push({
+        id: `grv_${Date.now()}_j`, by: job.poster, against: job.worker,
+        reason: `Abandoned paid job: "${job.title}"`, weight: 2,
+        timestamp: new Date().toISOString()
+      });
+    }
+    this.save(data);
+    logger.warn('SocietyStore', `[JOB FAILED] "${job.title}" refunded to ${job.poster}; grievance filed vs ${job.worker}`);
+    return { success: true, job };
+  }
+
+  getOpenJobs() {
+    return this.load().jobs.filter(j => j.status === 'open').slice(-12);
+  }
+
+  // ── Chest Shops (physical commerce locations) ────────────────────────────────
+
+  createShop(agentId, x, y, z, item, unitPrice, unitCurrency) {
+    const key = `${Math.round(x)},${Math.round(y)},${Math.round(z)}`;
+    const data = this.load();
+    const prop = data.property[key];
+    if (!prop || prop.owner !== agentId) return { success: false, reason: 'You must own the chest to open a shop on it' };
+    data.shops[key] = {
+      owner: agentId,
+      item: String(item).slice(0, 60),
+      unitPrice: Math.max(1, parseInt(unitPrice, 10) || 1),
+      unitCurrency,
+      openedAt: new Date().toISOString()
+    };
+    this.save(data);
+    logger.info('SocietyStore', `[SHOP OPENED] ${agentId}: ${key} sells ${item} @ ${unitPrice} ${unitCurrency}`);
+    return { success: true, shop: data.shops[key] };
+  }
+
+  getShops() {
+    return Object.entries(this.load().shops)
+      .map(([chestKey, s]) => ({ chestKey, ...s }))
+      .slice(-15);
+  }
 
   listIntel(seller, title, fact, priceItem = 'iron_ingot', priceAmount = 1) {
     if (!seller || !title || !fact) return { success: false, reason: 'seller, title and fact required' };
@@ -756,9 +889,48 @@ class SocietyStore {
     };
   }
 
+  // Minecraft calendar: 20 real minutes = one in-world day
+  calendar() {
+    const data = this.load();
+    const elapsedMs = Date.now() - new Date(data.worldStartAt).getTime();
+    const totalDays = Math.floor(elapsedMs / (20 * 60 * 1000));
+    const minuteOfDay = Math.floor(((elapsedMs % (20 * 60 * 1000)) / (20 * 60 * 1000)) * 24 * 60);
+    return {
+      day: totalDays + 1,
+      timeOfDay: `${String(Math.floor(minuteOfDay / 60)).padStart(2, '0')}:${String(minuteOfDay % 60).padStart(2, '0')}`,
+      isNightish: minuteOfDay < 5 * 60 || minuteOfDay > 19 * 60
+    };
+  }
+
+  // ── Elections (authority emerges from votes, not code) ──────────────────────
+
+  declareCandidacy(agentId) {
+    return this.proposeConvention(agentId, 'chief.candidate.' + agentId, 'candidate');
+  }
+
+  voteFor(voterId, candidate) {
+    return this.proposeConvention(voterId, 'chief.vote.' + candidate, 'vote');
+  }
+
+  getChief() {
+    const conventions = this.load().conventions;
+    let best = null;
+    for (const [k, v] of Object.entries(conventions)) {
+      if (!k.startsWith('chief.vote.')) continue;
+      const candidate = k.replace('chief.vote.', '');
+      if (!best || v.adopters.length > best.votes) best = { candidate, votes: v.adopters.length };
+    }
+    if (!best || best.votes < 2) return { chief: null, reason: 'No candidate holds at least 2 votes yet' };
+    return { chief: best.candidate, votes: best.votes };
+  }
+
   getContextSnapshot() {
     const data = this.load();
     return {
+      calendar: this.calendar(),
+      chief: this.getChief(),
+      openJobs: data.jobs.filter(j => j.status === 'open').slice(-8).map(j => ({ id: j.id, poster: j.poster, title: j.title, payment: `${j.payment.amount}x ${j.payment.currency}` })),
+      shops: this.getShops(),
       notices: data.notices.slice(-8).reverse(),
       conventions: data.conventions,
       openPledges: data.pledges.filter(p => p.status === 'open').slice(-15),
@@ -770,7 +942,12 @@ class SocietyStore {
         .map(item => ({ item, ...this.getMarketPrice(item) }))
         .filter(m => m.samples > 0)
         .slice(0, 10),
-      recentGossip: data.gossip.slice(-12),
+      recentGossip: data.gossip.slice(-12).map(g => {
+        const fid = g.fidelity ?? 1;
+        const fact = String(g.fact || '');
+        const kept = fid >= 0.95 ? fact : fact.slice(0, Math.max(18, Math.round(fact.length * fid))) + (fid < 0.65 ? ' (hearsay)' : '...');
+        return { ...g, fact: kept };
+      }),
       reputationHighlights: Object.entries(data.reputation)
         .map(([agentId, r]) => ({ agentId, score: r.score }))
         .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
@@ -973,6 +1150,49 @@ function societyRoutes(app) {
     const { a, b } = req.query;
     if (!a || !b) return res.status(400).json({ error: 'clan names a and b required' });
     res.json({ a, b, tension: store.clanTension(a, b) });
+  });
+
+  app.post('/api/society/jobs', (req, res) => {
+    const { poster, title, description, currency, amount } = req.body || {};
+    res.json(store.postJob(poster, title, description, currency, amount));
+  });
+
+  app.post('/api/society/jobs/:id/claim', (req, res) => {
+    res.json(store.claimJob(req.params.id, (req.body || {}).worker));
+  });
+
+  app.post('/api/society/jobs/:id/complete', (req, res) => {
+    res.json(store.completeJob(req.params.id, (req.body || {}).byWorker));
+  });
+
+  app.post('/api/society/jobs/:id/fail', (req, res) => {
+    res.json(store.failJob(req.params.id, (req.body || {}).byPoster));
+  });
+
+  app.get('/api/society/jobs/open', (req, res) => {
+    res.json({ jobs: store.getOpenJobs() });
+  });
+
+  app.post('/api/society/shops', (req, res) => {
+    const { agentId, x, y, z, item, unitPrice, unitCurrency } = req.body || {};
+    res.json(store.createShop(agentId, x, y, z, item, unitPrice, unitCurrency));
+  });
+
+  app.get('/api/society/shops', (req, res) => {
+    res.json({ shops: store.getShops() });
+  });
+
+  app.post('/api/society/chief/candidacy', (req, res) => {
+    res.json(store.declareCandidacy((req.body || {}).agentId));
+  });
+
+  app.post('/api/society/chief/vote', (req, res) => {
+    const { voterId, candidate } = req.body || {};
+    res.json(store.voteFor(voterId, candidate));
+  });
+
+  app.get('/api/society/chief', (req, res) => {
+    res.json(store.getChief());
   });
 
   // History Book — compiled origin stories and milestones for meaning-making

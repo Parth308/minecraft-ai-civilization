@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Civilization Chronicle</title>
+<style>
+  :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --txt:#d7dce6; --dim:#8a93a6; --gold:#e0a83c; --red:#e05c5c; --green:#57c98a; --violet:#9a7cf0; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--txt); font:14px/1.5 'Segoe UI',system-ui,sans-serif; padding:20px; }
+  h1 { font-size:20px; margin-bottom:4px; } .sub { color:var(--dim); font-size:12px; margin-bottom:18px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--gold); margin-bottom:10px; }
+  .row { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+  .row:last-child { border:none; }
+  .dim { color:var(--dim); } .good { color:var(--green); } .bad { color:var(--red); }
+  canvas { width:100%; height:260px; }
+  .empty { color:var(--dim); font-style:italic; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>🏛️ Civilization Chronicle</h1>
+<div class="sub" id="cal">loading…</div>
+<div class="grid">
+  <div class="card"><h2>Social Web — reputation & tension</h2><canvas id="web" width="700" height="260"></canvas><div id="webLegend" class="dim" style="font-size:11px"></div></div>
+  <div class="card"><h2>⚖️ Court Docket (open accusations)</h2><div id="court"></div></div>
+  <div class="card"><h2>💳 Debt Ledger</h2><div id="debts"></div></div>
+  <div class="card"><h2>📈 Market Prices</h2><div id="market"></div></div>
+  <div class="card"><h2>🛡️ Clans</h2><div id="clans"></div></div>
+  <div class="card"><h2>🕊️ Faith</h2><div id="faith"></div></div>
+  <div class="card"><h2>📜 Scripture & Lore</h2><div id="scripture"></div></div>
+  <div class="card"><h2>🔨 Open Jobs</h2><div id="jobs"></div></div>
+  <div class="card"><h2>📖 History Book</h2><div id="history"></div></div>
+</div>
+
+<script>
+const API = location.origin.replace(/:\d+$/, ':3002'); // memory-service via host
+async function j(url){ try { const r = await fetch(url); return r.json(); } catch { return null; } }
+
+function row(l, r, cls='') { return `<div class="row"><span>${l}</span><span class="${cls}">${r}</span></div>`; }
+
+async function refresh() {
+  const ctx = await j(API + '/api/society/context');
+  if (!ctx) { document.getElementById('cal').textContent = 'memory-service unreachable'; return; }
+
+  document.getElementById('cal').textContent =
+    `Day ${ctx.calendar?.day ?? '?'} · ${ctx.calendar?.timeOfDay ?? ''}${ctx.calendar?.isNightish ? ' 🌙' : ' ☀️'} · chief: ${ctx.chief?.chief || 'none elected'}`;
+
+  // Court docket
+  const court = document.getElementById('court');
+  const accs = ctx.openAccusations || [];
+  court.innerHTML = accs.length ? accs.map(a =>
+    row(`${a.accuser} vs <b>${a.accused}</b>`, `${a.evidenceCount} evidence`, a.evidenceCount > 0 ? 'bad' : 'dim')).join('')
+    : '<span class="empty">No open cases. Justice sleeps.</span>';
+
+  // Debts
+  const debts = ctx.openDebts || [];
+  document.getElementById('debts').innerHTML = debts.length
+    ? debts.map(d => row(`${d.debtor} owes ${d.creditor}`, `${d.amount}x ${d.item}`)).join('')
+    : '<span class="empty">No outstanding debts.</span>';
+
+  // Market
+  const mh = ctx.marketHighlights || [];
+  document.getElementById('market').innerHTML = mh.length
+    ? mh.map(m => row(m.item, `~${m.average} ${m.unitCurrency} <span class="dim">(${m.samples})</span>`)).join('')
+    : '<span class="empty">No trades recorded yet.</span>';
+
+  // Faith
+  fetch(API + '/api/society/faith/x').then(r=>r.json()).then(()=>{}); // warm
+  const gossip = ctx.recentGossip || [];
+  document.getElementById('faith').innerHTML = row('Mortality salience', 'see history') +
+    (gossip.length ? gossip.slice(0,4).map(g => row(g.about, `"${(g.fact||'').slice(0,40)}"`)).join('') : '');
+
+  // Jobs
+  const jobs = ctx.openJobs || [];
+  document.getElementById('jobs').innerHTML = jobs.length
+    ? jobs.map(jj => row(`"${jj.title}" by ${jj.poster}`, jj.payment)).join('')
+    : '<span class="empty">No open work.</span>';
+
+  // Scripture / lore notices
+  const notices = (ctx.notices || []).filter(n => n.type === 'scripture' || n.type === 'lore' || n.type === 'guide');
+  document.getElementById('scripture').innerHTML = notices.length
+    ? notices.slice(0,5).map(n => row(n.title, n.author)).join('') + notices.slice(0,3).map(n => `<div class="dim" style="font-size:11px;margin-top:4px">"${n.body.slice(0,90)}"</div>`).join('')
+    : '<span class="empty">No scripture yet — meaning has not stirred.</span>';
+
+  drawWeb(ctx);
+
+  // Clans + tension matrix via detail fetches
+  fetch(API + '/api/society/clans').then(r=>r.json()).then(async d => {
+    const clans = d.clans || [];
+    let html = clans.length
+      ? clans.map(c => row(`<b>${c.name}</b>`, `${c.members} members`)).join('')
+      : '<span class="empty">No clans founded.</span>';
+    if (clans.length >= 2) {
+      for (let i=0;i<clans.length;i++) for (let k=i+1;k<clans.length;k++) {
+        const t = await j(`${API}/api/society/clans/tension?a=${encodeURIComponent(clans[i].name)}&b=${encodeURIComponent(clans[k].name)}`);
+        if (t && t.tension > 0) html += row(`⚔️ ${clans[i].name} ↔ ${clans[k].name}`, `tension ${t.tension}`, t.tension >= 4 ? 'bad' : '');
+      }
+    }
+    document.getElementById('clans').innerHTML = html;
+  });
+
+  // History book
+  j(API + '/api/society/history').then(h => {
+    if (!h) return;
+    const m = (h.milestones || []).slice(0,8).map(x => row(x.headline?.slice(0,60), '')).join('');
+    document.getElementById('history').innerHTML = m || '<span class="empty">History awaits its first chapter.</span>';
+  });
+}
+
+// Simple circular social-web: reputation nodes + grievance edges
+let lastCtx = null;
+function drawWeb(ctx) {
+  lastCtx = ctx;
+  const cv = document.getElementById('web'), c2 = cv.getContext('2d');
+  c2.clearRect(0,0,cv.width,cv.height);
+  const nodes = (ctx.reputationHighlights || []);
+  if (!nodes.length) { c2.fillStyle='#8a93a6'; c2.fillText('no reputation data yet', 20, 30); return; }
+  const cx = cv.width/2, cy = cv.height/2, R = Math.min(cx,cy)-36;
+  const pos = {};
+  nodes.forEach((n,i) => {
+    const a = (i/nodes.length)*Math.PI*2 - Math.PI/2;
+    pos[n.agentId] = { x: cx + R*Math.cos(a), y: cy + R*Math.sin(a), r: n.score };
+  });
+  // edges from grievances (approximate via recentGossip negative sentiment)
+  (ctx.recentGossip||[]).forEach(g => {
+    const A = pos[g.from], B = pos[g.about];
+    if (!A || !B) return;
+    c2.strokeStyle = g.sentiment < 0 ? 'rgba(224,92,92,.55)' : 'rgba(87,201,138,.45)';
+    c2.beginPath(); c2.moveTo(A.x,A.y); c2.lineTo(B.x,B.y); c2.stroke();
+  });
+  for (const [id, p] of Object.entries(pos)) {
+    c2.beginPath(); c2.arc(p.x, p.y, 9, 0, Math.PI*2);
+    c2.fillStyle = p.r >= 15 ? '#57c98a' : p.r <= -15 ? '#e05c5c' : '#9aa4b8';
+    c2.fill();
+    c2.fillStyle = '#d7dce6'; c2.font = '11px sans-serif'; c2.textAlign = 'center';
+    c2.fillText(id.replace('Agent_',''), p.x, p.y - 14);
+    c2.fillStyle = '#8a93a6'; c2.fillText(String(p.r), p.x, p.y + 22);
+  }
+  document.getElementById('webLegend').textContent = 'green = honored · red = disgraced · red lines = hostile hearsay · green lines = goodwill';
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

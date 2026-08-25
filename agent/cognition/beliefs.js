@@ -68,6 +68,17 @@ class BeliefNetwork {
     return this.beliefs.get(key);
   }
 
+  // Grudges against creature types: repeated harm hardens into targeted aggression
+  noteMobGrudge(mobType, delta = 0.25) {
+    if (!mobType) return;
+    return this.update('mob_grudge.' + mobType, `Bears a grudge against ${mobType}s`, delta);
+  }
+
+  grudgeAgainst(mobType) {
+    const b = this.beliefs.get('mob_grudge.' + mobType);
+    return b ? b.strength : 0;
+  }
+
   // Life-event wiring — same triggers the emotion engine eats
   learnFrom(eventType, ctx = {}) {
     switch (eventType) {

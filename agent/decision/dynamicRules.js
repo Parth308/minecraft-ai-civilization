@@ -89,9 +89,12 @@ class DynamicRuleEngine {
 
     rule.lastReinforcedAt = Date.now();
     if (outcomeSuccess) {
-      rule.confidence = Math.min(0.98, Number((rule.confidence + 0.05).toFixed(2)));
+      // Sublinear gain: delta shrinks as confidence rises so a trivially-successful
+      // action cannot pump a rule to saturation (gamma hit 72k reinforcements on EXPLORE).
+      const gain = Number((0.05 * Math.max(0.1, 1 - rule.confidence)).toFixed(4));
+      rule.confidence = Math.min(0.98, Number((rule.confidence + gain).toFixed(2)));
       rule.hitCount = (rule.hitCount || 0) + 1;
-      logger.info('DynamicRules', `[REINFORCE SUCCESS] Bumped rule ${rule.id} confidence to ${rule.confidence} (+0.05)`);
+      logger.info('DynamicRules', `[REINFORCE SUCCESS] Bumped rule ${rule.id} confidence to ${rule.confidence} (+${gain})`);
     } else {
       rule.confidence = Math.max(0.05, Number((rule.confidence - 0.15).toFixed(2)));
       logger.warn('DynamicRules', `[REINFORCE FAILURE] Asymmetric penalty on rule ${rule.id}: confidence dropped to ${rule.confidence} (-0.15)`);
@@ -200,6 +203,17 @@ class DynamicRuleEngine {
         if (!senses.hasItem('log') && !senses.hasItem('oak_planks') && !senses.hasItem('cobblestone')) {
           conf = 0.10;
         }
+      } else if (rule.action === 'EXPLORE' || rule.action === 'WANDER') {
+        // Exploration is trivially "successful", so an unvalidated explore rule
+        // saturates confidence and crowds out every other action. Suppress it
+        // whenever survival or combat should take priority.
+        const hostileCount = typeof senses.getNearbyHostileMobs === 'function'
+          ? (senses.getNearbyHostileMobs(12) || []).length : 0;
+        const unsafe = stats.health < 10 ||
+                       hostileCount >= 2 ||
+                       senses.isOnFire?.() ||
+                       senses.isInWater?.();
+        if (unsafe) conf = 0.10;
       }
 
       candidateActions.push({

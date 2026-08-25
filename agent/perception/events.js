@@ -73,6 +73,23 @@ class EventObserver extends EventEmitter {
       }
     });
 
+    // ─── Death Announcements (system chat broadcasts) ──────────────────────────
+    // Paper prints deaths as system messages; witnessing them stirs grief,
+    // hardens beliefs, and feeds the civilization's mortality salience.
+    const DEATH_RE = /<([^>]+)>?\s*(?:was|got)?\s*(?:slain|shot|blown up|drowned|killed|pricked to death|squashed|fell from|fell out of the world)|^(\w+) (?:died|drowned|was slain)/;
+    this.bot.on('message', (jsonMsg) => {
+      const text = jsonMsg?.toString?.() || String(jsonMsg);
+      if (!text || text.length > 120) return;
+      if (/was slain|died|drowned|blew up|was shot|fell from a high place|was killed by/.test(text)) {
+        const match = text.match(DEATH_RE) || text.match(/^(Agent_\w+|[A-Z]\w+) (?:died|drowned)/);
+        const victim = match ? (match[1] || match[2]) : null;
+        if (victim && victim !== this.bot.username) {
+          logger.warn('Perception', `[WITNESSED] ${text.trim()}`);
+          this.emit('witnessedDeath', { victim, raw: text.trim() });
+        }
+      }
+    });
+
     // ─── Fire Detection (interval check since Mineflayer has no onFire event) ──
 
     this._startFireCheck();
