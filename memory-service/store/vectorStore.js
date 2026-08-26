@@ -42,11 +42,18 @@ class VectorMemoryStore {
     try {
       if (!fs.existsSync(SNAPSHOT_PATH)) return;
       const raw = JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf8'));
+      let primed = 0;
       for (const [agentId, entries] of Object.entries(raw)) {
         if (Array.isArray(entries)) this.agentVectors.set(agentId, entries);
+        // Warm the embedding LRU from restored vectors — without this the
+        // first post-boot re-index re-embeds thousands of unchanged texts
+        // and pins ollama at 100% CPU for minutes.
+        for (const item of entries) {
+          if (this.embeddingClient.primeCache(item.text, item.embedding)) primed++;
+        }
       }
       const total = [...this.agentVectors.values()].reduce((n, v) => n + v.length, 0);
-      logger.info('VectorStore', `Restored vector index from snapshot: ${this.agentVectors.size} agents, ${total} vectors`);
+      logger.info('VectorStore', `Restored vector index from snapshot: ${this.agentVectors.size} agents, ${total} vectors (${primed} embeddings pre-warmed)`);
     } catch (err) {
       logger.warn('VectorStore', `Snapshot restore failed (starting empty): ${err.message}`);
     }

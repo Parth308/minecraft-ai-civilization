@@ -25,6 +25,17 @@ class EmbeddingClient {
     return crypto.createHash('sha1').update(text).digest('hex');
   }
 
+  // Seed the memoization store with an already-computed vector (e.g. replayed
+  // from the vector-index snapshot at boot) so a cold process doesn't
+  // re-embed thousands of unchanged texts through ollama.
+  primeCache(text, vector) {
+    if (!text || !Array.isArray(vector) || vector.length !== this.dimension) return false;
+    if (this._cache.has(this._cacheKey(text))) return false;
+    if (this._cache.size >= this._cacheMax) return false;
+    this._cache.set(this._cacheKey(text), vector);
+    return true;
+  }
+
   // Gemini embeddings removed entirely (text-embedding-004 endpoint 404'd 3.6K×
   // per log window before removal). Chain is now strictly local-only:
   // self-hosted Ollama nomic-embed-text → deterministic local engine fallback.
