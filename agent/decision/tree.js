@@ -134,7 +134,7 @@ class DecisionTree {
     this._actionHistory.push(topCandidate.name);
     if (this._actionHistory.length > 8) this._actionHistory.shift();
 
-    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE']);
+    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP']);
     const isStuckInLoop = (
       this._actionHistory.length >= 6 &&
       this._actionHistory.every(a => a === topCandidate.name) &&

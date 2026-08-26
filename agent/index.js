@@ -502,7 +502,7 @@ function createAgent() {
             } else {
               logger.info('AgentLoop', `[PLAN ${plan.idx + 1}/${plan.steps.length}] "${stepText}"`);
               const beforeOk = agentState.lastActionResult;
-              await executeDecision({ ...planDecision, escalated: false, source: 'plan' });
+              await withTimeout(executeDecision({ ...planDecision, escalated: false, source: 'plan' }), `planStep(${stepText})`);
               const outcome = agentState.lastActionResult;
 
               if (outcome && outcome !== beforeOk && outcome.ok === false) {
@@ -523,7 +523,13 @@ function createAgent() {
           }
 
           // 3. Evaluate Decision Tree (with full agentState context for LLM)
-          const decision = await decisionTree.evaluate(senses, stats, persona, agentState);
+          let decision;
+          try {
+            decision = await withTimeout(decisionTree.evaluate(senses, stats, persona, agentState), 'decisionTree.evaluate');
+          } catch (dtErr) {
+            logger.error('AgentLoop', `DecisionTree evaluation failed: ${dtErr.message}`);
+            decision = { action: 'WANDER', reason: 'DecisionTree timeout fallback', confidence: 0.5, escalated: false };
+          }
           preflightValidateDecision(decision);
 
           // ── Update live state for /status endpoint ──────────────────────
@@ -615,6 +621,24 @@ function createAgent() {
 });
 
   // Action executor based on decision tree output
+  let _lastEquipMs = 0;
+  const EQUIP_COOLDOWN_MS = 15000; // Don't re-equip more than once per 15s
+
+  // Prevent any single action from permanently blocking the tick loop.
+  // If an await (pathfinding, collectBlock, digBlock, LLM call) never
+  // resolves, inFlightTick stays true and ALL subsequent ticks silently
+  // skip — the agent appears alive but does nothing.  A timeout rejects
+  // the promise so the tick loop can recover on the next cycle.
+  const ACTION_TIMEOUT_MS = 20000;
+  function withTimeout(promise, label) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`ActionTimeout: ${label} exceeded ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS)
+      ),
+    ]);
+  }
+
   async function executeDecision(decision) {
     let actionSuccess = false;
     let execErrorDetail = null;
@@ -622,7 +646,11 @@ function createAgent() {
       switch (decision.action) {
         case ACTIONS.EAT:
           logger.info('AgentLoop', 'Executing EAT action');
-          await inventory.eatFood(stats.health, stats.hunger);
+          try {
+            await withTimeout(inventory.eatFood(stats.health, stats.hunger), 'eatFood');
+          } catch (eatErr) {
+            logger.debug('AgentLoop', `eatFood failed (${eatErr.message})`);
+          }
           eventBuffer.addEvent('eatFood', { health: stats.health, hunger: stats.hunger });
           actionSuccess = true;
           break;
@@ -663,7 +691,11 @@ function createAgent() {
           }
           if (fightTarget) {
             logger.info('AgentLoop', `Executing FIGHT vs ${fightTarget.name || fightTarget.mobType || 'hostile'}`);
-            await combat.equipBestWeapon();
+            try {
+              await withTimeout(combat.equipBestWeapon(), 'equipWeapon');
+            } catch (equipErr) {
+              logger.debug('AgentLoop', `equipBestWeapon failed (${equipErr.message})`);
+            }
             combat.attack(fightTarget);
             eventBuffer.addEvent('fight', { target: fightTarget.name || 'hostile' });
             actionSuccess = true;
@@ -697,7 +729,12 @@ function createAgent() {
           const count = decision.meta?.count || 1;
           if (item) {
             logger.info('AgentLoop', `Executing CRAFT action: ${count}x ${item}`);
-            const success = await inventory.craftItem(item, count);
+            let success = false;
+            try {
+              success = await withTimeout(inventory.craftItem(item, count), `craftItem(${item})`);
+            } catch (craftErr) {
+              logger.debug('AgentLoop', `craftItem failed (${craftErr.message})`);
+            }
             if (success) {
               eventBuffer.addEvent('craftItem', { item, count });
               EmotionalState.forAgent(bot.username).appraise('craft_success', {}, persona?.traits || {});
@@ -730,14 +767,18 @@ function createAgent() {
             let success = false;
             if (bot.collectBlock && typeof bot.collectBlock.collect === 'function') {
               try {
-                await bot.collectBlock.collect([block]);
+                await withTimeout(bot.collectBlock.collect([block]), `collectBlock(${block.name})`);
                 success = true;
               } catch (cbErr) {
                 logger.debug('AgentLoop', `collectBlock failed (${cbErr.message}) — falling back to digBlock`);
               }
             }
             if (!success) {
-              success = await inventory.digBlock(block);
+              try {
+                success = await withTimeout(inventory.digBlock(block), `digBlock(${block.name})`);
+              } catch (digErr) {
+                logger.debug('AgentLoop', `digBlock failed (${digErr.message})`);
+              }
             }
             if (success) {
               eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
@@ -771,16 +812,24 @@ function createAgent() {
           }
           const talkSubject = decision.reason || `What's on your mind as ${persona.title || 'a settler'}?`;
           logger.info('AgentLoop', `Executing autonomous TALK${talkPartner ? ` with ${talkPartner}` : ' (shout to world)'}`);
-          const talkReply = await dialogueEngine.processIncomingChat(
-            talkPartner || 'World',
-            talkSubject,
-            {
-              currentTask: decision.action,
-              currentGoal: agentState.activeGoal,
-              stats: stats.getSummary(),
-              inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ')
-            }
-          );
+          let talkReply = null;
+          try {
+            talkReply = await withTimeout(
+              dialogueEngine.processIncomingChat(
+                talkPartner || 'World',
+                talkSubject,
+                {
+                  currentTask: decision.action,
+                  currentGoal: agentState.activeGoal,
+                  stats: stats.getSummary(),
+                  inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ')
+                }
+              ),
+              `talk(${talkPartner || 'World'})`
+            );
+          } catch (talkErr) {
+            logger.debug('AgentLoop', `TALK dialogue failed (${talkErr.message})`);
+          }
           if (talkReply && Date.now() - lastOutgoingChat > 2000) {
             lastOutgoingChat = Date.now();
             chatCooldowns.set(talkPartner || 'World', Date.now());
@@ -801,7 +850,12 @@ function createAgent() {
           if (buildType === 'memorial') {
             const groundBelow = bot.entity?.position ? bot.blockAt(bot.entity.position.offset(0, -1, 0)) : null;
             if (groundBelow) {
-              const placed = await inventory.placeBlock('torch', groundBelow);
+              let placed = false;
+              try {
+                placed = await withTimeout(inventory.placeBlock('torch', groundBelow), 'placeMemorial');
+              } catch (placeErr) {
+                logger.debug('AgentLoop', `memorial placeBlock failed (${placeErr.message})`);
+              }
               if (placed) {
                 eventBuffer.addEvent('memorialPlaced', { position: bot.entity.position });
                 detailedLogger.logCognition(bot.username, 'Placed a memorial at a meaningful place');
@@ -815,7 +869,12 @@ function createAgent() {
             break;
           }
 
-          const didBuild = await builder.buildShelter();
+          let didBuild = false;
+          try {
+            didBuild = await withTimeout(builder.buildShelter(), `buildShelter(${buildType})`);
+          } catch (buildErr) {
+            logger.debug('AgentLoop', `buildShelter failed (${buildErr.message})`);
+          }
           if (didBuild && Date.now() - lastOutgoingChat > 3000) {
             lastOutgoingChat = Date.now();
             chat.say(`just finished building a ${buildType}!`);
@@ -845,12 +904,23 @@ function createAgent() {
             if (partnerEntity?.position && bot.entity?.position &&
                 bot.entity.position.distanceTo(partnerEntity.position) > 3.5) {
               try {
-                await movement.goto(partnerEntity.position.x, partnerEntity.position.y, partnerEntity.position.z, 2.5);
+                await withTimeout(
+                  movement.goto(partnerEntity.position.x, partnerEntity.position.y, partnerEntity.position.z, 2.5),
+                  `tradeApproach(${tradePartner})`
+                );
               } catch (navErr) {
                 logger.debug('AgentLoop', `Trade approach incomplete: ${navErr.message}`);
               }
             }
-            const tradeResult = await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
+            let tradeResult = { success: false, reason: 'timeout' };
+            try {
+              tradeResult = await withTimeout(
+                barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount),
+                `executeTrade(${tradePartner})`
+              );
+            } catch (tradeErr) {
+              logger.debug('AgentLoop', `TRADE failed (${tradeErr.message})`);
+            }
             // Feed the outcome back: failure drives the decision tree's
             // refractory damping, otherwise a hallucinated offer re-fires
             // every tick (observed: identical trade attempted 3× in 23s).
@@ -902,7 +972,12 @@ function createAgent() {
             const hasTorch = (agentState.inventory || []).some(i => i.name === 'torch');
             const groundBelow = botPos ? bot.blockAt(botPos.offset(0, -1, 0)) : null;
             if (hasTorch && groundBelow) {
-              const placed = await inventory.placeBlock('torch', groundBelow);
+              let placed = false;
+              try {
+                placed = await withTimeout(inventory.placeBlock('torch', groundBelow), 'placeTorch');
+              } catch (torchErr) {
+                logger.debug('AgentLoop', `torch placeBlock failed (${torchErr.message})`);
+              }
               if (placed) {
                 lastTorchPlacement = Date.now();
                 eventBuffer.addEvent('torchPlaced', { position: { x: botPos.x, y: botPos.y, z: botPos.z } });
@@ -946,29 +1021,28 @@ function createAgent() {
           logger.info('AgentLoop', `Executing SMELT action${smeltInput ? ': ' + smeltInput : ''}`);
           let furnaceBlock = senses.getNearbyBlock('furnace', 8);
           if (!furnaceBlock) {
-            // Try to craft and place a furnace if we have enough cobblestone
             const cobbleCount = inventory.bot?.inventory?.items().filter(i => i.name.includes('cobblestone') || i.name.includes('cobbled')).reduce((s, i) => s + i.count, 0) || 0;
             if (cobbleCount >= 8) {
-              await inventory.craftItem('furnace', 1);
+              try { await withTimeout(inventory.craftItem('furnace', 1), 'craftFurnace'); } catch (_) {}
               const table = senses.getNearbyBlock('crafting_table', 4);
               const placeBase = table ? table.position.offset(1, 0, 0) : bot.entity.position.offset(1, 0, 0);
               const refBlock = bot.blockAt(placeBase.offset(0, -1, 0));
               if (refBlock && refBlock.name !== 'air') {
-                await inventory.placeBlock('furnace', refBlock, new (require('vec3'))(0, 1, 0));
+                try { await withTimeout(inventory.placeBlock('furnace', refBlock, new (require('vec3'))(0, 1, 0)), 'placeFurnace'); } catch (_) {}
                 furnaceBlock = senses.getNearbyBlock('furnace', 6);
               }
             }
           }
           if (furnaceBlock) {
             try {
-              const furnace = await bot.openFurnace(furnaceBlock);
+              const furnace = await withTimeout(bot.openFurnace(furnaceBlock), 'openFurnace');
               const smeltableKeywords = ['raw_', 'beef', 'porkchop', 'mutton', 'chicken', 'salmon', 'cod', 'potato', 'clay', 'sand', 'cobblestone'];
               const rawItem = (smeltInput ? bot.inventory?.items().find(i => i.name === smeltInput) : null) ||
                               bot.inventory?.items().find(i => smeltableKeywords.some(k => i.name.includes(k) && !i.name.startsWith('cooked')));
               const fuelItem = bot.inventory?.items().find(i => i.name === 'coal' || i.name === 'charcoal' || i.name.includes('plank') || i.name.includes('log') || i.name === 'stick');
               if (rawItem && fuelItem) {
-                await furnace.putInput(rawItem.type, null, Math.min(rawItem.count, 8));
-                await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 2));
+                await withTimeout(furnace.putInput(rawItem.type, null, Math.min(rawItem.count, 8)), 'furnaceInput');
+                await withTimeout(furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 2)), 'furnaceFuel');
                 logger.info('AgentLoop', `Loaded furnace: ${rawItem.name} + ${fuelItem.name}`);
                 eventBuffer.addEvent('smeltItem', { input: rawItem.name });
                 actionSuccess = true;
@@ -983,9 +1057,20 @@ function createAgent() {
         }
 
         case 'EQUIP': {
+          const now = Date.now();
+          if (now - _lastEquipMs < EQUIP_COOLDOWN_MS) {
+            logger.debug('AgentLoop', 'EQUIP cooldown active, skipping');
+            actionSuccess = true;
+            break;
+          }
+          _lastEquipMs = now;
           logger.info('AgentLoop', 'Executing auto-EQUIP best weapon & armor');
-          await combat.equipBestArmor();
-          await combat.equipBestWeapon();
+          try {
+            await withTimeout(combat.equipBestArmor(), 'equipArmor');
+            await withTimeout(combat.equipBestWeapon(), 'equipWeapon');
+          } catch (equipErr) {
+            logger.debug('AgentLoop', `EQUIP failed (${equipErr.message})`);
+          }
           eventBuffer.addEvent('equip', { equipment: senses.getEquipmentSummary() });
           actionSuccess = true;
           break;
