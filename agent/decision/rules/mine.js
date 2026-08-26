@@ -1,5 +1,51 @@
 const { ACTIONS } = require('../../../shared/constants');
 
+const ORE_VALUES = {
+  diamond_ore: 10, deepslate_diamond_ore: 10,
+  emerald_ore: 8, deepslate_emerald_ore: 8,
+  gold_ore: 6, deepslate_gold_ore: 6, nether_gold_ore: 6,
+  redstone_ore: 5, deepslate_redstone_ore: 5, nether_redstone_ore: 5,
+  iron_ore: 4, deepslate_iron_ore: 4,
+  copper_ore: 3, deepslate_copper_ore: 3,
+  coal_ore: 2, deepslate_coal_ore: 2, nether_coal_ore: 2,
+  lapis_ore: 7, deepslate_lapis_ore: 7,
+};
+
+const ORE_SEARCH_RADIUS = 24;
+const MAX_SEARCH_RADIUS = 32;
+
+function scoreOre(block, inventory) {
+  const baseValue = ORE_VALUES[block.name] || 0;
+  const distance = block.distance || 0;
+  const distPenalty = Math.max(0, 1 - (distance / MAX_SEARCH_RADIUS));
+  const rarityBonus = baseValue >= 8 ? 1.2 : baseValue >= 5 ? 1.1 : 1.0;
+  const needBoost = getNeedMultiplier(block.name, inventory);
+  return baseValue * distPenalty * rarityBonus * needBoost;
+}
+
+function getNeedMultiplier(oreName, inventory) {
+  const counts = {
+    iron: (inventory.iron_ingot || 0) + (inventory.raw_iron || 0),
+    diamond: inventory.diamond || 0,
+    gold: (inventory.gold_ingot || 0) + (inventory.raw_gold || 0),
+    coal: inventory.coal || 0,
+    redstone: inventory.redstone || 0,
+    lapis: inventory.lapis_lazuli || 0,
+    copper: (inventory.copper_ingot || 0) + (inventory.raw_copper || 0),
+    emerald: inventory.emerald || 0,
+  };
+
+  if (oreName.includes('iron')) return counts.iron < 8 ? 1.5 : counts.iron < 20 ? 1.2 : 0.8;
+  if (oreName.includes('diamond')) return counts.diamond < 5 ? 1.4 : 0.7;
+  if (oreName.includes('gold')) return counts.gold < 8 ? 1.3 : 0.9;
+  if (oreName.includes('coal')) return counts.coal < 16 ? 1.5 : 0.6;
+  if (oreName.includes('redstone')) return counts.redstone < 16 ? 1.2 : 0.8;
+  if (oreName.includes('lapis')) return counts.lapis < 12 ? 1.3 : 0.9;
+  if (oreName.includes('copper')) return counts.copper < 16 ? 1.2 : 0.7;
+  if (oreName.includes('emerald')) return counts.emerald < 12 ? 1.3 : 0.8;
+  return 1.0;
+}
+
 function evaluateMine(senses, stats) {
   const hasPickaxe = senses.hasItem('wooden_pickaxe') ||
                      senses.hasItem('stone_pickaxe') ||
@@ -8,12 +54,10 @@ function evaluateMine(senses, stats) {
                      senses.hasItem('golden_pickaxe') ||
                      senses.hasItem('netherite_pickaxe');
 
-  // Check wood inventory
   const logCount = senses.countItem('log');
   const plankCount = senses.countItem('planks');
   const cobbleCount = senses.countItem('cobblestone') + senses.countItem('cobbled_deepslate');
 
-  // Priority 1: Bootstrap wood gathering (< 8 wood materials) — gather essential wood for crafting
   if (logCount + plankCount < 8 && stats.health > 8) {
     const tree = senses.getNearbyBlock('log', 32);
     if (tree) {
@@ -32,44 +76,54 @@ function evaluateMine(senses, stats) {
 
   const hasStonePickOrBetter = hasIronPickOrBetter || senses.hasItem('stone_pickaxe');
 
-  // Priority 2: High-value ores with tool tier prerequisites
   if (hasPickaxe && stats.health > 10 && stats.fatigue < 70 && stats.hunger > 20) {
-    let valuableOre = null;
-
-    // Diamond, Gold, Redstone, Emerald need Iron+ pickaxe
-    if (hasIronPickOrBetter) {
-      valuableOre = senses.getNearbyBlock('diamond_ore', 20) ||
-                    senses.getNearbyBlock('deepslate_diamond_ore', 20) ||
-                    senses.getNearbyBlock('gold_ore', 16) ||
-                    senses.getNearbyBlock('emerald_ore', 16) ||
-                    senses.getNearbyBlock('redstone_ore', 16);
+    const inventory = {};
+    for (const item of (senses.bot?.inventory?.items() || [])) {
+      inventory[item.name] = (inventory[item.name] || 0) + item.count;
     }
 
-    // Iron and Coal can be mined with Stone+ pickaxe
-    if (!valuableOre && hasStonePickOrBetter) {
-      valuableOre = senses.getNearbyBlock('iron_ore', 20) ||
-                    senses.getNearbyBlock('deepslate_iron_ore', 20) ||
-                    senses.getNearbyBlock('copper_ore', 16);
+    const candidates = [];
+    const ores = [
+      'diamond_ore', 'deepslate_diamond_ore',
+      'emerald_ore', 'deepslate_emerald_ore',
+      'gold_ore', 'deepslate_gold_ore', 'nether_gold_ore',
+      'redstone_ore', 'deepslate_redstone_ore', 'nether_redstone_ore',
+      'lapis_ore', 'deepslate_lapis_ore',
+      'iron_ore', 'deepslate_iron_ore',
+      'copper_ore', 'deepslate_copper_ore',
+      'coal_ore', 'deepslate_coal_ore',
+    ];
+
+    for (const oreName of ores) {
+      const block = senses.getNearbyBlock(oreName, ORE_SEARCH_RADIUS);
+      if (!block) continue;
+
+      const requiresIron = ['diamond_ore', 'deepslate_diamond_ore', 'emerald_ore', 'deepslate_emerald_ore',
+                            'gold_ore', 'deepslate_gold_ore', 'nether_gold_ore',
+                            'redstone_ore', 'deepslate_redstone_ore', 'nether_redstone_ore',
+                            'lapis_ore', 'deepslate_lapis_ore'].includes(oreName);
+      const requiresStone = ['iron_ore', 'deepslate_iron_ore', 'copper_ore', 'deepslate_copper_ore'].includes(oreName);
+
+      if (requiresIron && !hasIronPickOrBetter) continue;
+      if (requiresStone && !hasStonePickOrBetter) continue;
+
+      const score = scoreOre(block, inventory);
+      candidates.push({ block, score, oreName });
     }
 
-    // Coal can be mined with any pickaxe
-    if (!valuableOre) {
-      valuableOre = senses.getNearbyBlock('coal_ore', 16) ||
-                    senses.getNearbyBlock('deepslate_coal_ore', 16);
-    }
-
-    if (valuableOre) {
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.score - a.score);
+      const best = candidates[0];
+      const confidence = Math.min(0.95, 0.70 + (best.score / 15));
       return {
         name: ACTIONS.MINE,
-        confidence: 0.88,
-        targetBlock: valuableOre,
-        reason: `Mining valuable resource: ${valuableOre.name}`
+        confidence,
+        targetBlock: best.block,
+        reason: `Mining ${best.oreName.replace(/_/g, ' ')} (score: ${best.score.toFixed(2)}, value: ${ORE_VALUES[best.oreName]})`
       };
     }
   }
 
-
-  // Priority 3: Initial Cobblestone gathering (only if we have less than 16 cobblestone)
   if (hasPickaxe && cobbleCount < 16 && stats.health > 12 && stats.fatigue < 70) {
     const stoneBlock = senses.getNearbyBlock('stone', 12) || senses.getNearbyBlock('deepslate', 12);
     if (stoneBlock) {
@@ -82,7 +136,6 @@ function evaluateMine(senses, stats) {
     }
   }
 
-  // Once basic materials are gathered, drop mining confidence so LLM/social/building takes over!
   return {
     name: ACTIONS.MINE,
     confidence: 0.10,
