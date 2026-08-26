@@ -77,6 +77,24 @@ function ledgerRoutes(app) {
       res.status(503).json({ error: `Memory service unavailable: ${err.message}` });
     }
   });
+
+  app.get('/api/dashboard/taxes', async (req, res) => {
+    try {
+      const r = await fetch(`${MEMORY_URL}/api/ledger/taxes`);
+      res.json(await r.json());
+    } catch (err) {
+      res.status(503).json({ error: `Memory service unavailable: ${err.message}` });
+    }
+  });
+
+  app.get('/api/dashboard/world-discoveries', async (req, res) => {
+    try {
+      const r = await fetch(`${MEMORY_URL}/api/world/discoveries`);
+      res.json(await r.json());
+    } catch (err) {
+      res.status(503).json({ error: `Memory service unavailable: ${err.message}` });
+    }
+  });
 }
 
 module.exports = ledgerRoutes;

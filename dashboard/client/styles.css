@@ -129,6 +129,21 @@ body {
   box-shadow: 0 0 8px var(--green);
 }
 
+.nav-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 12px;
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  padding: 4px 12px 2px;
+}
+
 .sidebar-footer {
   margin-top: auto;
   border-top: 1px solid var(--border);

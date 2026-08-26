@@ -176,7 +176,18 @@
       agents: renderAgents,
       decisions: renderDecisions,
       chronicle: renderChronicle,
-      costs: renderCosts
+      costs: renderCosts,
+      skills: renderSkills,
+      memory: renderMemory,
+      crafting: renderCrafting,
+      exploration: renderExploration,
+      discoveries: renderDiscoveries,
+      trades: renderTrades,
+      debts: renderDebts,
+      social: renderSocial,
+      taxes: renderTaxes,
+      investigations: renderInvestigations,
+      stats: renderStats
     }[state.page];
     const html = fn ? fn() : '';
     if (html !== null) {
@@ -1136,6 +1147,549 @@
     `;
   }
 
+  // ── Page: Skills & XP ───────────────────────────────────────────
+  function renderSkills() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!agent) return '<div class="page-header"><div class="page-title">Skills & XP</div></div><div class="empty-state">No agents online</div>';
+
+    const skills = agent.skillXP || {};
+    const titles = agent.titles || [];
+    const profession = agent.profession || 'Unemployed';
+    const actionTally = agent.actionTally || {};
+    const maxXP = Math.max(1, ...Object.values(skills));
+    const skillColors = { mining: '#f59e0b', crafting: '#8b5cf6', farming: '#10b981', building: '#06b6d4', combat: '#ef4444', fishing: '#3b82f6', trading: '#ec4899', exploring: '#84cc16', cooking: '#f97316', forestry: '#22c55e' };
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Skills & XP</div>
+        <div class="page-desc">${esc(agent.username)} — Profession: <strong>${esc(profession)}</strong></div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        ${titles.length > 0 ? titles.map(t => `<span class="badge badge-warning" style="font-size:11px;padding:4px 10px">🏆 ${esc(t)}</span>`).join('') : '<span class="badge badge-neutral">No titles earned yet</span>'}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📊 Skill Levels</div>
+          ${Object.keys(skills).length === 0 ? '<div class="empty-state">No skills recorded yet</div>' : `
+            <div style="display:flex;flex-direction:column;gap:10px">
+              ${Object.entries(skills).sort((a, b) => b[1] - a[1]).map(([skill, xp]) => {
+                const lvl = Math.floor(xp / 10) + 1;
+                const prog = (xp % 10) / 10 * 100;
+                const color = skillColors[skill] || '#94a3b8';
+                return `
+                  <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                      <span style="font-size:12px;font-weight:600;color:var(--text)">${esc(skill)}</span>
+                      <span style="font-size:11px;color:var(--text-dim)">Lv ${lvl} · ${xp} XP</span>
+                    </div>
+                    <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                      <div style="height:100%;width:${prog}%;background:${color};border-radius:3px"></div>
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>`}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">⚡ Action Tally</div>
+          ${Object.keys(actionTally).length === 0 ? '<div class="empty-state">No actions recorded</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${Object.entries(actionTally).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([action, count]) => `
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:12px;color:var(--text-dim)">${esc(action)}</span>
+                  <span class="badge badge-neutral" style="font-size:10px">${count}</span>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Page: Memory Browser ────────────────────────────────────────
+  function renderMemory() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    const sections = ['profile', 'relationships', 'events', 'skills', 'recent'];
+    const cachedMemory = window._memoryCache || {};
+    const searchQuery = window._memorySearch || '';
+    const activeSection = window._memorySection || 'profile';
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Memory Browser</div>
+        <div class="page-desc">${agent ? esc(agent.username) : 'Select an agent'}</div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        ${sections.map(s => `
+          <button onclick="window.selectMemorySection('${s}')" class="badge ${s === activeSection ? 'badge-success' : 'badge-neutral'}" style="cursor:pointer;padding:6px 12px;font-size:12px;border:none">${esc(s)}</button>
+        `).join('')}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <input id="memory-search" type="text" placeholder="Semantic search..." value="${esc(searchQuery)}" 
+          style="flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:13px"
+          onkeydown="if(event.key==='Enter'){window.searchMemory(this.value)}">
+        <button onclick="window.searchMemory(document.getElementById('memory-search').value)" 
+          style="background:var(--green);color:#fff;border:none;border-radius:var(--r-sm);padding:8px 16px;cursor:pointer;font-size:13px">Search</button>
+      </div>
+
+      <div class="card" style="padding:16px;min-height:300px">
+        <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📄 ${esc(activeSection)} 
+          <span style="font-weight:400;font-size:12px;color:var(--text-faint)">(${(cachedMemory[activeSection] || '').split('\\n').length} lines)</span>
+        </div>
+        <pre style="background:var(--surface-2);border-radius:var(--r-sm);padding:12px;font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;color:var(--text-dim);max-height:500px;overflow-y:auto;font-family:var(--font)">${esc(cachedMemory[activeSection] || 'Loading...')}</pre>
+      </div>
+    `;
+  }
+
+  window.selectMemorySection = async (section) => {
+    window._memorySection = section;
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!agent) return;
+    try {
+      const res = await fetch('/api/dashboard/memory/sections/' + encodeURIComponent(agent.username) + '/' + section);
+      const data = await res.json();
+      window._memoryCache = window._memoryCache || {};
+      window._memoryCache[section] = data.content || data.raw || JSON.stringify(data, null, 2);
+    } catch (e) { window._memoryCache = window._memoryCache || {}; window._memoryCache[section] = 'Error loading section'; }
+    render();
+  };
+
+  window.searchMemory = async (query) => {
+    window._memorySearch = query;
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!agent || !query) return;
+    try {
+      const res = await fetch('/api/dashboard/memory/query?agentId=' + encodeURIComponent(agent.username) + '&query=' + encodeURIComponent(query));
+      const data = await res.json();
+      window._memoryCache = window._memoryCache || {};
+      window._memoryCache['search'] = JSON.stringify(data.results || data, null, 2);
+      window._memorySection = 'search';
+    } catch (e) { /* ignore */ }
+    render();
+  };
+
+  // ── Page: Crafting Chain ────────────────────────────────────────
+  function renderCrafting() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!agent) return '<div class="page-header"><div class="page-title">Crafting Chain</div></div><div class="empty-state">No agents online</div>';
+
+    const crafting = agent.craftingChain || {};
+    const knownRecipes = crafting.knownRecipes || [];
+    const techTree = crafting.techTree || {};
+
+    const TIER_ICONS = { basic: '🪵', tools: '⛏️', weapons: '⚔️', armor: '🛡️', food: '🍖', advanced: '💎', redstone: '⚡', potions: '🧪' };
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Crafting Chain</div>
+        <div class="page-desc">${esc(agent.username)} — ${knownRecipes.length} known recipes</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📋 Known Recipes</div>
+          ${knownRecipes.length === 0 ? '<div class="empty-state">No recipes learned yet</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+              ${knownRecipes.map(r => {
+                const name = typeof r === 'string' ? r : r.name || r.item || JSON.stringify(r);
+                const tier = typeof r === 'object' ? (r.tier || 'basic') : 'basic';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:4px">
+                  <span>${TIER_ICONS[tier] || '📦'}</span>
+                  <span style="font-size:12px;color:var(--text)">${esc(name)}</span>
+                  <span class="badge badge-neutral" style="font-size:9px;margin-left:auto">${esc(tier)}</span>
+                </div>`;
+              }).join('')}
+            </div>`}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🌳 Tech Tree</div>
+          ${Object.keys(techTree).length === 0 ? '<div class="empty-state">No tech tree data</div>' : `
+            <div style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto">
+              ${Object.entries(techTree).map(([tier, items]) => `
+                <div style="margin-bottom:8px">
+                  <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${TIER_ICONS[tier] || '📦'} ${esc(tier)}</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px">
+                    ${(Array.isArray(items) ? items : []).map(item => {
+                      const name = typeof item === 'string' ? item : item.name || item.item || '?';
+                      const known = knownRecipes.some(r => (typeof r === 'string' ? r : r.name || r.item) === name);
+                      return `<span class="badge ${known ? 'badge-success' : 'badge-neutral'}" style="font-size:10px">${known ? '✓' : '○'} ${esc(name)}</span>`;
+                    }).join('')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Page: Exploration Map ───────────────────────────────────────
+  function renderExploration() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!agent) return '<div class="page-header"><div class="page-title">Exploration</div></div><div class="empty-state">No agents online</div>';
+
+    const chunkMem = agent.chunkMemory || {};
+    const explored = chunkMem.exploredChunks || [];
+    const discoveries = chunkMem.discoveries || [];
+
+    const gridSize = 20;
+    const cells = [];
+    const chunkSet = new Set(explored.map(c => `${c.x},${c.z}`));
+    const discMap = new Map(discoveries.map(d => [`${d.chunkX || d.x},${d.chunkZ || d.z}`, d]));
+
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const c of explored) {
+      minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
+      minZ = Math.min(minZ, c.z); maxZ = Math.max(maxZ, c.z);
+    }
+    if (!isFinite(minX)) { minX = -5; maxX = 5; minZ = -5; maxZ = 5; }
+
+    const rangeX = maxX - minX + 1;
+    const rangeZ = maxZ - minZ + 1;
+    const cellSize = Math.min(16, Math.floor(400 / Math.max(rangeX, rangeZ)));
+
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        const key = `${x},${z}`;
+        const isExplored = chunkSet.has(key);
+        const disc = discMap.get(key);
+        cells.push({ x, z, explored: isExplored, discovery: disc });
+      }
+    }
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Exploration Map</div>
+        <div class="page-desc">${esc(agent.username)} — ${explored.length} chunks explored</div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;background:var(--green);border-radius:2px"></div><span style="font-size:11px;color:var(--text-dim)">Explored</span></div>
+          <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;background:var(--amber);border-radius:2px"></div><span style="font-size:11px;color:var(--text-dim)">Discovery</span></div>
+          <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;background:var(--surface-3);border-radius:2px"></div><span style="font-size:11px;color:var(--text-dim)">Unexplored</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(${rangeX}, ${cellSize}px);gap:1px;background:var(--surface-2);padding:4px;border-radius:var(--r-sm)">
+          ${cells.map(c => {
+            let bg = 'var(--surface-3)';
+            let title = `${c.x},${c.z}`;
+            if (c.explored) { bg = 'var(--green)'; title += ' (explored)'; }
+            if (c.discovery) { bg = 'var(--amber)'; title += ` — ${c.discovery.ore || 'discovery'}`; }
+            return `<div title="${esc(title)}" style="width:${cellSize}px;height:${cellSize}px;background:${bg};border-radius:1px;cursor:pointer"></div>`;
+          }).join('')}
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-faint)">Grid: ${minX},${minZ} to ${maxX},${maxZ} (${rangeX}×${rangeZ} chunks)</div>
+      </div>
+    `;
+  }
+
+  // ── Page: Discoveries ───────────────────────────────────────────
+  function renderDiscoveries() {
+    const allDiscoveries = [];
+    for (const agent of state.agents) {
+      const discs = agent.chunkMemory?.discoveries || [];
+      for (const d of discs) {
+        allDiscoveries.push({ ...d, agentId: agent.username });
+      }
+    }
+    allDiscoveries.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+
+    const oreCounts = {};
+    for (const d of allDiscoveries) {
+      const ore = d.ore || d.type || 'unknown';
+      oreCounts[ore] = (oreCounts[ore] || 0) + 1;
+    }
+
+    return `
+      <div class="page-header">
+        <div class="page-title">World Discoveries</div>
+        <div class="page-desc">${allDiscoveries.length} discoveries across all agents</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">⛏️ Ore Summary</div>
+          ${Object.keys(oreCounts).length === 0 ? '<div class="empty-state">No discoveries yet</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${Object.entries(oreCounts).sort((a, b) => b[1] - a[1]).map(([ore, count]) => `
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:12px;color:var(--text)">${esc(ore)}</span>
+                  <span class="badge badge-warning" style="font-size:10px">${count}</span>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📍 Discovery Log</div>
+          ${allDiscoveries.length === 0 ? '<div class="empty-state">No discoveries recorded</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+              ${allDiscoveries.slice(0, 50).map(d => `
+                <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:4px">
+                  <span style="font-size:11px;color:var(--text-faint);min-width:60px">${timeOf(d.timestamp)}</span>
+                  <span class="badge badge-neutral" style="font-size:10px">${esc(d.agentId)}</span>
+                  <span style="font-size:12px;color:var(--amber)">${esc(d.ore || d.type || 'discovery')}</span>
+                  <span style="font-size:11px;color:var(--text-dim);margin-left:auto">(${d.x || d.chunkX || '?'}, ${d.z || d.chunkZ || '?'})</span>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Page: Trade Ledger ──────────────────────────────────────────
+  function renderTrades() {
+    const cachedTrades = window._tradesCache || [];
+    const cachedDebts = window._debtsCache || [];
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Trade Ledger</div>
+        <div class="page-desc">${cachedTrades.length} trades recorded</div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        ${cachedTrades.length === 0 ? '<div class="empty-state">No trades recorded yet</div>' : `
+          <div style="display:flex;flex-direction:column;gap:8px;max-height:600px;overflow-y:auto">
+            ${cachedTrades.slice().reverse().map(t => `
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px">
+                <span style="font-size:11px;color:var(--text-faint);min-width:70px">${timeOf(t.timestamp)}</span>
+                <span class="badge badge-success" style="font-size:10px">${esc(t.fromAgent || t.seller || '?')}</span>
+                <span style="color:var(--text-dim)">→</span>
+                <span class="badge badge-success" style="font-size:10px">${esc(t.toAgent || t.buyer || '?')}</span>
+                <div style="flex:1;font-size:12px;color:var(--text)">
+                  ${esc(t.item || t.giveItem || '?')} ×${t.quantity || t.giveCount || t.count || 1}
+                  ${t.receiveItem ? ` for ${esc(t.receiveItem)} ×${t.receiveCount || 1}` : ''}
+                </div>
+                ${t.settled ? '<span class="badge badge-success" style="font-size:9px">settled</span>' : '<span class="badge badge-warning" style="font-size:9px">pending</span>'}
+              </div>
+            `).join('')}
+          </div>`}
+      </div>
+    `;
+  }
+
+  // ── Page: Debt Tracker ──────────────────────────────────────────
+  function renderDebts() {
+    const cachedDebts = window._debtsCache || [];
+    const open = cachedDebts.filter(d => d.status === 'open');
+    const settled = cachedDebts.filter(d => d.status === 'settled');
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Debts & IOUs</div>
+        <div class="page-desc">${open.length} open · ${settled.length} settled</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="padding:16px;border-left:4px solid var(--amber)">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🔓 Open Debts (${open.length})</div>
+          ${open.length === 0 ? '<div class="empty-state">No open debts</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+              ${open.map(d => `
+                <div style="padding:8px 12px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:4px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:12px;font-weight:600;color:var(--text)">${esc(d.debtor)} → ${esc(d.creditor)}</span>
+                    <span style="font-size:11px;color:var(--text-faint)">${timeOf(d.timestamp)}</span>
+                  </div>
+                  <div style="font-size:12px;color:var(--text-dim)">${esc(d.item || d.description || '?')} ×${d.quantity || d.count || 1}</div>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+
+        <div class="card" style="padding:16px;border-left:4px solid var(--green)">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">✅ Settled (${settled.length})</div>
+          ${settled.length === 0 ? '<div class="empty-state">No settled debts</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+              ${settled.slice().reverse().map(d => `
+                <div style="padding:8px 12px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:4px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:12px;color:var(--text-dim)">${esc(d.debtor)} → ${esc(d.creditor)}</span>
+                    <span style="font-size:11px;color:var(--text-faint)">${timeOf(d.settledAt || d.timestamp)}</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--text-faint)">${esc(d.item || d.description || '?')}</div>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Page: Social / Relationships ────────────────────────────────
+  function renderSocial() {
+    const allRelationships = [];
+    for (const agent of state.agents) {
+      const rels = agent.relationships || {};
+      for (const [other, data] of Object.entries(rels)) {
+        allRelationships.push({ agentId: agent.username, with: other, ...data });
+      }
+    }
+    allRelationships.sort((a, b) => (b.trust || 0) - (a.trust || 0));
+
+    const trustColors = (t) => t >= 0.7 ? 'var(--green)' : t >= 0.4 ? 'var(--amber)' : 'var(--red)';
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Social Graph</div>
+        <div class="page-desc">${allRelationships.length} relationships tracked</div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        ${allRelationships.length === 0 ? '<div class="empty-state">No relationships formed yet — agents need to interact more</div>' : `
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:600px;overflow-y:auto">
+            ${allRelationships.map(r => `
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px">
+                <span class="badge badge-neutral" style="font-size:10px;min-width:80px">${esc(r.agentId)}</span>
+                <span style="color:var(--text-dim)">↔</span>
+                <span class="badge badge-neutral" style="font-size:10px;min-width:80px">${esc(r.with)}</span>
+                <div style="flex:1;display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                    <div style="height:100%;width:${Math.round((r.trust || 0) * 100)}%;background:${trustColors(r.trust || 0)};border-radius:3px"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--text-dim);min-width:40px">${Math.round((r.trust || 0) * 100)}%</span>
+                </div>
+                <span style="font-size:11px;color:var(--text-faint)">${r.interactions || 0} interactions</span>
+              </div>
+            `).join('')}
+          </div>`}
+      </div>
+    `;
+  }
+
+  // ── Page: Taxes ─────────────────────────────────────────────────
+  function renderTaxes() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    const allTaxes = window._taxesCache || [];
+    const agentTaxes = agent ? allTaxes.filter(t => t.agentId === agent.username || t.payer === agent.username) : allTaxes;
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Tax Dashboard</div>
+        <div class="page-desc">${agent ? esc(agent.username) : 'All agents'} — ${allTaxes.length} total obligations</div>
+      </div>
+
+      <div class="card" style="padding:16px">
+        <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">💰 Tax Obligations</div>
+        ${allTaxes.length === 0 ? '<div class="empty-state">No tax obligations recorded — agents initiate taxes voluntarily</div>' : `
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:500px;overflow-y:auto">
+            ${allTaxes.slice().reverse().map(t => `
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px">
+                <span class="badge badge-neutral" style="font-size:10px">${esc(t.agentId || t.payer || '?')}</span>
+                <span style="font-size:12px;color:var(--text)">${esc(t.item || t.description || 'tax')} ×${t.quantity || t.amount || 1}</span>
+                <span style="font-size:11px;color:var(--text-faint);margin-left:auto">${timeOf(t.timestamp)}</span>
+                ${t.paid ? '<span class="badge badge-success" style="font-size:9px">paid</span>' : '<span class="badge badge-warning" style="font-size:9px">pending</span>'}
+              </div>
+            `).join('')}
+          </div>`}
+      </div>
+    `;
+  }
+
+  // ── Page: Investigations ────────────────────────────────────────
+  function renderInvestigations() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    const allDeaths = window._deathsCache || [];
+    const pending = agent?.pendingInvestigation ? [agent.pendingInvestigation] : [];
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Death Investigations</div>
+        <div class="page-desc">${allDeaths.length} deaths recorded · ${pending.length} pending</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="padding:16px;border-left:4px solid var(--red)">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🔍 Pending Investigation</div>
+          ${pending.length === 0 ? '<div class="empty-state">No pending investigations</div>' : pending.map(p => `
+            <div style="padding:10px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:6px">
+              <div style="font-size:12px;font-weight:600;color:var(--text)">${esc(p.victim || p.agentId || '?')}</div>
+              <div style="font-size:12px;color:var(--text-dim);margin-top:4px">Cause: ${esc(p.cause || p.deathCause || 'unknown')}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:4px">${esc(p.description || 'Investigation in progress...')}</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">💀 Death History</div>
+          ${allDeaths.length === 0 ? '<div class="empty-state">No deaths recorded</div>' : `
+            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+              ${allDeaths.slice().reverse().map(d => `
+                <div style="padding:8px 12px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:4px">
+                  <div style="display:flex;justify-content:space-between">
+                    <span style="font-size:12px;font-weight:600;color:#fca5a5">${esc(d.agentId)}</span>
+                    <span style="font-size:11px;color:var(--text-faint)">${timeOf(d.timestamp)}</span>
+                  </div>
+                  <div style="font-size:12px;color:var(--text-dim);margin-top:2px">Killed by: ${esc(d.deathCause || d.cause || 'unknown')}</div>
+                </div>
+              `).join('')}
+            </div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Page: Stats History ─────────────────────────────────────────
+  function renderStats() {
+    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!agent) return '<div class="page-header"><div class="page-title">Stats History</div></div><div class="empty-state">No agents online</div>';
+
+    const stats = agent.stats || {};
+    const health = agent.health ?? 20;
+    const hunger = agent.hunger ?? 20;
+    const anger = agent.anger ?? 0;
+    const happiness = agent.happiness ?? 0.5;
+    const fatigue = agent.fatigue ?? 0;
+
+    const statBar = (label, val, max, color) => `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:12px;color:var(--text)">${label}</span>
+          <span style="font-size:11px;color:var(--text-dim)">${typeof max === 'number' && max <= 1 ? Math.round(val * 100) + '%' : val}/${max}</span>
+        </div>
+        <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${Math.min(100, (val / max) * 100)}%;background:${color};border-radius:4px;transition:width 0.3s"></div>
+        </div>
+      </div>`;
+
+    return `
+      <div class="page-header">
+        <div class="page-title">Stats History</div>
+        <div class="page-desc">${esc(agent.username)} — Current vital signs</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:16px">❤️ Vital Signs</div>
+          ${statBar('Health', health, 20, 'var(--green)')}
+          ${statBar('Hunger', hunger, 20, 'var(--amber)')}
+          ${statBar('Anger', anger, 1, 'var(--red)')}
+          ${statBar('Happiness', happiness, 1, 'var(--purple)')}
+          ${statBar('Fatigue', fatigue, 1, 'var(--cyan)')}
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📊 Lifetime Stats</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            ${Object.entries(stats).map(([key, val]) => `
+              <div style="text-align:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:6px">
+                <div style="font-size:20px;font-weight:700;color:var(--text)">${typeof val === 'number' ? fmtInt(val) : '—'}</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-top:4px;text-transform:capitalize">${esc(key.replace(/([A-Z])/g, ' $1'))}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   // ── Chat feed ─────────────────────────────────────────────────────
   function chatFeed(msgs) {
     if (!msgs.length) return '<div class="empty-state">No chat yet… Send a message as operator to converse with agents!</div>';
@@ -1316,6 +1870,22 @@
     }
   }
 
+  // ── Data fetching for ledger panels ──────────────────────────────
+  async function fetchLedgerData() {
+    try {
+      const [tradesRes, debtsRes, deathsRes, taxesRes] = await Promise.all([
+        fetch('/api/dashboard/trades').catch(() => null),
+        fetch('/api/dashboard/debts').catch(() => null),
+        fetch('/api/dashboard/deaths').catch(() => null),
+        fetch('/api/dashboard/taxes').catch(() => null)
+      ]);
+      if (tradesRes?.ok) window._tradesCache = await tradesRes.json();
+      if (debtsRes?.ok) window._debtsCache = await debtsRes.json();
+      if (deathsRes?.ok) window._deathsCache = await deathsRes.json();
+      if (taxesRes?.ok) window._taxesCache = await taxesRes.json();
+    } catch (e) { /* ledger fetch failed, will retry */ }
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => setPage(btn.dataset.page));
@@ -1336,5 +1906,7 @@
   });
 
   connectWS();
+  fetchLedgerData();
+  setInterval(fetchLedgerData, 30000);
   render();
 })();
