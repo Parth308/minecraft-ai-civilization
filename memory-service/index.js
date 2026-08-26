@@ -29,6 +29,7 @@ app.post('/api/memory/amnesia', async (req, res) => {
   if (!agentId) return res.status(400).json({ error: 'agentId required' });
   const f = Math.min(0.6, Math.max(0, Number(fraction) || 0.3));
   let forgotten = 0;
+  const droppedTexts = [];
   for (const section of ['skills', 'events', 'recent']) {
     try {
       const p = getSectionFilePath(agentId, section);
@@ -39,6 +40,7 @@ app.post('/api/memory/amnesia', async (req, res) => {
       if (before <= keepCount) continue;
       const dropIdx = new Set();
       while (dropIdx.size < before - keepCount) dropIdx.add(Math.floor(Math.random() * before));
+      parsed.entries.forEach((entry, i) => { if (dropIdx.has(i)) droppedTexts.push(entry); });
       parsed.entries = parsed.entries.filter((_, i) => !dropIdx.has(i));
       writeSectionFile(p, parsed.frontmatter, parsed.entries);
       forgotten += before - keepCount;
@@ -46,8 +48,11 @@ app.post('/api/memory/amnesia', async (req, res) => {
       logger.debug('MemoryService', `Amnesia pass skipped ${section}: ${err.message}`);
     }
   }
-  logger.warn('MemoryService', `[AMNESIA] ${agentId} lost ${forgotten} memory entries after death`);
-  res.json({ success: true, agentId, forgotten });
+  // Purge forgotten entries from the vector index as well, or "forgotten"
+  // memories stay semantically searchable forever.
+  const purgedVectors = vectorStore.removeEntries(agentId, new Set(droppedTexts));
+  logger.warn('MemoryService', `[AMNESIA] ${agentId} lost ${forgotten} memory entries (${purgedVectors} vectors) after death`);
+  res.json({ success: true, agentId, forgotten, purgedVectors });
 });
 
 // Health Check
@@ -108,10 +113,15 @@ app.post('/api/memory/consolidate', async (req, res) => {
 // Shared World Knowledge — settlers' field observations, queryable by area.
 // Pure information service: contributing records facts; nobody is obliged to
 // read or act on them.
-const WORLD_DISCOVERIES_PATH = path.join(config.baseStorePath, '..', 'store', 'world_discoveries.json');
+const WORLD_DISCOVERIES_PATH = path.join(config.baseStorePath, '..', 'world_discoveries.json');
+const LEGACY_DISCOVERIES_PATH = path.join(config.baseStorePath, '..', 'store', 'world_discoveries.json');
 
 function readDiscoveries() {
   try {
+    // One-time migration from the old double-store/ typo path.
+    if (!fs.existsSync(WORLD_DISCOVERIES_PATH) && fs.existsSync(LEGACY_DISCOVERIES_PATH)) {
+      fs.renameSync(LEGACY_DISCOVERIES_PATH, WORLD_DISCOVERIES_PATH);
+    }
     if (!fs.existsSync(WORLD_DISCOVERIES_PATH)) return [];
     return JSON.parse(fs.readFileSync(WORLD_DISCOVERIES_PATH, 'utf8'));
   } catch { return []; }
