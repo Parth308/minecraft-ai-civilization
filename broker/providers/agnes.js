@@ -19,7 +19,7 @@ async function queryAgnes(apiKey, prompt) {
       temperature: 0.6,
       max_tokens: 1024
     }),
-    signal: AbortSignal.timeout(8000)
+    signal: AbortSignal.timeout(6000)
   });
 
   const latencyMs = Date.now() - t0;
