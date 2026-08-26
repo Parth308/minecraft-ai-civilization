@@ -37,6 +37,18 @@ class EventRouter {
       if (type.includes('mine') || type.includes('craft')) tag = '[skill]';
       else if (type.includes('explore')) tag = '[location]';
 
+      // Noise gate: auto-summarized repetitive mine/craft successes flooded
+      // skills.md (entire file was "Routine outcome" rows), so semantic
+      // retrieval surfaced garbage instead of real tactics. Only curated
+      // summaries reach skills; raw routine outcomes divert to recent.md.
+      if (!event.summary && tag === '[skill]') {
+        return {
+          section: 'recent',
+          tag: '[routine]',
+          summary: `[routine] ${type} - ${JSON.stringify(payload)}`
+        };
+      }
+
       return {
         section: 'skills',
         tag,
