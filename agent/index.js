@@ -52,6 +52,7 @@ const FarmerSkill = require('./skills/farmer');
 const ReflectionEngine = require('./cognition/reflection');
 const EmotionalState = require('./cognition/emotions');
 const BeliefNetwork = require('./cognition/beliefs');
+const { nextCraftingObjective, getCurrentCraftableOptions } = require('./cognition/craftingChain');
 const { ACTIONS } = require('../shared/constants');
 
 let prismarineViewer = null;
@@ -414,16 +415,16 @@ function createAgent() {
 
       // Grounded curriculum check: when basics (tools/shelter) are missing,
       // nudge the goal toward the next tech milestone every few minutes.
+      // Uses crafting chain planner for full tech tree progression (wood → netherite).
       const curriculumTimer = setInterval(() => {
         try {
           if (Date.now() - (agentState._lastCurriculumAt || 0) < 300000) return;
-          const inv = (agentState.inventory || []).map(i => i.name);
-          const next = goalManager.nextTechObjective(inv);
+          const next = nextCraftingObjective(senses);
           const currentDesc = (goalManager.currentGoal?.description || '').toLowerCase();
           const isWhimsical = ['trade', 'mine', 'explore', 'wander', 'talk'].includes(currentDesc.trim());
           if (!next || !isWhimsical) return;
           agentState._lastCurriculumAt = Date.now();
-          goalManager.setGoal(next.objective, { source: 'tech-curriculum', phase: next.phase });
+          goalManager.setGoal(next.objective, { source: 'crafting-chain', phase: next.phase, chain: next.chain });
           chat.say(`new mission: ${next.objective}`);
           eventBuffer.addEvent('newGoal', { ...next, source: 'curriculum' });
         } catch { /* curriculum is advisory */ }
