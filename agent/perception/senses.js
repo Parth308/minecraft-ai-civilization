@@ -64,8 +64,8 @@ class Senses {
     if (!this.bot.entity) return [];
     return Object.values(this.bot.entities).filter(entity => {
       if (!entity || entity === this.bot.entity) return false;
-      // Mineflayer marks dropped items as type 'object' with entityType name containing 'item'
-      const isDroppedItem = entity.objectType === 'Item' || entity.name === 'item' || (entity.type === 'object' && entity.objectType === 'Item');
+      const kind = String(entity.name || entity.displayName || '').toLowerCase();
+      const isDroppedItem = kind === 'item';
       if (!isDroppedItem) return false;
       return this.bot.entity.position.distanceTo(entity.position) <= maxDistance;
     });
@@ -77,7 +77,7 @@ class Senses {
     const projectileTypes = ['arrow', 'spectral_arrow', 'fireball', 'small_fireball', 'snowball', 'egg', 'trident', 'wither_skull'];
     return Object.values(this.bot.entities).filter(entity => {
       if (!entity || entity === this.bot.entity) return false;
-      const name = (entity.name || entity.objectType || '').toLowerCase();
+      const name = (entity.name || entity.displayName || '').toLowerCase();
       if (!projectileTypes.some(p => name.includes(p))) return false;
       return this.bot.entity.position.distanceTo(entity.position) <= maxDistance;
     });

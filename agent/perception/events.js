@@ -64,7 +64,7 @@ class EventObserver extends EventEmitter {
     this.bot.on('entitySpawn', (entity) => {
       if (!this.bot.entity || !entity) return;
       const projectileTypes = ['arrow', 'spectral_arrow', 'fireball', 'trident', 'wither_skull'];
-      const name = (entity.name || entity.objectType || '').toLowerCase();
+      const name = (entity.name || entity.displayName || '').toLowerCase();
       if (!projectileTypes.some(p => name.includes(p))) return;
       const dist = this.bot.entity.position.distanceTo(entity.position);
       if (dist <= 20) {

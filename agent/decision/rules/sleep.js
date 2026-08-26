@@ -1,4 +1,5 @@
 const { ACTIONS } = require('../../../shared/constants');
+const { setFleeCooldown, isFleeOnCooldown } = require('./flee');
 
 function evaluateSleep(senses, stats, persona = null, agentState = {}) {
   const isNight = senses.isNight();
@@ -44,8 +45,11 @@ function evaluateSleep(senses, stats, persona = null, agentState = {}) {
     };
   }
 
-  // If no bed is nearby but threat is high, cautious agents prioritize seeking shelter / hiding
-  if (threatLevel >= 0.65) {
+  // If no bed is nearby but threat is high, cautious agents prioritize seeking shelter / hiding.
+  // Cooldown-gated: without it this branch re-fired every night tick for cautious
+  // personas, tripping stuck-loop detection and escalating ~900×/window to the broker.
+  if (threatLevel >= 0.65 && !isFleeOnCooldown('shelter')) {
+    setFleeCooldown('shelter', 120000);
     return {
       name: ACTIONS.FLEE,
       confidence: Number((0.65 + threatLevel * 0.20).toFixed(2)),
