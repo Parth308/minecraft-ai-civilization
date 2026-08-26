@@ -6,7 +6,6 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 COPY memory-service ./memory-service
-COPY broker ./broker
 COPY shared ./shared
 
 EXPOSE 3002
