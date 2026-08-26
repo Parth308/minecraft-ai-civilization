@@ -1,13 +1,16 @@
 const { ACTIONS, SCARCE_RESOURCES } = require('../../../shared/constants');
 
 function evaluateTrade(senses, stats, persona = null, agentState = {}) {
-  const players = senses.getNearbyPlayers(6);
+  const players = senses.getNearbyPlayers(12);
   if (!players || players.length === 0) {
     return { name: ACTIONS.TRADE || 'TRADE', confidence: 0.0, reason: 'No trading partner nearby' };
   }
 
   const partner = players[0];
-  let confidence = 0.50;
+  // Base must stay competitive with MINE/CRAFT (0.90+ base): a partner in range
+  // IS an opportunity cost — historically this rule capped at 0.85 and never
+  // once won, leaving the entire ledger economy unwritten.
+  let confidence = players.length > 1 ? 0.62 : 0.55;
   let reason = `Nearby player ${partner.username} within interaction distance`;
 
   // Scan inventory for scarce resource surplus
@@ -31,11 +34,11 @@ function evaluateTrade(senses, stats, persona = null, agentState = {}) {
   }
 
   if (requestedItems.length > 0) {
-    confidence = 0.85; // High confidence: we hold scarce goods explicitly sought by peers
-    reason = `Holding scarce resource '${requestedItems[0]}' requested by nearby players in chat`;
+    confidence = 0.94; // Peer verbally asked for what we hold — act on it NOW
+    reason = `${partner.username} asked for '${requestedItems[0]}' which we hold (${scarceItemsHeld.find(s => s.name === requestedItems[0])?.count ?? '?'}x)`;
   } else if (scarceItemsHeld.length > 0) {
-    confidence = 0.68; // Moderate-high confidence: holding valuable scarce trading commodities
-    reason = `Holding valuable scarce resources (${scarceItemsHeld.map(s => `${s.count}x ${s.name}`).join(', ')}) to barter`;
+    confidence = 0.80; // Holding valuable scarce trading commodities near a partner
+    reason = `Holding valuable scarce resources (${scarceItemsHeld.map(s => `${s.count}x ${s.name}`).join(', ')}) to barter with ${partner.username}`;
   }
 
   return {

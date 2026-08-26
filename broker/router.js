@@ -571,6 +571,7 @@ HUMAN BEHAVIOUR RULES:
 6. Keep replies under 15 words (real Minecraft chat)
 7. Refer to what you were doing (e.g. "brb mining iron", "one sec crafting", "ugh nearly died lol")
 8. If something is truly private — a secret, a plot, a personal confession — set "whisper": true to tell ONLY the sender
+9. If this conversation seals a concrete exchange with them (they asked, you agree), set "dealAccepted" with what YOU hand over (giveItem/giveCount) and what you expect in return (wantItem/wantCount) — the trade then actually executes in-world
 
 YOUR INNER FAITH (only if present in society context below): spiritual feelings are yours alone. You may convert to a tradition you genuinely connected with, deepen devotion, hold a rite, abandon belief, or completely ignore spirituality — whatever fits YOUR lived experience. Never adopt faith for strategy or politeness.
 
@@ -583,9 +584,10 @@ REPLY as raw JSON only (no markdown):
   "whisper": false,
   "warTarget": null,
   "warReason": null,
-  "currencyAdopted": null,
-  "treatyAction": { "type": null, "honors": null },
-  "newGoal": null,
+   "currencyAdopted": null,
+   "treatyAction": { "type": null, "honors": null },
+   "dealAccepted": { "giveItem": null, "giveCount": 0, "wantItem": null, "wantCount": 0 },
+   "newGoal": null,
   "faithAction": { "type": null, "tradition": null, "tenet": null, "riteType": null },
   "jobAction": { "type": null, "jobId": null, "title": null, "description": null, "currency": null, "amount": null }
 }`;
@@ -744,6 +746,14 @@ Reply ONLY as raw JSON:
         smeltInput: parsed.smeltInput ? String(parsed.smeltInput).trim() : null,
         buildType: parsed.buildType ? String(parsed.buildType).trim() : null,
         tradeOffer: parsed.tradeOffer ? String(parsed.tradeOffer).trim() : null,
+        dealAccepted: (parsed.dealAccepted && parsed.dealAccepted.giveItem)
+          ? {
+              giveItem: String(parsed.dealAccepted.giveItem).trim(),
+              giveCount: Math.max(1, parseInt(parsed.dealAccepted.giveCount, 10) || 1),
+              wantItem: String(parsed.dealAccepted.wantItem || '').trim(),
+              wantCount: Math.max(1, parseInt(parsed.dealAccepted.wantCount, 10) || 1)
+            }
+          : null,
         newGoal: parsed.newGoal ? String(parsed.newGoal).trim() : null,
         steps: Array.isArray(parsed.steps)
           ? parsed.steps.map(s => String(s).trim()).filter(Boolean).slice(0, 8)

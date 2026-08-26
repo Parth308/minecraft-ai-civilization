@@ -251,6 +251,21 @@ function createAgent() {
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
   dialogueEngine.setReflectionEngine(reflection);
   dialogueEngine.setDynamicRuleEngine(decisionTree.dynamicRuleEngine);
+  // Sealed-deal handshake: chat agreements become real barter executions.
+  // Guarded by the same per-sender cooldown the chat pipeline uses, so a
+  // chatty LLM cannot spam tosses.
+  const recentDealAt = new Map();
+  dialogueEngine.onTradeAgreed = (partner, deal) => {
+    const now = Date.now();
+    if (now - (recentDealAt.get(partner) || 0) < 30000) return;
+    recentDealAt.set(partner, now);
+    logger.info('AgentLoop', `[TRADE HANDSHAKE] ${config.username} executing agreed deal with ${partner}: ${deal.giveCount}x ${deal.giveItem} for ${deal.wantCount}x ${deal.wantItem}`);
+    barter.executeTrade(
+      partner,
+      deal.giveItem, deal.giveCount,
+      deal.wantItem || 'cobblestone', deal.wantCount || 1
+    ).catch(err => logger.warn('AgentLoop', `Handshake trade failed: ${err.message}`));
+  };
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
   });
@@ -823,6 +838,17 @@ function createAgent() {
           const wantCount = parseInt(wantMatch?.[1] || '4');
           if (tradePartner) {
             logger.info('AgentLoop', `Executing TRADE with ${tradePartner}: ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
+            // Approach phase: tosses need proximity. Walk toward the partner
+            // first (best-effort, bounded) so trades don't die to distance.
+            const partnerEntity = Object.values(bot.entities).find(e => e.username === tradePartner);
+            if (partnerEntity?.position && bot.entity?.position &&
+                bot.entity.position.distanceTo(partnerEntity.position) > 3.5) {
+              try {
+                await movement.goto(partnerEntity.position.x, partnerEntity.position.y, partnerEntity.position.z, 2.5);
+              } catch (navErr) {
+                logger.debug('AgentLoop', `Trade approach incomplete: ${navErr.message}`);
+              }
+            }
             await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
             eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer });
             factionManager.considerAllianceWith(tradePartner).then(announcement => {

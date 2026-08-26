@@ -178,6 +178,17 @@ class SocialDialogueEngine {
         if (response.relationshipDelta.affinity) this.relationships.updateAffinity(sender, response.relationshipDelta.affinity);
       }
 
+      // Sealed-deal handshake: when the reply concludes a concrete exchange,
+      // hand it to the barter actuator so talk becomes an actual world trade
+      // instead of chat theater.
+      if (response.dealAccepted && typeof this.onTradeAgreed === 'function') {
+        try {
+          this.onTradeAgreed(sender, response.dealAccepted);
+        } catch (tradeErr) {
+          logger.warn('SocialDialogue', `Trade handshake failed: ${tradeErr.message}`);
+        }
+      }
+
       // Dynamic Goal Update
       if (response.newGoal) {
         this.goalManager.setGoal(response.newGoal);
