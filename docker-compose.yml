@@ -29,7 +29,7 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 2500M
+          memory: 3072M # live RSS ran ~90% of the old 2500M cap; +570M GC headroom
     volumes:
       - ./minecraft-server:/data
     networks:
