@@ -24,7 +24,7 @@ async function queryOllamaLocal(_unusedKey, prompt, options = {}) {
       format: 'json',
       options: { temperature: 0.4, num_predict: 260 }
     }),
-    signal: AbortSignal.timeout(120000)
+    signal: AbortSignal.timeout(60000)
   });
 
   if (!response.ok) {

@@ -218,10 +218,10 @@ class ProviderRouter {
       baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models.
-      // OllamaLocal excluded — ~50s latency kills live conversation; silence
-      // is a valid chat outcome, brainless wandering is not.
-      // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
-      baseOrder = ['Groq', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI'];
+      // OllamaLocal appended as last-resort — ~50s latency is painful but
+      // a real reply strictly beats the blind-WANDER fallbackHeuristic
+      // during total provider exhaustion.
+      baseOrder = ['Groq', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
     }
 
     // Filter to configured, non-rate-limited providers

@@ -59,7 +59,9 @@ services:
         done
         echo "Self-provisioning embedding model: $${OLLAMA_MODEL:-nomic-embed-text}..."
         ollama pull $${OLLAMA_MODEL:-nomic-embed-text}
-        echo "Embedding model ready!"
+        echo "Self-provisioning chat fallback: qwen2.5:3b-instruct..."
+        ollama pull qwen2.5:3b-instruct
+        echo "All Ollama models ready!"
         wait $$PID
     healthcheck:
       test: [ "CMD-SHELL", "ollama list | grep -q $${OLLAMA_MODEL:-nomic-embed-text} || exit 1" ]
