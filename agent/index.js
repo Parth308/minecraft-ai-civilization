@@ -850,8 +850,12 @@ function createAgent() {
                 logger.debug('AgentLoop', `Trade approach incomplete: ${navErr.message}`);
               }
             }
-            await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
-            eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer });
+            const tradeResult = await barter.executeTrade(tradePartner, giveItem, giveCount, wantItem, wantCount);
+            // Feed the outcome back: failure drives the decision tree's
+            // refractory damping, otherwise a hallucinated offer re-fires
+            // every tick (observed: identical trade attempted 3× in 23s).
+            actionSuccess = !!tradeResult.success;
+            eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer, ok: actionSuccess, reason: tradeResult.reason || null });
             factionManager.considerAllianceWith(tradePartner).then(announcement => {
               if (announcement && Date.now() - lastOutgoingChat > 3000) {
                 lastOutgoingChat = Date.now();

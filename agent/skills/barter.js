@@ -59,6 +59,16 @@ class BarterSkill {
       return { success: false, reason: 'partner_not_found' };
     }
 
+    // Inventory guard: LLMs sometimes offer goods they don't hold. Without
+    // this the toss fails silently and the offer re-fires every tick.
+    const held = (this.bot.inventory?.items() || [])
+      .filter(i => i && (i.name === giveItem || i.name === giveItem.replace(/^minecraft:/, '')))
+      .reduce((n, i) => n + (i.count || 1), 0);
+    if (held < giveCount) {
+      logger.warn('Barter', `Rejected trade with ${partnerName}: only ${held}x ${giveItem} in inventory, offered ${giveCount}`);
+      return { success: false, reason: 'insufficient_inventory' };
+    }
+
     const valueGive = this.evaluateTradeValue(giveItem, giveCount);
     const valueWant = this.evaluateTradeValue(wantItem, wantCount);
 
