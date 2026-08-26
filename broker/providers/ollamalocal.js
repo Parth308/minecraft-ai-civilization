@@ -1,11 +1,10 @@
 const logger = require('../../shared/logger');
 
-// Local emergency lane — qwen2.5:3b-instruct inside the existing ollama
-// container. Benchmarked against real decision payloads: 6/6 strict-JSON,
-// avg ~53s CPU latency, mediocre judgment. That trade is CORRECT for the
-// absolute last position: a slow real decision strictly beats the old
-// blind-WANDER fallbackHeuristic during total provider exhaustion.
-// Deliberately NOT in SOCIAL_CHAT cascades — 50s replies kill conversations.
+// Last-resort emergency lane — all qwen2.5 chat models (0.5b, 1.5b, 3b)
+// segfault on this VPS CPU (llama.cpp incompatibility). Provider will throw
+// on every call; broker moves to next cloud provider. Kept alive so
+// dashboard stats show the attempt, and a future VPS with GPU/AVX-512
+// can re-enable it by setting OLLAMA_LOCAL_MODEL.
 async function queryOllamaLocal(_unusedKey, prompt, options = {}) {
   const host = (process.env.OLLAMA_LOCAL_HOST || 'http://ollama:11434').replace(/\/$/, '');
   const model = process.env.OLLAMA_LOCAL_MODEL || 'qwen2.5:3b-instruct';

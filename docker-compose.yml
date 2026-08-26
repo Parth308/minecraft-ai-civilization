@@ -46,23 +46,9 @@ services:
       - ollama_data:/root/.ollama
     environment:
       OLLAMA_MODEL: "${OLLAMA_MODEL:-nomic-embed-text}"
-    # Auto-serve and self-provision model on first boot
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        ollama serve &
-        PID=$$!
-        echo "Waiting for Ollama daemon to initialize..."
-        until ollama list > /dev/null 2>&1; do
-          sleep 1
-        done
-        echo "Self-provisioning embedding model: $${OLLAMA_MODEL:-nomic-embed-text}..."
-        ollama pull $${OLLAMA_MODEL:-nomic-embed-text}
-        echo "Self-provisioning chat fallback: qwen2.5:3b-instruct..."
-        ollama pull qwen2.5:3b-instruct
-        echo "All Ollama models ready!"
-        wait $$PID
+      OLLAMA_NUM_PARALLEL: "2"
+      OLLAMA_MAX_LOADED_MODELS: "2"
+
     healthcheck:
       test: [ "CMD-SHELL", "ollama list | grep -q $${OLLAMA_MODEL:-nomic-embed-text} || exit 1" ]
       interval: 5s
@@ -72,10 +58,10 @@ services:
     deploy:
       resources:
         limits:
-          # Raised 1.0/1536M -> 1.5/3072M: hosts qwen2.5:3b chat fallback
-          # alongside nomic embeddings (~2.4GB combined peak).
-          cpus: '1.5'
-          memory: 3072M
+          # 5120M: qwen2.5:1.5b-instruct (986MB) + nomic-embed-text (274MB)
+          # + llama runtime overhead + headroom for concurrent loads.
+          cpus: '2.0'
+          memory: 5120M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -159,7 +145,9 @@ services:
       FREELLMAPI_BASE_URL: "${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}"
       FREELLMAPI_MODEL: "${FREELLMAPI_MODEL:-auto}"
       OLLAMA_LOCAL_HOST: "http://ollama:11434"
-      OLLAMA_LOCAL_MODEL: "${OLLAMA_LOCAL_MODEL:-qwen2.5:3b-instruct}"
+      # NOTE: Local chat models segfault on this VPS CPU — embeddings only.
+      # OllamaLocal is last-resort only; cloud providers handle all chat/reasoning.
+      OLLAMA_LOCAL_MODEL: "${OLLAMA_LOCAL_MODEL:-}"
       GITHUB_MODELS_TOKEN: "${GITHUB_MODELS_TOKEN:-}"
       GITHUB_MODEL: "${GITHUB_MODEL:-openai/gpt-4o-mini}"
       CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"
