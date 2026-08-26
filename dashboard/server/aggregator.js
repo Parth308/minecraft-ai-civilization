@@ -157,16 +157,14 @@ class Aggregator {
   // ─── Polling Loops ───────────────────────────────────────────────────────────
 
   start() {
-    // Poll broker every 5s
-    this._intervals.push(setInterval(() => this._pollBroker(), 5000));
-    // Poll broker stats every 3s (tokens/cost/rate-limits/escalations)
-    this._intervals.push(setInterval(() => this._pollBrokerStats(), 3000));
-    // Poll memory-service every 5s
-    this._intervals.push(setInterval(() => this._pollMemoryService(), 5000));
-    // Poll each agent every 2s
-    this._intervals.push(setInterval(() => this._pollAgents(), 2000));
-    // Auto-discover new agents every 8s
-    this._intervals.push(setInterval(() => this._autoDiscoverAgents(), 8000));
+    // Poll cadences tuned against measured ingress: the old 2-3s per-service
+    // loop pulled 11GB+ into the container over a half-day for telemetry
+    // nobody watches that fast. WebSocket push still delivers chat instantly.
+    this._intervals.push(setInterval(() => this._pollBroker(), 10000));
+    this._intervals.push(setInterval(() => this._pollBrokerStats(), 10000));
+    this._intervals.push(setInterval(() => this._pollMemoryService(), 15000));
+    this._intervals.push(setInterval(() => this._pollAgents(), 8000));
+    this._intervals.push(setInterval(() => this._autoDiscoverAgents(), 60000));
 
     // Kick off immediately
     this._pollBroker();
