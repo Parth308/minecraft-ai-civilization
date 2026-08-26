@@ -424,6 +424,27 @@ app.post('/api/ledger/chronicle', (req, res) => {
   res.json({ success: true, entry });
 });
 
+// Tax Ledger Endpoints
+const taxRecords = [];
+
+app.get('/api/ledger/taxes', (req, res) => {
+  const agent = req.query.agent;
+  const records = agent ? taxRecords.filter(r => r.payer === agent) : taxRecords;
+  const totalPaid = records.reduce((sum, r) => sum + (r.taxAmount || 0), 0);
+  res.json({ count: records.length, totalPaid, taxes: records });
+});
+
+app.post('/api/ledger/taxes', (req, res) => {
+  const { payer, partner, tradeValue, taxAmount, taxRate, items, fairnessScore, timestamp } = req.body;
+  if (!payer || typeof taxAmount !== 'number') {
+    return res.status(400).json({ error: 'payer and taxAmount required' });
+  }
+  const record = { id: `tax_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`, payer, partner, tradeValue, taxAmount, taxRate, items, fairnessScore, timestamp: timestamp || Date.now() };
+  taxRecords.push(record);
+  if (taxRecords.length > 2000) taxRecords.splice(0, taxRecords.length - 2000);
+  res.json({ success: true, record });
+});
+
 // Rule adjustments queue per agent (Feedback loop from macro reflection prose -> numeric weights)
 const pendingRuleAdjustments = new Map(); // agentId -> Array of adjustments
 

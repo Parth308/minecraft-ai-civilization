@@ -54,6 +54,9 @@ const EmotionalState = require('./cognition/emotions');
 const BeliefNetwork = require('./cognition/beliefs');
 const { nextCraftingObjective, getCurrentCraftableOptions } = require('./cognition/craftingChain');
 const SkillTracker = require('./cognition/skillTracker');
+const DeathInvestigator = require('./social/deathInvestigator');
+const TaxCollector = require('./social/taxCollector');
+const ChunkMemory = require('./cognition/chunkMemory');
 const { ACTIONS } = require('../shared/constants');
 
 let prismarineViewer = null;
@@ -268,11 +271,26 @@ function createAgent() {
       partner,
       deal.giveItem, deal.giveCount,
       deal.wantItem || 'cobblestone', deal.wantCount || 1
-    ).catch(err => logger.warn('AgentLoop', `Handshake trade failed: ${err.message}`));
+    ).then(result => {
+      if (result?.success) {
+        const totalValue = (result.valueGive || 0) + (result.valueWant || 0);
+        taxCollector.recordObligation({
+          partner, giveItem: deal.giveItem, giveCount: deal.giveCount,
+          wantItem: deal.wantItem || 'cobblestone', wantCount: deal.wantCount || 1,
+          valueGive: result.valueGive, valueWant: result.valueWant,
+          fairnessScore: result.fairnessScore, success: true, totalValue
+        });
+      }
+    }).catch(err => logger.warn('AgentLoop', `Handshake trade failed: ${err.message}`));
   };
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
   });
+  const deathInvestigator = new DeathInvestigator(config.username, {
+    brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses
+  });
+  const taxCollector = new TaxCollector(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', chat });
+  const chunkMemory = new ChunkMemory(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002' });
 
   let tickInterval = null;
   let inFlightTick = false;
@@ -285,6 +303,7 @@ function createAgent() {
   let lastTorchPlacement = 0;
   let lastDiscoveryPost = 0;
   const lastDeathLessonAt = {};
+  let tickCount = 0;
 
   const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
 
@@ -492,6 +511,13 @@ function createAgent() {
           stats.updateHealth(bot.health);
           stats.updateHungerFromMC(bot.food);
 
+          // 1b. Death investigation — voluntary, agent decides via LLM
+
+          // 1c. Record current position in chunk memory
+          if (bot.entity?.position) {
+            chunkMemory.recordPosition(bot.entity.position.x, bot.entity.position.y, bot.entity.position.z);
+          }
+
           // 2. Run local stats decay tick
           statsDecay.tick();
 
@@ -574,6 +600,9 @@ function createAgent() {
             y: Math.round(bot.entity.position.y),
             z: Math.round(bot.entity.position.z)
           } : {};
+          agentState.exploration = chunkMemory.toContext();
+          agentState.pendingInvestigation = deathInvestigator.getPendingInvestigation();
+          agentState.pendingTaxObligations = taxCollector.getPendingObligations();
           // ───────────────────────────────────────────────────────────────
 
           detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
@@ -931,6 +960,14 @@ function createAgent() {
             // every tick (observed: identical trade attempted 3× in 23s).
             actionSuccess = !!tradeResult.success;
             eventBuffer.addEvent('executeTrade', { partner: tradePartner, offer, ok: actionSuccess, reason: tradeResult.reason || null });
+            if (tradeResult.success) {
+              const totalValue = (tradeResult.valueGive || 0) + (tradeResult.valueWant || 0);
+              taxCollector.recordObligation({
+                partner: tradePartner, giveItem, giveCount, wantItem, wantCount,
+                valueGive: tradeResult.valueGive, valueWant: tradeResult.valueWant,
+                fairnessScore: tradeResult.fairnessScore, success: true, totalValue
+              });
+            }
             factionManager.considerAllianceWith(tradePartner).then(announcement => {
               if (announcement && Date.now() - lastOutgoingChat > 3000) {
                 lastOutgoingChat = Date.now();
@@ -990,9 +1027,7 @@ function createAgent() {
             }
           }
 
-          // Pick a direction based on ambition — ambitious agents explore further
           const exploreDist = Math.round(16 + (persona.traits?.ambition || 0.5) * 24);
-          logger.info('AgentLoop', `Executing ${decision.action} action (range: ${exploreDist} blocks)`);
           movement.wander(exploreDist);
           actionSuccess = true;
           break;
@@ -1170,6 +1205,10 @@ function createAgent() {
         ok: actionSuccess,
         detail: actionSuccess ? '' : (execErrorDetail || 'action reported failure')
       };
+      tickCount++;
+      if (tickCount % 120 === 0) {
+        chunkMemory.persist().catch(() => {});
+      }
     }
   }
 
@@ -1284,7 +1323,7 @@ function createAgent() {
   });
 
   // Witnessing another's death stirs real grief — empathy scaled by bond
-  events.on('witnessedDeath', ({ victim }) => {
+  events.on('witnessedDeath', ({ victim, raw }) => {
     const rel = relationships?.get?.(victim);
     const emo1 = EmotionalState.forAgent(bot.username);
     emo1.appraise('witnessed_death', { affinity: rel?.affinity ?? 30 }, persona?.traits || {});
@@ -1292,6 +1331,8 @@ function createAgent() {
     if ((rel?.affinity ?? 0) >= 60) {
       logger.warn('AgentLoop', `[GRIEF] ${bot.username} lost someone close: ${victim}`);
     }
+    // Crime scene investigation: nearby agents process the death socially
+    deathInvestigator.onWitnessedDeath({ victim, raw });
   });
 
   events.on('agentDeath', ({ position, cause }) => {
