@@ -4,12 +4,10 @@ const logger = require('../../shared/logger');
 class EmbeddingClient {
   constructor(
     provider = process.env.EMBEDDING_PROVIDER || 'auto',
-    apiKey = process.env.GEMINI_API_KEY || '',
     ollamaHost = process.env.OLLAMA_HOST || 'http://ollama:11434',
     ollamaModel = process.env.OLLAMA_MODEL || 'nomic-embed-text'
   ) {
     this.provider = provider;
-    this.apiKey = apiKey;
     this.ollamaHost = ollamaHost;
     this.ollamaModel = ollamaModel;
     this.dimension = 768;
@@ -24,14 +22,12 @@ class EmbeddingClient {
     return crypto.createHash('sha1').update(text).digest('hex');
   }
 
+  // Gemini embeddings removed entirely (text-embedding-004 endpoint 404'd 3.6K×
+  // per log window before removal). Chain is now strictly local-only:
+  // self-hosted Ollama nomic-embed-text → deterministic local engine fallback.
   getEffectiveProvider() {
-    if (this.provider === 'ollama') return 'ollama';
-    if (this.provider === 'gemini' && this.apiKey) return 'gemini';
     if (this.provider === 'local') return 'local';
-    
-    // In 'auto' mode: check Ollama first if configured, else Gemini, else Local
     if (this.ollamaHost) return 'ollama';
-    if (this.apiKey) return 'gemini';
     return 'local';
   }
 
@@ -41,40 +37,18 @@ class EmbeddingClient {
     const key = this._cacheKey(text);
     if (this._cache.has(key)) return this._cache.get(key);
 
-    const effective = this.getEffectiveProvider();
     let vector;
 
-    // 1. Try Ollama nomic-embed-text
-    if (effective === 'ollama') {
+    if (this.getEffectiveProvider() === 'ollama') {
       try {
         vector = await this.getOllamaEmbedding(text);
       } catch (err) {
-        logger.warn('EmbeddingClient', `Ollama (${this.ollamaModel}) failed (${err.message}). Trying secondary provider.`);
-        if (this.apiKey) {
-          try {
-            vector = await this.getGeminiEmbedding(text);
-          } catch (gErr) {
-            logger.warn('EmbeddingClient', `Gemini embedding fallback failed (${gErr.message}). Using local deterministic engine.`);
-            vector = this.getLocalEmbedding(text);
-          }
-        } else {
-          vector = this.getLocalEmbedding(text);
-        }
-      }
-    }
-
-    // 2. Try Gemini
-    if (vector === undefined && effective === 'gemini') {
-      try {
-        vector = await this.getGeminiEmbedding(text);
-      } catch (err) {
-        logger.warn('EmbeddingClient', `Gemini embedding failed (${err.message}). Falling back to local embedding engine.`);
+        logger.warn('EmbeddingClient', `Ollama (${this.ollamaModel}) failed (${err.message}). Using local deterministic engine.`);
         vector = this.getLocalEmbedding(text);
       }
     }
 
     if (vector === undefined) {
-      // 3. Deterministic Local N-gram Fallback
       vector = this.getLocalEmbedding(text);
     }
 
@@ -108,31 +82,6 @@ class EmbeddingClient {
     }
 
     return this.normalizeVector(data.embedding);
-  }
-
-  // Gemini Hosted Embedding API
-  async getGeminiEmbedding(text) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${this.apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'models/text-embedding-004',
-        content: { parts: [{ text }] }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini Embedding API error HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const values = data.embedding?.values;
-    if (!values || !Array.isArray(values)) {
-      throw new Error('Malformed Gemini embedding response');
-    }
-
-    return this.normalizeVector(values);
   }
 
   // Fast, deterministic, zero-overhead Local Semantic Feature Embedding
