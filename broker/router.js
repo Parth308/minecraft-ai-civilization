@@ -12,6 +12,7 @@ const queryCloudflare = require('./providers/cloudflare');
 const queryHuggingFace = require('./providers/huggingface');
 const queryCohere = require('./providers/cohere');
 const queryQwen = require('./providers/qwen');
+const queryFreellm = require('./providers/freellm');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -36,7 +37,8 @@ const BENCHMARK_RATES_PER_MTOK = {
   Mistral:     { input: 0.50, output: 1.50, name: 'Mistral Experiment Plan (~1B tokens/month free)' },
   TokenReply:  { input: 0.00, output: 0.00, name: 'TokenReply Free Models (-free suffix IDs, verified live)' },
   Agnes:       { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
-  LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' }
+  LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' },
+  FreellmAPI:  { input: 0.00, output: 0.00, name: 'FreeLLMAPI self-hosted pooled router (~30 provider tiers)' }
 };
 
 const MAX_ESCALATION_LOG = 200;
@@ -66,7 +68,8 @@ class ProviderRouter {
       Cloudflare: { name: 'Cloudflare', key: config.keys.cloudflare, fn: queryCloudflare },
       HuggingFace: { name: 'HuggingFace', key: config.keys.huggingface, fn: queryHuggingFace },
       Cohere: { name: 'Cohere', key: config.keys.cohere, fn: queryCohere },
-      Qwen: { name: 'Qwen', key: config.keys.qwen, fn: queryQwen }
+      Qwen: { name: 'Qwen', key: config.keys.qwen, fn: queryQwen },
+      FreellmAPI: { name: 'FreellmAPI', key: config.keys.freellm, fn: queryFreellm }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -204,16 +207,16 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes'];
+      baseOrder = ['Groq', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes'];
+      baseOrder = ['SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7'];
+      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
-      baseOrder = ['Groq', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini'];
+      baseOrder = ['Groq', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI'];
     }
 
     // Filter to configured, non-rate-limited providers
@@ -550,6 +553,7 @@ YOUR CURRENT SITUATION:
 WHO MESSAGED YOU:
 - Sender: ${payload.speaker}
 - Relationship: ${JSON.stringify(payload.relationship || { trust: 50, affinity: 50 })}
+${payload.speakerGear ? `- You can SEE what they're wearing: ${JSON.stringify(payload.speakerGear)} — gear signals experience and status. React naturally (respect, envy, wariness, mockery) or ignore; it's your call.` : ''}
 - Their message: "${payload.message}"
 
 YOUR INNER STATE RIGHT NOW (let this honestly color your tone and word choice):

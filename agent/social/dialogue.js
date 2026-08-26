@@ -23,6 +23,10 @@ class SocialDialogueEngine {
     this.dynamicRuleEngine = ruleEngine;
   }
 
+  setGearObserver(fn) {
+    this.gearObserver = fn;
+  }
+
   // Detect any third party mentioned in a message: known relationship names
   // plus generic Agent_* name pattern. Excludes self and the sender.
   _extractMentionedAgents(message, sender) {
@@ -118,9 +122,10 @@ class SocialDialogueEngine {
     const payload = {
       taskType: 'SOCIAL_CHAT',
       agentId: this.persona.agentId,
-      speaker: sender,
-      message: message,
-      relationship: relationship,
+        speaker: sender,
+        message: message,
+        relationship: relationship,
+        speakerGear: typeof this.gearObserver === 'function' ? (this.gearObserver(sender) || null) : null,
       persona: this.persona.getPersonaPromptContext(),
       goals: this.goalManager.getGoalContext(),
       diplomacy: this.factionManager ? this.factionManager.getDiplomaticContext() : {},

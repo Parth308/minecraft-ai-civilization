@@ -113,6 +113,17 @@ class DecisionTree {
       }
     }
 
+    // Failure refractory: an action that JUST failed is deprioritized for the
+    // immediate re-pick so alternates get a chance — previously a blocked
+    // action re-won every tick until the 6-cycle stuck-loop detector fired,
+    // burning escalation budget on doomed repeats.
+    const lastResult = agentState.lastActionResult;
+    if (lastResult && lastResult.action && lastResult.ok === false) {
+      for (const c of candidates) {
+        if (c.name === lastResult.action) c.confidence -= 0.18;
+      }
+    }
+
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
     const topCandidate = candidates[0];
@@ -163,30 +174,9 @@ class DecisionTree {
       hazardResearchQuery = 'minecraft hostile mob swarm pillar defense tactics';
     }
 
-    // Society knowledge snapshot (cached ~60s). Awareness, not instruction —
-    // the LLM decides what conventions/pledges/reputation mean for this choice.
-    let societyContext = null;
-    try {
-      const societyAgentId = senses.bot?.username || persona?.agentId || 'Agent';
-      const client = SocietyClient.forAgent(societyAgentId);
-      societyContext = await client.getContext();
-
-      // Geography that remembers: emotional weight of nearby places colors
-      // decisions here. The agent feels the history of the ground it stands on.
-      const pos = senses.bot?.entity?.position;
-      if (pos && typeof pos.x === 'number') {
-        client.setLastPosition(pos.x, pos.z);
-        const near = await client.placesNear(pos.x, pos.z, 24);
-        if (near.length > 0) societyContext.nearbyPlaceMemories = near;
-        // Field observations other settlers logged nearby — offered as hints,
-        // never instructions.
-        try {
-          const dRes = await fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/world/discoveries?x=${Math.round(pos.x)}&z=${Math.round(pos.z)}&radius=64&limit=5`, { signal: AbortSignal.timeout(3000) });
-          if (dRes.ok) societyContext.nearbyDiscoveries = (await dRes.json()).discoveries || [];
-        } catch { /* optional context */ }
-      }
-    } catch { /* society knowledge is optional */ }
-
+    // Society knowledge snapshot (cached ~60s) is only consumed by escalation
+    // payloads, so its network calls live inside the escalation branch — they
+    // previously ran on every 1s tick even when the decision resolved locally.
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop || isHazard) {
       const isResearchNeeded = isHazard || (
         topCandidate.name === 'CRAFT' ||
@@ -202,6 +192,30 @@ class DecisionTree {
 
       const taskType = isStuckInLoop ? 'PLAN' : (isHazard || isResearchNeeded ? 'RESEARCH' : (topCandidate.name === 'TALK' ? 'CHAT' : 'REASONING'));
       const taskHint = isStuckInLoop ? 'PLAN' : (isHazard || isResearchNeeded ? 'RESEARCH' : null);
+
+      // Society snapshot + geography-of-memory: awareness, not instruction —
+      // the LLM decides what conventions/pledges/reputation mean for this choice.
+      let societyContext = null;
+      try {
+        const societyAgentId = senses.bot?.username || persona?.agentId || 'Agent';
+        const client = SocietyClient.forAgent(societyAgentId);
+        societyContext = await client.getContext();
+
+        // Geography that remembers: emotional weight of nearby places colors
+        // decisions here. The agent feels the history of the ground it stands on.
+        const pos = senses.bot?.entity?.position;
+        if (pos && typeof pos.x === 'number') {
+          client.setLastPosition(pos.x, pos.z);
+          const near = await client.placesNear(pos.x, pos.z, 24);
+          if (near.length > 0) societyContext.nearbyPlaceMemories = near;
+          // Field observations other settlers logged nearby — offered as hints,
+          // never instructions.
+          try {
+            const dRes = await fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/world/discoveries?x=${Math.round(pos.x)}&z=${Math.round(pos.z)}&radius=64&limit=5`, { signal: AbortSignal.timeout(3000) });
+            if (dRes.ok) societyContext.nearbyDiscoveries = (await dRes.json()).discoveries || [];
+          } catch { /* optional context */ }
+        }
+      } catch { /* society knowledge is optional */ }
       
       const payload = {
         agentId: senses.bot?.username || persona?.agentId || 'Agent',

@@ -16,7 +16,8 @@ module.exports = {
     cloudflare: process.env.CLOUDFLARE_API_TOKEN,
     huggingface: process.env.HF_TOKEN,
     cohere: process.env.COHERE_API_KEY,
-    qwen: process.env.DASHSCOPE_API_KEY
+    qwen: process.env.DASHSCOPE_API_KEY,
+    freellm: process.env.FREELLMAPI_KEY
   },
   cacheTTLSeconds: parseInt(process.env.CACHE_TTL_SECONDS, 10) || 300
 };

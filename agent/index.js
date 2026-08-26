@@ -251,6 +251,7 @@ function createAgent() {
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
   dialogueEngine.setReflectionEngine(reflection);
   dialogueEngine.setDynamicRuleEngine(decisionTree.dynamicRuleEngine);
+  dialogueEngine.setGearObserver(username => senses.getPlayerGearTier(username));
   // Sealed-deal handshake: chat agreements become real barter executions.
   // Guarded by the same per-sender cooldown the chat pipeline uses, so a
   // chatty LLM cannot spam tosses.

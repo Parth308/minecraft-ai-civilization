@@ -92,6 +92,32 @@ class Senses {
     return hostiles.length > 0 ? hostiles[0] : null;
   }
 
+  // Best-effort visual read of another player's worn armor. Mineflayer entity
+  // metadata slot layout shifts between versions, so scan every metadata entry
+  // for armor-piece item names rather than trusting fixed indices. Null means
+  // "couldn't see" — never fabricate gear.
+  getPlayerGearTier(username) {
+    try {
+      const entity = Object.values(this.bot.entities).find(e => e.username === username);
+      if (!entity || !Array.isArray(entity.metadata)) return null;
+      const gear = {};
+      const seen = new Set();
+      for (const slot of entity.metadata) {
+        const itemId = slot?.value?.itemId;
+        if (!itemId) continue;
+        const itemName = this.bot.registry?.items?.[itemId]?.name || '';
+        const piece = ['helmet', 'chestplate', 'leggings', 'boots'].find(p => itemName.includes(p));
+        if (piece && !seen.has(piece)) {
+          seen.add(piece);
+          gear[piece] = itemName.replace(/_/g, ' ');
+        }
+      }
+      return Object.keys(gear).length > 0 ? gear : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ─── Block & Environmental Senses ────────────────────────────────────────────
 
   getNearbyBlock(blockName, maxDistance = 16) {

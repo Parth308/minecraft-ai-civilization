@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const logger = require('../../shared/logger');
+const { CHAT_AUDIBLE_RANGE } = require('../../shared/constants');
 
 class EventObserver extends EventEmitter {
   constructor(bot) {
@@ -107,8 +108,22 @@ class EventObserver extends EventEmitter {
 
     this.bot.on('chat', (username, message) => {
       if (username === this.bot.username) return;
-      logger.info('Perception', `Chat [${username}]: ${message}`);
-      this.emit('playerChat', { username, message });
+      // Proximity hearing: voices fade with distance. A speaker whose entity
+      // is out of render range — or beyond CHAT_AUDIBLE_RANGE blocks — is not
+      // heard at all. Whispers ('whisper' event) bypass this gate: that is the
+      // phone call channel.
+      const speakerEntity = Object.values(this.bot.entities).find(e => e.username === username);
+      if (!speakerEntity || !this.bot.entity) {
+        logger.debug('Perception', `[UNHEARD] ${username} spoke beyond earshot`);
+        return;
+      }
+      const dist = this.bot.entity.position.distanceTo(speakerEntity.position);
+      if (dist > CHAT_AUDIBLE_RANGE) {
+        logger.debug('Perception', `[UNHEARD] ${username} spoke ${Math.round(dist)} blocks away (> ${CHAT_AUDIBLE_RANGE})`);
+        return;
+      }
+      logger.info('Perception', `Chat [${username}] @${Math.round(dist)}m: ${message}`);
+      this.emit('playerChat', { username, message, distance: Math.round(dist) });
     });
 
     this.bot.on('whisper', (username, message) => {

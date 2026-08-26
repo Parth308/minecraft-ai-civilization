@@ -35,5 +35,10 @@ module.exports = {
     gold_ingot: { scarcityWeight: 1.8, baseValue: 30 },
     iron_ingot: { scarcityWeight: 1.4, baseValue: 20 },
     lapis_lazuli: { scarcityWeight: 1.5, baseValue: 18 }
-  }
+  },
+  // Proximity chat physics: vanilla player voices carry ~48 blocks before
+  // fading. Beyond this range a spoken line is simply not heard — walk closer
+  // or use the whisper channel (/msg), which is this world's phone call and
+  // always delivers.
+  CHAT_AUDIBLE_RANGE: 48
 };
