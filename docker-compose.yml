@@ -70,8 +70,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1536M
+          # Raised 1.0/1536M -> 1.5/3072M: hosts qwen2.5:3b chat fallback
+          # alongside nomic embeddings (~2.4GB combined peak).
+          cpus: '1.5'
+          memory: 3072M
     networks:
       - minecraft-network
     restart: unless-stopped
@@ -154,6 +156,8 @@ services:
       FREELLMAPI_KEY: "${FREELLMAPI_KEY:-}"
       FREELLMAPI_BASE_URL: "${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}"
       FREELLMAPI_MODEL: "${FREELLMAPI_MODEL:-auto}"
+      OLLAMA_LOCAL_HOST: "http://ollama:11434"
+      OLLAMA_LOCAL_MODEL: "${OLLAMA_LOCAL_MODEL:-qwen2.5:3b-instruct}"
       GITHUB_MODELS_TOKEN: "${GITHUB_MODELS_TOKEN:-}"
       GITHUB_MODEL: "${GITHUB_MODEL:-openai/gpt-4o-mini}"
       CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"

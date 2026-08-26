@@ -13,6 +13,7 @@ const queryHuggingFace = require('./providers/huggingface');
 const queryCohere = require('./providers/cohere');
 const queryQwen = require('./providers/qwen');
 const queryFreellm = require('./providers/freellm');
+const queryOllamaLocal = require('./providers/ollamalocal');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -69,7 +70,8 @@ class ProviderRouter {
       HuggingFace: { name: 'HuggingFace', key: config.keys.huggingface, fn: queryHuggingFace },
       Cohere: { name: 'Cohere', key: config.keys.cohere, fn: queryCohere },
       Qwen: { name: 'Qwen', key: config.keys.qwen, fn: queryQwen },
-      FreellmAPI: { name: 'FreellmAPI', key: config.keys.freellm, fn: queryFreellm }
+      FreellmAPI: { name: 'FreellmAPI', key: config.keys.freellm, fn: queryFreellm },
+      OllamaLocal: { name: 'OllamaLocal', key: 'local', fn: queryOllamaLocal }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -207,14 +209,17 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI'];
+      baseOrder = ['Groq', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI'];
+      baseOrder = ['SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI'];
+      baseOrder = ['Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
     } else {
+      // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models.
+      // OllamaLocal excluded — ~50s latency kills live conversation; silence
+      // is a valid chat outcome, brainless wandering is not.
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models
       baseOrder = ['Groq', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI'];
     }
