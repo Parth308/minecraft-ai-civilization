@@ -99,7 +99,12 @@ function writeSectionFile(filePath, frontmatter, entries) {
   }
   fmLines += '---\n';
   const body = entries.join('\n') + '\n';
-  fs.writeFileSync(filePath, fmLines + body, 'utf8');
+  // Atomic replace: a crash or OOM mid-write previously corrupted the entire
+  // section (memsvc restarts are routine). Same tmp+rename contract as the
+  // vector snapshot.
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, fmLines + body, 'utf8');
+  fs.renameSync(tmpPath, filePath);
 }
 
 module.exports = {

@@ -9,7 +9,7 @@ const CONSOLIDATION_PROVIDERS = [
     endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
     apiKeyEnv: 'NVIDIA_API_KEY',
     modelEnv: 'NVIDIA_MODEL',
-    defaultModel: 'meta/llama-3.1-8b-instruct',
+    defaultModel: 'nvidia/nemotron-3-nano-30b-a3b',
     timeoutMs: 30000
   },
   {
@@ -80,6 +80,45 @@ function aggregateRepeatedPatterns(summaries) {
   });
 }
 
+// Per-file promise-chain mutex. Tier1 appends and Tier2 rewrites both do
+// read-modify-write on the same section files; without serialization a Tier1
+// append landing inside Tier2's LLM await window is silently destroyed by the
+// final write.
+const _sectionLocks = new Map();
+
+function withSectionLock(key, fn) {
+  const prev = _sectionLocks.get(key) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  _sectionLocks.set(key, next.catch(() => {}));
+  return next;
+}
+
+// Local mini-breaker for consolidation providers. These calls bypass the
+// broker's rate limiter entirely; without their own trip logic a dead
+// provider eats a 30s timeout on every sweep across every agent section.
+const CONSOLIDATION_BREAKER_THRESHOLD = 3;
+const CONSOLIDATION_BREAKER_COOLDOWN_MS = 15 * 60 * 1000;
+
+const consolidationBreaker = {
+  failsByProvider: new Map(),
+  isBlocked(name) {
+    const st = this.failsByProvider.get(name);
+    return !!(st && st.blockedUntil > Date.now());
+  },
+  recordSuccess(name) {
+    this.failsByProvider.delete(name);
+  },
+  recordFailure(name) {
+    const st = this.failsByProvider.get(name) || { fails: 0, blockedUntil: 0 };
+    st.fails += 1;
+    if (st.fails >= CONSOLIDATION_BREAKER_THRESHOLD) {
+      st.blockedUntil = Date.now() + CONSOLIDATION_BREAKER_COOLDOWN_MS;
+      logger.warn('MemoryCompactor', `Consolidation breaker OPEN for ${name} (${st.fails} consecutive fails, ${CONSOLIDATION_BREAKER_COOLDOWN_MS / 60000}min cooldown)`);
+    }
+    this.failsByProvider.set(name, st);
+  }
+};
+
 class MemoryCompactor {
   constructor(brokerClient = null) {
     this.brokerUrl = config.brokerUrl;
@@ -97,17 +136,20 @@ class MemoryCompactor {
       grouped[routed.section].push(routed.summary);
     }
 
-    // Append to corresponding section files
+    // Append to corresponding section files under the same per-file lock
+    // Tier2 holds, so appends can never land inside a consolidation window.
     for (const [sectionName, newSummaries] of Object.entries(grouped)) {
-      const filePath = getSectionFilePath(agentId, sectionName);
-      const parsed = parseSectionFile(filePath);
+      await withSectionLock(`${agentId}/${sectionName}`, async () => {
+        const filePath = getSectionFilePath(agentId, sectionName);
+        const parsed = parseSectionFile(filePath);
 
-      parsed.frontmatter.last_updated = new Date().toISOString();
-      for (const item of aggregateRepeatedPatterns(newSummaries)) {
-        parsed.entries.push(`- ${item}`);
-      }
+        parsed.frontmatter.last_updated = new Date().toISOString();
+        for (const item of aggregateRepeatedPatterns(newSummaries)) {
+          parsed.entries.push(`- ${item}`);
+        }
 
-      writeSectionFile(filePath, parsed.frontmatter, parsed.entries);
+        writeSectionFile(filePath, parsed.frontmatter, parsed.entries);
+      });
       logger.info('MemoryCompactor', `[Tier 1] Appended ${newSummaries.length} entries to ${sectionName}.md for agent ${agentId}`);
     }
 
@@ -116,6 +158,10 @@ class MemoryCompactor {
 
   // Tier 2: Consolidate oversized section file using an LLM (NVIDIA NIM -> Mistral)
   async consolidateSectionFile(agentId, sectionName) {
+    return withSectionLock(`${agentId}/${sectionName}`, () => this._consolidateUnderLock(agentId, sectionName));
+  }
+
+  async _consolidateUnderLock(agentId, sectionName) {
     const filePath = getSectionFilePath(agentId, sectionName);
     if (!fs.existsSync(filePath)) return { skipped: true };
 
@@ -141,10 +187,16 @@ Instructions:
     const providerErrors = [];
 
     for (const provider of CONSOLIDATION_PROVIDERS) {
+      if (consolidationBreaker.isBlocked(provider.name)) {
+        providerErrors.push(`${provider.name}: breaker open`);
+        continue;
+      }
       try {
         compactedBody = await callConsolidationProvider(provider, prompt);
+        consolidationBreaker.recordSuccess(provider.name);
         break;
       } catch (err) {
+        consolidationBreaker.recordFailure(provider.name);
         providerErrors.push(`${provider.name}: ${err.message}`);
         logger.warn('MemoryCompactor', `Tier 2 provider ${provider.name} failed for ${agentId}/${sectionName}: ${err.message}`);
       }
@@ -167,6 +219,10 @@ Instructions:
       logger.warn('MemoryCompactor', `Tier 2 output suspicious (${newEntries.length} entries from ${parsed.entries.length}). Keeping ${agentId}/${sectionName} intact.`);
       return { skipped: true, reason: 'Suspicious consolidation output rejected' };
     }
+
+    // One-generation backup: consolidation is destructive by design; .bak lets
+    // an operator recover the pre-consolidation text if an LLM hallucinated.
+    fs.copyFileSync(filePath, `${filePath}.bak`);
 
     parsed.frontmatter.last_consolidated = new Date().toISOString();
     parsed.frontmatter.last_updated = new Date().toISOString();

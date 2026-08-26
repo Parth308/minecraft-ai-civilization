@@ -52,7 +52,11 @@ class CivilizationLedger {
 
   saveLedger(data) {
     data.updatedAt = new Date().toISOString();
-    fs.writeFileSync(LEDGER_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    // Atomic replace — this file IS the civilization's history; a torn write
+    // would erase every faction, debt, and lesson at once.
+    const tmpPath = `${LEDGER_PATH}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, LEDGER_PATH);
   }
 
   addChronicleEntry(headline, detail, relatedAgents = [], eventType = 'milestone') {
