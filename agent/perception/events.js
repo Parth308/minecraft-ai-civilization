@@ -34,7 +34,9 @@ class EventObserver extends EventEmitter {
     this.bot.on('death', () => {
       logger.error('Perception', `${this.bot.username} died!`);
       if (this._fireCheckInterval) clearInterval(this._fireCheckInterval);
-      this.emit('agentDeath', { position: this.bot.entity ? this.bot.entity.position : null });
+      const cause = this._diagnoseDeathCause();
+      logger.warn('Perception', `Death cause diagnosed: ${cause}`);
+      this.emit('agentDeath', { position: this.bot.entity ? this.bot.entity.position : null, cause });
     });
 
     this.bot.on('respawn', () => {
@@ -47,12 +49,19 @@ class EventObserver extends EventEmitter {
     // and checking entity.hurtingEntity if available
     this.bot.on('entityHurt', (entity) => {
       if (entity !== this.bot.entity) return;
-      // Try to identify attacker via nearby hostile entities
+      // Snapshot the presumed attacker — the death-cause ladder consumes this
+      // when a fatal blow lands within 10s of the last hit.
+      const hurter = entity.hurtingEntity;
+      let attackerName = hurter ? (hurter.name || hurter.displayName || null) : null;
       const nearby = Object.values(this.bot.entities).filter(e => {
         if (!e || e === this.bot.entity) return false;
         if (!this.bot.entity) return false;
         return this.bot.entity.position.distanceTo(e.position) <= 6;
       });
+      if (!attackerName && nearby.length > 0) {
+        attackerName = nearby[0].name || nearby[0].displayName || null;
+      }
+      this._lastSelfHurt = { at: Date.now(), by: attackerName };
       if (nearby.length > 0) {
         this.emit('underAttack', { attacker: nearby[0] });
       }
@@ -197,6 +206,42 @@ class EventObserver extends EventEmitter {
         this.emit('agentFireOut', {});
       }
     }, 500);
+  }
+
+  // Deterministic death-cause ladder evaluated at the moment of death. Mineflayer
+  // gives no cause; without this every lesson degrades to "fatal hazard" and the
+  // civilization can never learn WHAT kills its settlers. Order matters: mob
+  // attribution wins only while the last hit is fresh, then environment.
+  _diagnoseDeathCause() {
+    try {
+      const e = this.bot.entity;
+      const lastHurt = this._lastSelfHurt;
+      if (lastHurt && lastHurt.by && Date.now() - lastHurt.at < 10000) {
+        return `slain by ${lastHurt.by}`;
+      }
+      const blockNameAt = (offsetY) => {
+        try {
+          const pos = offsetY === 0 ? e.position : e.position.offset(0, offsetY, 0);
+          return this.bot.blockAt(pos)?.name || '';
+        } catch { return ''; }
+      };
+      const feet = blockNameAt(0);
+      const head = blockNameAt(1);
+      const both = `${feet} ${head}`;
+      if (both.includes('lava')) return 'lava';
+      if (e.onFire || both.includes('fire')) return 'standing in fire';
+      if (both.includes('magma')) return 'magma burns';
+      if (both.includes('cactus')) return 'cactus';
+      if (both.includes('powder_snow')) return 'freezing in powder snow';
+      if (both.includes('sweet_berry')) return 'sweet berry bush';
+      if (e.isInWater || both.includes('water')) return 'drowning';
+      if ((e.velocity ? e.velocity.y : 0) < -0.4) return 'fall damage';
+      const solidHead = head && !['air', 'cave_air', 'void_air', 'water', 'grass', 'tall_grass', 'fern'].some(a => head.includes(a));
+      if (solidHead) return 'suffocation';
+      return 'unknown hazard';
+    } catch {
+      return 'unknown hazard';
+    }
   }
 }
 

@@ -96,6 +96,10 @@ class ProviderRouter {
       semanticHits: 0,
       fallbacks: 0
     };
+
+    // Civilization shared-lesson injection (ledger wisdom → decision prompts)
+    this.lessonCache = { fetchedAt: 0, lessons: [] };
+    this._lessonVectors = new Map();
   }
 
   // ── Stats helpers ─────────────────────────────────────────────────────────
@@ -266,6 +270,55 @@ class ProviderRouter {
     }
   }
 
+  _cosine(a, b) {
+    let dot = 0, na = 0, nb = 0;
+    for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+    return (na > 0 && nb > 0) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+  }
+
+  // The ledger holds severity-ranked lessons settlers paid deaths to learn.
+  // Without this injection that wisdom sat unread while agents re-died to the
+  // same lava. Top-3 semantic matches ride along with every escalation prompt.
+  async fetchRelevantLessons(situation) {
+    const TTL_MS = 120000;
+    try {
+      if (Date.now() - this.lessonCache.fetchedAt > TTL_MS) {
+        const res = await fetch(`${this.memoryServiceUrl}/api/ledger/lessons`);
+        if (res.ok) {
+          const data = await res.json();
+          this.lessonCache.lessons = (data.sharedLessons || [])
+            .map(l => ({ text: String(l.lesson || '').slice(0, 200), by: l.agentId, severity: l.severity }))
+            .filter(l => l.text);
+          this.lessonCache.fetchedAt = Date.now();
+        }
+      }
+      if (this.lessonCache.lessons.length === 0) return [];
+
+      const query = this._memoryQueryText(situation);
+      if (!query) return [];
+      const embedder = this.semanticCache.embeddingClient;
+      const queryVec = await embedder.getEmbedding(query);
+
+      const scored = [];
+      for (const l of this.lessonCache.lessons) {
+        let vec = this._lessonVectors.get(l.text);
+        if (!vec) {
+          vec = await embedder.getEmbedding(l.text);
+          this._lessonVectors.set(l.text, vec);
+        }
+        scored.push({ l, sim: this._cosine(queryVec, vec) });
+      }
+      return scored
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, 3)
+        .filter(s => s.sim >= 0.2)
+        .map(s => ({ ...s.l }));
+    } catch (err) {
+      logger.debug('Router', `Lesson injection skipped: ${err.message}`);
+      return [];
+    }
+  }
+
   async processEscalation(situationPayload) {
     const taskType = situationPayload.taskType || (situationPayload.taskHint === 'RESEARCH' ? 'RESEARCH' : 'REASONING');
     const agentId = situationPayload.agentId || 'unknown';
@@ -306,6 +359,7 @@ class ProviderRouter {
 
     const memories = await this.fetchRelevantMemories(situationPayload.agentId, situationPayload.topCandidate || {});
     const skills = await this.fetchRelevantSkills(situationPayload.agentId, situationPayload.topCandidate || {});
+    const lessons = await this.fetchRelevantLessons(situationPayload);
 
     // Live Web Knowledge Search & Research Task Mode
     let webFacts = null;
@@ -355,7 +409,7 @@ class ProviderRouter {
       return fb;
     }
 
-    const prompt = this.buildPrompt(situationPayload, taskType, memories, webFacts, skills);
+    const prompt = this.buildPrompt(situationPayload, taskType, memories, webFacts, skills, lessons);
     const t0 = Date.now();
     let lastError = null;
 
@@ -430,7 +484,12 @@ class ProviderRouter {
     return fb;
   }
 
-  buildPrompt(payload, taskType, memories = [], webFacts = null, skills = []) {
+  buildPrompt(payload, taskType, memories = [], webFacts = null, skills = [], lessons = []) {
+    const _renderLessons = (lessonList) => {
+      if (!lessonList || lessonList.length === 0) return '';
+      return `LESSONS FROM SETTLERS WHO LEARNED THE HARD WAY (lived civilization wisdom — heed or ignore at your peril):\n${lessonList.map(l => `- ${l.text}${l.by ? ` (${l.by})` : ''}`).join('\n')}\n`;
+    };
+
     const _renderAffordances = (aff) => {
       if (!aff) return '';
       const lines = [];
@@ -593,7 +652,7 @@ GOAL & HISTORY:
 Active goal: ${payload.activeGoal || 'none - pick one'}
 Recent actions: ${payload.recentEvents || 'none'}
 Memories: ${JSON.stringify(memories)}
-${_renderSkills(skills)}${webFacts ? 'Minecraft Wiki & Survival Facts:\n' + (typeof webFacts === 'object' && webFacts.text ? webFacts.text : webFacts) + '\n' : ''}
+${_renderSkills(skills)}${_renderLessons(lessons)}${webFacts ? 'Minecraft Wiki & Survival Facts:\n' + (typeof webFacts === 'object' && webFacts.text ? webFacts.text : webFacts) + '\n' : ''}
 ${_renderAffordances(payload.affordances)}${_renderLastActionResult(payload.lastActionResult)}
 ${payload.isHazard ? `⚠️ CRITICAL ENVIRONMENTAL HAZARD ALERT (${payload.hazardType || 'mortal threat'}):\nYou are under immediate threat of environmental damage or death! Review the hazard counter-strategies above (e.g. Leather Boots against powder snow, Water Bucket against fire/fall, Torch air pocket against drowning). Formulate an immediate counter-action and record a durable tactic in tacticLearned!\n` : ''}${payload.stuckWarning ? '⚠️ CRITICAL STAGNATION ALERT:\n' + payload.stuckWarning + '\nDO NOT repeat the same unrewarded action. Formulate a multi-step PLAN or pivot strategy.\n' : ''}
 
