@@ -53,6 +53,7 @@ const ReflectionEngine = require('./cognition/reflection');
 const EmotionalState = require('./cognition/emotions');
 const BeliefNetwork = require('./cognition/beliefs');
 const { nextCraftingObjective, getCurrentCraftableOptions } = require('./cognition/craftingChain');
+const SkillTracker = require('./cognition/skillTracker');
 const { ACTIONS } = require('../shared/constants');
 
 let prismarineViewer = null;
@@ -245,6 +246,7 @@ function createAgent() {
   bot.goalManager = goalManager;
   const barter = new BarterSkill(bot, inventory, relationships, chat);
   const farmer = new FarmerSkill(bot, inventory, movement);
+  const skillTracker = new SkillTracker(config.username);
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
@@ -558,6 +560,7 @@ function createAgent() {
           });
           if (agentState.recentDecisions.length > 100) agentState.recentDecisions.shift();
           agentState.persona     = persona.getPersonaPromptContext ? persona.getPersonaPromptContext() : { seed: persona.seed, traits: persona.traits };
+          agentState.skills      = skillTracker.toContext();
           agentState.inventory   = inventory.listInventory();
           agentState.equipment   = senses.getEquipmentSummary();
           agentState.biome       = senses.getBiome();
@@ -823,6 +826,7 @@ function createAgent() {
                   currentTask: decision.action,
                   currentGoal: agentState.activeGoal,
                   stats: stats.getSummary(),
+                  skills: skillTracker.toContext(),
                   inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ')
                 }
               ),
@@ -1159,6 +1163,7 @@ function createAgent() {
       if (decision.action) {
         agentState.actionTally = agentState.actionTally || {};
         agentState.actionTally[decision.action] = (agentState.actionTally[decision.action] || 0) + 1;
+        if (actionSuccess) skillTracker.recordAction(decision.action);
       }
       agentState.lastActionResult = {
         action: decision.action,
@@ -1541,6 +1546,7 @@ function createAgent() {
       } : {},
       stats: stats.getSummary(),
       inventory: (agentState.inventory || []).slice(0, 5).map(i => `${i.count}x ${i.name}`).join(', ') || 'empty',
+      skills: skillTracker.toContext(),
       recentDecisions: (agentState.recentDecisions || []).slice(-3).map(d => d.action).join(' -> ')
     };
 
