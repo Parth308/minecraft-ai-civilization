@@ -19,6 +19,7 @@ const MemoryClient = require('./memory/client');
 const BrainClient = require('./brain-client/client');
 const DynamicPersona = require('./cognition/persona');
 const GoalManager = require('./cognition/goals');
+const Gossip = require('./social/gossip');
 
 // Goals survive container restarts: every mutation re-POSTs a snapshot to the
 // memory service, and the snapshot is restored into a freshly booted agent.
@@ -291,6 +292,7 @@ function createAgent() {
   });
   const taxCollector = new TaxCollector(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', chat });
   const chunkMemory = new ChunkMemory(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002' });
+  const gossip = new Gossip(config.username, bot, memoryClient);
 
   let tickInterval = null;
   let inFlightTick = false;
@@ -517,6 +519,9 @@ function createAgent() {
           if (bot.entity?.position) {
             chunkMemory.recordPosition(bot.entity.position.x, bot.entity.position.y, bot.entity.position.z);
           }
+
+          // 1d. Spread gossip if buffer has rumors
+          gossip.spread().catch(() => {});
 
           // 2. Run local stats decay tick
           statsDecay.tick();
