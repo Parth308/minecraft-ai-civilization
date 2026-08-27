@@ -23,6 +23,7 @@ class DecisionTree {
     this.confidenceEvaluator = new ConfidenceEvaluator(threshold);
     this.escalator = new EscalationManager(brainClient);
     this.dynamicRuleEngine = new DynamicRuleEngine(memoryClient);
+    this._recentChatMessages = new Map();
   }
 
   async evaluate(senses, statsManager, persona = null, agentState = {}) {
@@ -335,6 +336,28 @@ class DecisionTree {
       const isFallback = !!escalationResult.fallback;
       const source = isCached ? 'cache' : (isFallback ? 'fallback' : 'llm');
 
+      // Suppress meta-commentary that leaks from cached LLM reasoning
+      const rawChat = escalationResult.chatMessage || null;
+      const chatMessage = rawChat && !/Ouch!|Autonomous decision/i.test(rawChat) ? rawChat : null;
+
+      // Chat dedup: suppress identical message within 60s
+      const CHAT_DEDUP_MS = 60_000;
+      const now = Date.now();
+      let finalChat = chatMessage;
+      if (chatMessage) {
+        const prev = this._recentChatMessages.get(chatMessage);
+        if (prev && now - prev < CHAT_DEDUP_MS) {
+          finalChat = null;
+        } else {
+          this._recentChatMessages.set(chatMessage, now);
+        }
+        if (this._recentChatMessages.size > 50) {
+          for (const [msg, ts] of this._recentChatMessages) {
+            if (now - ts > CHAT_DEDUP_MS) this._recentChatMessages.delete(msg);
+          }
+        }
+      }
+
       return {
         action: escalationResult.action || 'WANDER',
         confidence: topCandidate.confidence,
@@ -352,7 +375,7 @@ class DecisionTree {
         webKnowledgeUsed: !!escalationResult.webKnowledgeUsed,
         reason: escalationResult.reason || (isHazard ? `Autonomous hazard counter-strategy executed for ${hazardType}` : 'Escalated to LLM for autonomous reasoning'),
         tacticLearned: escalationResult.tacticLearned || null,
-        chatMessage: escalationResult.chatMessage || null,
+        chatMessage: finalChat,
         newGoal: escalationResult.newGoal || null,
         steps: escalationResult.steps || null,
         targetResource: escalationResult.targetResource || null,

@@ -170,6 +170,12 @@ class MemoryCompactor {
 
     logger.info('MemoryCompactor', `[Tier 2 Consolidation] Consolidating ${sectionName}.md for ${agentId} (${parsed.entries.length} entries)...`);
 
+    const sectionSpecific = sectionName === 'relationships'
+      ? `\n5. For chat entries: condense full transcripts into one-line summaries like "[coop] Trade negotiation with X: topic" or "[conflict] Dispute with X over Y". Never output full chat text.`
+      : sectionName === 'recent'
+      ? `\n5. For activity entries: merge mining/crafting/trade sequences into single factual lines like "[skill] Mined iron_ore at multiple coordinates" or "[coop] Completed trade with X for Y". Never output raw JSON or coordinates lists.`
+      : '';
+
     const prompt = `You are a memory consolidation engine for an AI Minecraft agent.
 Current Memory Section: "${sectionName}"
 Agent: "${agentId}"
@@ -181,7 +187,7 @@ Instructions:
 1. Merge overlapping and redundant entries into single concise factual statements.
 2. Condense repeated patterns into durable preferences or observations.
 3. Drop outdated temporary chatter, but preserve player trust, conflicts, discoveries, and coordinate facts.
-4. Output ONLY valid markdown bullet points starting with '-' and appropriate tags like [met], [conflict], [coop], [location], [skill], [damage]. No introductions or explanations.`;
+4. Output ONLY valid markdown bullet points starting with '-' and appropriate tags like [met], [conflict], [coop], [location], [skill], [damage]. No introductions or explanations.${sectionSpecific}`;
 
     let compactedBody = '';
     const providerErrors = [];
@@ -212,7 +218,8 @@ Instructions:
     const newEntries = compactedBody
       .split('\n')
       .map(l => l.trim())
-      .filter(l => l.startsWith('-'));
+      .filter(l => l.startsWith('-'))
+      .filter(l => !/\b(the instruction|we can use|could be|not needed|maybe we|so we|output only|no introductions|the tag|allowed tags|appropriate tags)\b/i.test(l));
 
     // Adaptive threshold: large files (500+ entries) compress aggressively
     // because mining/combat spam dominates. Small files keep tighter guards.

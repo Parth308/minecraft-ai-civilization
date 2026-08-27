@@ -42,13 +42,21 @@ class DynamicRuleEngine {
     this.learnedRules.push(newRule);
     logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: 0.72)`);
 
-    // If tactic statement is returned, record it as a durable skill memory
-    if (decisionData.tacticLearned && this.memoryClient) {
-      this.memoryClient.flushBuffer([{
-        type: 'learnedTactic',
-        payload: { tactic: decisionData.tacticLearned, action },
-        summary: `[skill] Learned survival tactic: ${decisionData.tacticLearned}`
-      }]);
+    if (this.memoryClient) {
+      if (decisionData.tacticLearned) {
+        this.memoryClient.flushBuffer([{
+          type: 'learnedTactic',
+          payload: { tactic: decisionData.tacticLearned, action },
+          summary: `[skill] Learned survival tactic: ${decisionData.tacticLearned}`
+        }]);
+      }
+      if (decisionData.reason && action !== 'WANDER') {
+        this.memoryClient.flushBuffer([{
+          type: 'learnedSkill',
+          payload: { ruleId, action, reason: decisionData.reason },
+          summary: `[skill] Rule ${ruleId}: When ${situationName}, do ${action} — ${decisionData.reason}`
+        }]);
+      }
     }
   }
 
