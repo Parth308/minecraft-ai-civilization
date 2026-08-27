@@ -63,16 +63,16 @@ function Invoke-SshLogFetch {
     param([string]$Container, [string]$DestFile)
 
     # Skip containers that do not exist at all
-    $existsCmd = "docker inspect --format '{{.State.Status}}' $Container 2>/dev/null || echo __MISSING__"
-    $state = ssh @sshOpts $Server $existsCmd
-    if ($LASTEXITCODE -ne 0 -or "$state".Trim() -eq '__MISSING__') {
+    $existsCmd = "docker inspect --format '{{.State.Status}}' $Container"
+    $state = ssh @sshOpts $Server $existsCmd 2>&1
+    if ($LASTEXITCODE -ne 0 -or "$state" -match 'Error response|No such container' -or "$state".Trim() -eq '') {
         Write-Host "  [SKIP] '$Container' not found on host." -ForegroundColor Yellow
         return
     }
 
     Write-Host "  [FETCH] $Container -> $DestFile (tail: $Tail, state: $(("$state").Trim()))"
-    $cmd = "docker logs --timestamps --tail $Tail $Container 2>&1"
-    $logContent = ssh @sshOpts $Server $cmd
+    $cmd = "docker logs --timestamps --tail $Tail $Container"
+    $logContent = ssh @sshOpts $Server $cmd 2>&1
 
     if ($LASTEXITCODE -ne 0 -or ("$logContent" -match 'No such container|Error response from daemon')) {
         $stub = @(

@@ -126,7 +126,7 @@ class DecisionTree {
 
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
-    const topCandidate = candidates[0];
+    let topCandidate = candidates[0];
 
     // Action loop & stagnation detector: prevent infinite repetitive actions.
     // FIGHT excluded on purpose — re-selecting combat every cycle is correct behavior.

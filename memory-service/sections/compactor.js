@@ -214,9 +214,15 @@ Instructions:
       .map(l => l.trim())
       .filter(l => l.startsWith('-'));
 
-    if (newEntries.length === 0 || newEntries.length < parsed.entries.length * 0.3) {
-      // LLM output too sparse or malformed — keep original rather than lose knowledge
-      logger.warn('MemoryCompactor', `Tier 2 output suspicious (${newEntries.length} entries from ${parsed.entries.length}). Keeping ${agentId}/${sectionName} intact.`);
+    // Adaptive threshold: large files (500+ entries) compress aggressively
+    // because mining/combat spam dominates. Small files keep tighter guards.
+    const inputCount = parsed.entries.length;
+    const minAcceptable = inputCount >= 500 ? Math.max(3, Math.floor(inputCount * 0.02))
+                        : inputCount >= 100 ? Math.max(5, Math.floor(inputCount * 0.05))
+                        : Math.max(3, Math.floor(inputCount * 0.15));
+
+    if (newEntries.length === 0 || newEntries.length < minAcceptable) {
+      logger.warn('MemoryCompactor', `Tier 2 output suspicious (${newEntries.length} entries < min ${minAcceptable} from ${inputCount}). Keeping ${agentId}/${sectionName} intact.`);
       return { skipped: true, reason: 'Suspicious consolidation output rejected' };
     }
 
