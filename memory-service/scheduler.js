@@ -28,7 +28,7 @@ class MemoryScheduler {
 
     for (const agentId of agentFolders) {
       for (const [sectionName, cap] of Object.entries(config.caps)) {
-        if (sectionName === 'profile') continue; // Profile never compacts
+        if (sectionName === 'profile') continue;
 
         const filePath = getSectionFilePath(agentId, sectionName);
         if (!fs.existsSync(filePath)) continue;
@@ -44,6 +44,8 @@ class MemoryScheduler {
           await this.compactor.consolidateSectionFile(agentId, sectionName);
         }
       }
+      await new Promise(r => setTimeout(r, 2000));
+      if (global.gc) global.gc();
     }
   }
 }

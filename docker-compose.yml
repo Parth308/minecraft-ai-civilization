@@ -77,8 +77,7 @@ services:
     environment:
       MEMORY_PORT: 3002
       BROKER_URL: "http://brain-broker:3001"
-      # Heap below container cap: vector-index snapshots spike RAM transiently.
-      NODE_OPTIONS: "--max-old-space-size=192"
+      NODE_OPTIONS: "--max-old-space-size=224"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
       NVIDIA_MODEL: "${NVIDIA_MODEL:-meta/llama-3.1-8b-instruct}"

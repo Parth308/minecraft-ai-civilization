@@ -131,8 +131,22 @@ class DecisionTree {
     // Action loop & stagnation detector: prevent infinite repetitive actions.
     // FIGHT excluded on purpose — re-selecting combat every cycle is correct behavior.
     if (!this._actionHistory) this._actionHistory = [];
+    if (!this._loopPenalties) this._loopPenalties = new Map(); // action -> penalty until timestamp
     this._actionHistory.push(topCandidate.name);
     if (this._actionHistory.length > 8) this._actionHistory.shift();
+
+    const now = Date.now();
+    for (const [action, expiry] of this._loopPenalties) {
+      if (now < expiry) {
+        for (const c of candidates) {
+          if (c.name === action) c.confidence -= 0.35;
+        }
+      } else {
+        this._loopPenalties.delete(action);
+      }
+    }
+    candidates.sort((a, b) => b.confidence - a.confidence);
+    const penalizedTop = candidates[0];
 
     const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP']);
     const isStuckInLoop = (
@@ -142,8 +156,12 @@ class DecisionTree {
     );
 
     if (isStuckInLoop) {
-      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent repeated '${topCandidate.name}' 6 consecutive cycles without progress. Escalating to high-level PLAN.`);
+      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent repeated '${topCandidate.name}' 6 consecutive cycles without progress. Penalizing action for 30s and escalating.`);
+      this._loopPenalties.set(topCandidate.name, Date.now() + 30000);
       this._actionHistory = [];
+      if (penalizedTop.name !== topCandidate.name) {
+        topCandidate = penalizedTop;
+      }
     }
 
     logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
