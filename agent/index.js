@@ -985,6 +985,27 @@ function createAgent() {
           break;
         }
 
+        case 'STEAL': {
+          const targetName = decision.meta?.target;
+          const targetEntity = decision.meta?.targetEntity;
+          const stolenItem = decision.meta?.item;
+          if (targetName && targetEntity && stolenItem) {
+            logger.info('AgentLoop', `Executing STEAL from ${targetName}: ${stolenItem}`);
+            try {
+              await withTimeout(inventory.stealFromPlayer(targetEntity, stolenItem), `stealFrom(${targetName})`);
+              eventBuffer.addEvent('steal', { target: targetName, item: stolenItem });
+              actionSuccess = true;
+            } catch (stealErr) {
+              logger.debug('AgentLoop', `STEAL failed (${stealErr.message})`);
+              actionSuccess = false;
+            }
+          } else {
+            logger.debug('AgentLoop', 'STEAL requested but no valid target/item');
+            actionSuccess = false;
+          }
+          break;
+        }
+
         case ACTIONS.EXPLORE:
         case 'EXPLORE':
         case ACTIONS.WANDER:
