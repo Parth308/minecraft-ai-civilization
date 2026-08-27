@@ -361,6 +361,19 @@ class InventoryActuator {
     return this.dropItem(itemName, count);
   }
 
+  async stealFromPlayer(targetEntity, itemName) {
+    if (!targetEntity || !this.bot.entity) return false;
+
+    try {
+      await this.bot.lookAt(targetEntity.position.offset(0, targetEntity.height || 1.6, 0), true);
+    } catch (err) {
+      // Continue even if look fails
+    }
+
+    logger.info('Actuation:Inventory', `Stealing ${itemName} from ${targetEntity.username || targetEntity.name}`);
+    return true;
+  }
+
   // --- Chest & Container Transfers ---
 
   async openChestAndDeposit(chestBlock, itemNames = []) {
