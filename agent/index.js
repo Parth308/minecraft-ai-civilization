@@ -1340,6 +1340,127 @@ function createAgent() {
     stats.addAnger(30);
     detailedLogger.logCombat(bot.username, 'AGENT DIED', { deathPosition: position, cause });
 
+    // ── PvP Consequence: Inventory Loss ────────────────────────────────────
+    // Death costs possessions. Everything drops at the death site — the world
+    // takes what you carried. Survivors pick through the remains.
+    const STARTER_KIT = ['bread', 'wooden_pickaxe', 'wooden_sword'];
+    const droppedItems = [];
+    try {
+      const allItems = bot.inventory?.items() || [];
+      for (const item of allItems) {
+        if (STARTER_KIT.includes(item.name)) continue;
+        try {
+          bot.toss(item.type, null, item.count).catch(() => {});
+          droppedItems.push({ name: item.name, count: item.count });
+        } catch (_) {}
+      }
+      if (droppedItems.length > 0) {
+        detailedLogger.logCombat(bot.username, `Death inventory drop: ${droppedItems.map(i => `${i.count}x ${i.name}`).join(', ')}`);
+        eventBuffer.addEvent('inventoryDrop', { items: droppedItems, position });
+      }
+    } catch (_) {}
+
+    // ── PvP Consequence: Killer Detection ──────────────────────────────────
+    // Parse the death cause to identify PvP killers. Minecraft death messages
+    // follow patterns like "was slain by Agent_X" or "was shot by Agent_X".
+    let killerName = null;
+    if (cause) {
+      const killerMatch = cause.match(/(?:slain|shot|killed|blown up|finished off) by (\w+)/i);
+      if (killerMatch) killerName = killerMatch[1];
+    }
+
+    // Store last death position for remote respawn
+    agentState.lastDeathPosition = position ? { x: position.x, y: position.y, z: position.z } : null;
+    agentState.killedBy = killerName;
+
+    // ── PvP Consequence: Killer Reputation Broadcast ───────────────────────
+    // The kill echoes through the social network. Nearby agents hear about it,
+    // and the killer's reputation shifts permanently.
+    if (killerName && killerName !== bot.username) {
+      const serviceUrl = memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+
+      // Record the kill in the civilization ledger
+      fetch(`${serviceUrl}/api/ledger/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'kill',
+          killer: killerName,
+          victim: bot.username,
+          position,
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+
+      // Apply reputation impact: all nearby agents fear the killer
+      const nearbyPlayers = senses.getNearbyPlayers?.(32) || [];
+      for (const player of nearbyPlayers) {
+        if (player.username === killerName || player.username === bot.username) continue;
+        relationships.updateTrust(killerName, -30);
+        relationships.updateAffinity(killerName, -20);
+      }
+
+      // The victim's own feelings toward the killer crystallize into permanent grudge
+      relationships.updateTrust(killerName, -50);
+      relationships.updateAffinity(killerName, -40);
+
+      // ── PvP Consequence: Faction Trust Impact ──────────────────────────
+      // Same-faction kills are betrayals. Cross-faction kills are acts of war.
+      const victimFactions = factionManager?.joinedFactions || [];
+      // Check if killer belongs to any of victim's factions
+      let sameFactionKill = false;
+      if (killerName.startsWith('Agent_')) {
+        // Query memory service for killer's factions
+        fetch(`${serviceUrl}/api/ledger/factions?member=${encodeURIComponent(killerName)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (!data?.factions) return;
+            const killerFactions = data.factions || [];
+            const sharedFactions = victimFactions.filter(f =>
+              killerFactions.some(kf => kf.id === f.id || kf.name === f.name)
+            );
+
+            if (sharedFactions.length > 0) {
+              // Same-faction kill = betrayal. Trust plummets.
+              sameFactionKill = true;
+              logger.warn('AgentLoop', `[BETRAYAL] ${killerName} killed faction-mate ${bot.username} — faction trust collapsing`);
+              for (const faction of sharedFactions) {
+                for (const member of (faction.members || [])) {
+                  if (member !== bot.username) {
+                    relationships.updateTrust(member, -50);
+                    relationships.updateAffinity(member, -30);
+                  }
+                }
+              }
+              // If trust drops critically, the faction dissolves
+              const killerRel = relationships.get(killerName);
+              if (killerRel.trust < 20) {
+                factionManager.declarePeace(killerName);
+                logger.warn('AgentLoop', `[FACTION DISSOLVE] ${bot.username} severed all ties with ${killerName} after betrayal kill`);
+              }
+            } else {
+              // Cross-faction kill = act of war. Victim's faction declares war.
+              for (const faction of victimFactions) {
+                for (const member of (faction.members || [])) {
+                  if (member !== bot.username) {
+                    // Faction members hear about the kill and turn hostile
+                    relationships.updateTrust(killerName, -25);
+                    relationships.updateAffinity(killerName, -15);
+                  }
+                }
+              }
+              factionManager?.declareWar?.(killerName, `Killed ${bot.username}`);
+              logger.warn('AgentLoop', `[WAR DECLARED] ${bot.username}'s faction declared war on ${killerName}`);
+            }
+          })
+          .catch(() => {});
+      }
+
+      detailedLogger.logCombat(bot.username, `PvP kill: ${killerName} killed ${bot.username}`, {
+        killer: killerName, victim: bot.username, droppedItems: droppedItems.length
+      });
+    }
+
     // Inner weather: the OCC engine processes the event before anything else
     const emotions0 = EmotionalState.forAgent(bot.username);
     emotions0.appraise('death_self', {}, persona?.traits || {});
@@ -1354,13 +1475,16 @@ function createAgent() {
     // 2. Persona scarring with deathCause and penalizedRules
     persona.evolveFromExperience('death', {
       cause: cause || 'mortal wound / hazard',
-      penalizedRules
+      penalizedRules,
+      killerName
     });
 
     eventBuffer.addEvent('death', {
       position,
       cause,
+      killerName,
       penalizedRules,
+      droppedItems,
       scarSummary: persona.getScarSummary()
     });
 
@@ -1372,6 +1496,7 @@ function createAgent() {
       body: JSON.stringify({
         agentId: bot.username,
         deathCause: cause || 'fatal hazard',
+        killerName,
         position,
         penalizedRules,
         scarSummary: persona.getScarSummary()
@@ -1389,13 +1514,15 @@ function createAgent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: bot.username,
-          lesson: `Died to ${cause || 'hazard'} at X:${position?.x ?? '?'} Y:${position?.y ?? '?'} Z:${position?.z ?? '?'} — treat that terrain/situation as lethal`,
+          lesson: killerName
+            ? `Killed by ${killerName} — they are dangerous, avoid or prepare defenses`
+            : `Died to ${cause || 'hazard'} at X:${position?.x ?? '?'} Y:${position?.y ?? '?'} Z:${position?.z ?? '?'} — treat that terrain/situation as lethal`,
           severity: 0.9,
           baseOpenness: persona?.traits?.openness ?? 0.5,
           effectiveOpenness: 1.0,
           isPublic: true,
           status: 'shared',
-          context: { deterministic: true, penalizedRules },
+          context: { deterministic: true, penalizedRules, killerName },
           confidence: 0.75,
           timestamp: Date.now()
         })
@@ -1411,7 +1538,7 @@ function createAgent() {
           agentId: bot.username,
           x: position.x, z: position.z, y: position.y,
           sentiment: -0.8,
-          label: `Died here to ${cause || 'hazard'}`
+          label: killerName ? `Murdered here by ${killerName}` : `Died here to ${cause || 'hazard'}`
         })
       }).catch(() => {});
     }
@@ -1435,17 +1562,66 @@ function createAgent() {
     reflection.runReflection(
       [
         ...(agentState.recentDecisions || []).slice(-5).map(d => ({ event: 'decision', action: d.action, reason: d.reason })),
-        { event: 'death', cause, position, penalizedRules }
+        { event: 'death', cause, position, killerName, penalizedRules }
       ],
       stats.getSummary()
     );
   });
 
-  events.on('agentRespawn', () => {
+  events.on('agentRespawn', async () => {
     stats.health = 20;
     stats.hunger = 100;
     detailedLogger.logCognition(bot.username, 'Agent Respawned');
     eventBuffer.addEvent('respawn', {});
+
+    // ── PvP Consequence: Remote Respawn ────────────────────────────────────
+    // Death displaces you. Respawn far from where you fell — 200-400 blocks
+    // in a random direction. You must walk back through enemy territory.
+    const lastDeath = agentState.lastDeathPosition;
+    if (lastDeath && typeof lastDeath.x === 'number') {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 200 + Math.random() * 200;
+      const newX = Math.round(lastDeath.x + Math.cos(angle) * dist);
+      const newZ = Math.round(lastDeath.z + Math.sin(angle) * dist);
+      try {
+        await bot.chat(`/tp ${bot.username} ${newX} 100 ${newZ}`);
+        detailedLogger.logMovement(bot.username, 'Remote respawn teleport', {
+          from: lastDeath, to: { x: newX, y: 100, z: newZ }, distance: Math.round(dist)
+        });
+        logger.warn('AgentLoop', `[REMOTE RESPAWN] ${bot.username} displaced ${Math.round(dist)} blocks from death site`);
+      } catch (_) {
+        // Fallback: just let mineflayer handle respawn normally
+      }
+      agentState.lastDeathPosition = null;
+    }
+
+    // ── PvP Consequence: Starter Kit on Respawn ────────────────────────────
+    // After death you have nothing. The world gives you survival basics.
+    const STARTER_KIT = [
+      { name: 'bread', count: 3 },
+      { name: 'wooden_pickaxe', count: 1 },
+      { name: 'wooden_sword', count: 1 }
+    ];
+    const serviceUrl = memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+    try {
+      for (const item of STARTER_KIT) {
+        await fetch(`${serviceUrl}/api/inventory/give`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentId: bot.username, item: item.name, count: item.count })
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // Spawn protection: 5 minutes after respawn, bed-based travel is blocked
+    agentState.spawnProtectedUntil = Date.now() + 300000;
+
+    const killedBy = agentState.killedBy;
+    if (killedBy) {
+      // Log the displacement as a consequence — the world remembers who drove you from your ground
+      eventBuffer.addEvent('remoteRespawn', { killedBy, displacementBlocks: Math.round(200 + Math.random() * 200) });
+      agentState.killedBy = null;
+    }
   });
 
   events.on('underAttack', ({ attacker }) => {

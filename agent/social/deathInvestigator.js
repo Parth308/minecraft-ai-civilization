@@ -11,6 +11,7 @@ class DeathInvestigator {
     this.movement = movement;
     this.senses = senses;
     this._pendingInvestigation = null;
+    this._griefEntries = [];
   }
 
   onWitnessedDeath({ victim, raw }) {
@@ -22,20 +23,60 @@ class DeathInvestigator {
     const nearbyPlayers = (this.senses.getNearbyPlayers?.(16) || []).map(p => p.username);
     const possibleWitnesses = nearbyPlayers.filter(n => n !== victim && n !== this.agentId);
 
+    // Detect PvP killer from death message
+    let killerName = null;
+    if (raw) {
+      const killerMatch = raw.match(/(?:slain|shot|killed|blown up|finished off) by (\w+)/i);
+      if (killerMatch) killerName = killerMatch[1];
+    }
+
     this._pendingInvestigation = {
       victim,
       timestamp: Date.now(),
       affinity,
       rawDeathMsg: raw,
       possibleWitnesses,
-      investigated: false
+      investigated: false,
+      killerName
     };
 
     logger.warn('DeathInvestigator', `[DEATH SCENE] ${this.agentId} witnessed ${victim} dying — witnesses nearby: ${possibleWitnesses.join(', ') || 'none'}`);
 
     this.eventBuffer.addEvent('deathWitnessed', {
-      victim, affinity, witnesses: possibleWitnesses, raw
+      victim, affinity, witnesses: possibleWitnesses, raw, killerName
     });
+
+    // ── Vengeance Tracking ─────────────────────────────────────────────────
+    // Close bonds forge grudges. The closer the victim, the deeper the wound.
+    if (killerName && killerName !== this.agentId) {
+      const emotionalWeight = affinity > 60 ? 1.0 : affinity > 40 ? 0.6 : 0.3;
+      this._griefEntries.push({
+        victim,
+        killer: killerName,
+        timestamp: Date.now(),
+        emotionalWeight,
+        affinity
+      });
+
+      // Cap grief memory at 10 entries — too many and the agent becomes paralyzed
+      if (this._griefEntries.length > 10) this._griefEntries.shift();
+
+      // Shift relationship with the killer based on bond to victim
+      this.relationships.updateTrust(killerName, -Math.round(10 + emotionalWeight * 20));
+      this.relationships.updateAffinity(killerName, -Math.round(5 + emotionalWeight * 15));
+
+      logger.warn('DeathInvestigator', `[GRIEF] ${this.agentId} recorded grief entry: ${killerName} killed ${victim} (emotionalWeight: ${emotionalWeight.toFixed(2)})`);
+      this.eventBuffer.addEvent('griefRecorded', {
+        victim, killer: killerName, emotionalWeight, affinity
+      });
+
+      // Close friends announce revenge
+      if (affinity > 60) {
+        this.chat.say(`You'll pay for this, ${killerName}!`);
+      } else if (affinity > 40) {
+        this.chat.say(`That was ${victim}... ${killerName} will answer for this.`);
+      }
+    }
   }
 
   getPendingInvestigation() {
@@ -50,8 +91,17 @@ class DeathInvestigator {
       possibleWitnesses: inv.possibleWitnesses,
       rawDeathMsg: inv.rawDeathMsg,
       affinity: inv.affinity,
+      killerName: inv.killerName,
       age: Date.now() - inv.timestamp
     };
+  }
+
+  getGriefEntries() {
+    return [...this._griefEntries];
+  }
+
+  hasGriefAgainst(agentName) {
+    return this._griefEntries.some(g => g.killer === agentName);
   }
 
   investigate(senses) {
@@ -76,11 +126,12 @@ class DeathInvestigator {
       causeGuess: inv.rawDeathMsg || 'unknown',
       witnessesPresent: suspects,
       suspectedMurderer,
+      killerName: inv.killerName,
       wasMurder,
       timestamp: Date.now()
     };
 
-    logger.info('DeathInvestigator', `[INVESTIGATION] ${this.agentId} concluded: victim=${inv.victim}, cause=${findings.causeGuess}, suspect=${suspectedMurderer || 'none'}`);
+    logger.info('DeathInvestigator', `[INVESTIGATION] ${this.agentId} concluded: victim=${inv.victim}, cause=${findings.causeGuess}, suspect=${suspectedMurderer || 'none'}, killer=${inv.killerName || 'unknown'}`);
 
     this.eventBuffer.addEvent('deathInvestigation', findings);
 
