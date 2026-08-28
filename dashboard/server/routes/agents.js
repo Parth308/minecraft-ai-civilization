@@ -19,9 +19,14 @@ function agentRoutes(app, aggregator) {
     
     // Determine internal host/port
     const hostMap = {
-      'Agent_Alpha': 'http://agent-alpha:3010',
-      'Agent_Beta': 'http://agent-beta:3011',
-      'Agent_Gamma': 'http://agent-gamma:3012'
+      'Agent_Alpha':   'http://agent-alpha:3010',
+      'Agent_Beta':    'http://agent-beta:3011',
+      'Agent_Gamma':   'http://agent-gamma:3012',
+      'Agent_Delta':   'http://agent-delta:3013',
+      'Agent_Echo':    'http://agent-echo:3014',
+      'Agent_Foxtrot': 'http://agent-foxtrot:3015',
+      'Agent_Golf':    'http://agent-golf:3016',
+      'Agent_Hotel':   'http://agent-hotel:3017'
     };
     const targetUrl = hostMap[agentName] || agent?.statusUrl || `http://${agentName.toLowerCase().replace('_', '-')}:3010`;
 

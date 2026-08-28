@@ -84,6 +84,7 @@ const agentState = {
   position: null,
   viewerReady: false,
   viewerPort: null,
+  hasGreeted: false,
   stats: {},
   lastDecision: null,
   activeGoal: null,
@@ -412,7 +413,10 @@ function createAgent() {
       const defaultMovements = new Movements(bot);
       bot.pathfinder.setMovements(defaultMovements);
 
-      chat.say(`Greetings world! ${bot.username} is awake.`);
+      if (!agentState.hasGreeted) {
+        chat.say(`Greetings world! ${bot.username} is awake.`);
+        agentState.hasGreeted = true;
+      }
 
       // Start Native First-Person 3D POV Viewer Stream if VIEWER_PORT is configured
       const viewerPort = process.env.VIEWER_PORT ? parseInt(process.env.VIEWER_PORT, 10) : null;

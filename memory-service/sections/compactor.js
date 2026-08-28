@@ -144,8 +144,30 @@ class MemoryCompactor {
         const parsed = parseSectionFile(filePath);
 
         parsed.frontmatter.last_updated = new Date().toISOString();
-        for (const item of aggregateRepeatedPatterns(newSummaries)) {
+
+        // Tier 1 dedup: strip tag prefix + dash to compare semantic content.
+        // Greetings/player-spam dominate relationships.md; skipping exact
+        // duplicates prevents the 400-line bloat without touching Tier2.
+        const existingNorm = new Set(
+          parsed.entries
+            .map(e => e.replace(/^-\s*(?:\[[\w]+\]\s*)?/, '').toLowerCase().trim())
+        );
+        const deduped = aggregateRepeatedPatterns(newSummaries).filter(item => {
+          const norm = item.replace(/^\[[\w]+\]\s*/, '').toLowerCase().trim();
+          return !existingNorm.has(norm);
+        });
+
+        for (const item of deduped) {
           parsed.entries.push(`- ${item}`);
+        }
+
+        // Hard cap: if entries exceed 2× soft cap, keep newest half.
+        // Prevents unbounded growth when Tier2 LLM is down or produces garbage.
+        const cap = config.caps[sectionName];
+        if (cap && parsed.entries.length > cap.maxEntries * 2) {
+          const keep = parsed.entries.slice(-cap.maxEntries);
+          logger.warn('MemoryCompactor', `[Tier 1] Hard cap ${agentId}/${sectionName}: ${parsed.entries.length} → ${keep.length} entries`);
+          parsed.entries = keep;
         }
 
         writeSectionFile(filePath, parsed.frontmatter, parsed.entries);
@@ -221,9 +243,25 @@ Instructions:
       .filter(l => l.startsWith('-'))
       .filter(l => !/\b(the instruction|we can use|could be|not needed|maybe we|so we|output only|no introductions|the tag|allowed tags|appropriate tags)\b/i.test(l));
 
-    // Adaptive threshold: large files (500+ entries) compress aggressively
-    // because mining/combat spam dominates. Small files keep tighter guards.
     const inputCount = parsed.entries.length;
+
+    // Reject LLM output that grew the file — consolidation must reduce.
+    // The "Player trust: maintain regular greetings" ×100 garbage bloat
+    // pattern that plagued Echo's relationships.md.
+    const normEntries = newEntries.map(e => e.replace(/^-\s*(?:\[[\w]+\]\s*)?/, '').toLowerCase().trim());
+    const uniqueNorm = new Set(normEntries);
+    const dupRatio = newEntries.length > 0 ? 1 - (uniqueNorm.size / newEntries.length) : 0;
+
+    if (newEntries.length > inputCount) {
+      logger.warn('MemoryCompactor', `Tier 2 output bloated (${newEntries.length} > ${inputCount} input). Keeping ${agentId}/${sectionName} intact.`);
+      return { skipped: true, reason: 'LLM output larger than input, rejected' };
+    }
+
+    if (dupRatio > 0.5 && newEntries.length > 10) {
+      logger.warn('MemoryCompactor', `Tier 2 output ${Math.round(dupRatio * 100)}% duplicates (${newEntries.length} entries). Keeping ${agentId}/${sectionName} intact.`);
+      return { skipped: true, reason: 'LLM output >50% duplicates, rejected' };
+    }
+
     const minAcceptable = inputCount >= 500 ? Math.max(3, Math.floor(inputCount * 0.02))
                         : inputCount >= 100 ? Math.max(5, Math.floor(inputCount * 0.05))
                         : Math.max(3, Math.floor(inputCount * 0.15));

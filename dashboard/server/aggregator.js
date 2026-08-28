@@ -24,15 +24,25 @@ function parseAgentEndpoints() {
   }
 
   // Include explicit single-agent env vars if provided
-  if (process.env.AGENT_ALPHA_STATUS_URL) list.push({ name: 'Agent_Alpha', url: process.env.AGENT_ALPHA_STATUS_URL.trim() });
-  if (process.env.AGENT_BETA_STATUS_URL)  list.push({ name: 'Agent_Beta',  url: process.env.AGENT_BETA_STATUS_URL.trim() });
-  if (process.env.AGENT_GAMMA_STATUS_URL) list.push({ name: 'Agent_Gamma', url: process.env.AGENT_GAMMA_STATUS_URL.trim() });
+  if (process.env.AGENT_ALPHA_STATUS_URL)  list.push({ name: 'Agent_Alpha',  url: process.env.AGENT_ALPHA_STATUS_URL.trim() });
+  if (process.env.AGENT_BETA_STATUS_URL)   list.push({ name: 'Agent_Beta',   url: process.env.AGENT_BETA_STATUS_URL.trim() });
+  if (process.env.AGENT_GAMMA_STATUS_URL)  list.push({ name: 'Agent_Gamma',  url: process.env.AGENT_GAMMA_STATUS_URL.trim() });
+  if (process.env.AGENT_DELTA_STATUS_URL)  list.push({ name: 'Agent_Delta',  url: process.env.AGENT_DELTA_STATUS_URL.trim() });
+  if (process.env.AGENT_ECHO_STATUS_URL)   list.push({ name: 'Agent_Echo',   url: process.env.AGENT_ECHO_STATUS_URL.trim() });
+  if (process.env.AGENT_FOXTROT_STATUS_URL) list.push({ name: 'Agent_Foxtrot', url: process.env.AGENT_FOXTROT_STATUS_URL.trim() });
+  if (process.env.AGENT_GOLF_STATUS_URL)   list.push({ name: 'Agent_Golf',   url: process.env.AGENT_GOLF_STATUS_URL.trim() });
+  if (process.env.AGENT_HOTEL_STATUS_URL)  list.push({ name: 'Agent_Hotel',  url: process.env.AGENT_HOTEL_STATUS_URL.trim() });
 
   // Standard Docker network default endpoints
   const standard = [
-    { name: 'Agent_Alpha', url: 'http://agent-alpha:3010' },
-    { name: 'Agent_Beta',  url: 'http://agent-beta:3011' },
-    { name: 'Agent_Gamma', url: 'http://agent-gamma:3012' }
+    { name: 'Agent_Alpha',  url: 'http://agent-alpha:3010' },
+    { name: 'Agent_Beta',   url: 'http://agent-beta:3011' },
+    { name: 'Agent_Gamma',  url: 'http://agent-gamma:3012' },
+    { name: 'Agent_Delta',  url: 'http://agent-delta:3013' },
+    { name: 'Agent_Echo',   url: 'http://agent-echo:3014' },
+    { name: 'Agent_Foxtrot', url: 'http://agent-foxtrot:3015' },
+    { name: 'Agent_Golf',   url: 'http://agent-golf:3016' },
+    { name: 'Agent_Hotel',  url: 'http://agent-hotel:3017' }
   ];
 
   for (const s of standard) {
@@ -277,13 +287,14 @@ class Aggregator {
 
     // 2. Probes standard Docker network container names
     const standardContainers = [
-      { name: 'Agent_Alpha', url: 'http://agent-alpha:3010' },
-      { name: 'Agent_Beta',  url: 'http://agent-beta:3011' },
-      { name: 'Agent_Gamma', url: 'http://agent-gamma:3012' },
-      { name: 'Agent_Delta', url: 'http://agent-delta:3013' },
-      { name: 'Agent_Epsilon', url: 'http://agent-epsilon:3014' },
-      { name: 'Agent_1', url: 'http://agent-1:3010' },
-      { name: 'Agent_2', url: 'http://agent-2:3011' }
+      { name: 'Agent_Alpha',   url: 'http://agent-alpha:3010' },
+      { name: 'Agent_Beta',    url: 'http://agent-beta:3011' },
+      { name: 'Agent_Gamma',   url: 'http://agent-gamma:3012' },
+      { name: 'Agent_Delta',   url: 'http://agent-delta:3013' },
+      { name: 'Agent_Echo',    url: 'http://agent-echo:3014' },
+      { name: 'Agent_Foxtrot', url: 'http://agent-foxtrot:3015' },
+      { name: 'Agent_Golf',    url: 'http://agent-golf:3016' },
+      { name: 'Agent_Hotel',   url: 'http://agent-hotel:3017' }
     ];
 
     for (const c of standardContainers) {
