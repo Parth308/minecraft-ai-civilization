@@ -1284,6 +1284,15 @@ function createAgent() {
       const attackerName = attacker.username || 'someone';
 
       // Dynamic LLM-generated emotional reaction & shout
+      const hurtShout = (msg) => {
+        // Broker fallback text must never leak (diagnosed: 'Ouch! Fallback baseline...' spam per hit); 8s cooldown + 60s dedup mirror tree.js
+        const now = Date.now();
+        if (now - (agentState._lastHurtShoutAt || 0) < 8000) return;
+        if (msg === agentState._lastHurtShoutMsg && now - (agentState._lastHurtShoutAt || 0) < 60000) return;
+        agentState._lastHurtShoutAt = now;
+        agentState._lastHurtShoutMsg = msg;
+        chat.say(msg);
+      };
       brainClient.escalate({
         taskType: 'EMOTION',
         agentId: bot.username,
@@ -1293,15 +1302,12 @@ function createAgent() {
         stats: stats.getSummary(),
         persona: persona.getPersonaPromptContext ? persona.getPersonaPromptContext() : persona
       }).then(res => {
-        if (res && res.chatMessage) {
-          chat.say(res.chatMessage);
-        } else if (res && res.reason) {
-          chat.say(`Ouch! ${res.reason}`);
-        } else {
-          chat.say(`Ouch! Why did you hit me, ${attackerName}?! (HP: ${Math.round(health)}/20)`);
-        }
+        const fallbackNoise = !!(res && res.fallback);
+        const chatMsg = (res && res.chatMessage && !fallbackNoise && !/Ouch!|Autonomous decision/i.test(res.chatMessage)) ? res.chatMessage : null;
+        const reasonMsg = (res && res.reason && !fallbackNoise) ? `Ouch! ${res.reason}` : null;
+        hurtShout(chatMsg || reasonMsg || `Ouch! Why did you hit me, ${attackerName}?! (HP: ${Math.round(health)}/20)`);
       }).catch(() => {
-        chat.say(`Ow! Watch your swings, ${attackerName}! (HP: ${Math.round(health)}/20)`);
+        hurtShout(`Ow! Watch your swings, ${attackerName}! (HP: ${Math.round(health)}/20)`);
       });
 
       // Backstep retreat
