@@ -248,7 +248,12 @@ class DecisionTree {
         isStuckInLoop,
         stuckWarning: isStuckInLoop ? `You have been looping on '${topCandidate.name}' for multiple cycles without finding trees/progress. Think like a real human player: break this loop. Formulate a multi-step objective, head towards high elevation/vantage point, punch tall grass for seeds, search near rivers, or find companions.` : null,
         topCandidate,
-        allCandidates: candidates,
+        allCandidates: candidates.slice(0, 15).map(c => ({
+          name: c.name,
+          confidence: c.confidence,
+          reason: c.reason || '',
+          isDynamic: !!c.isDynamic
+        })),
         stats,
         // Full environmental context for rich LLM reasoning
         inventory: agentState.inventory || [],
@@ -342,16 +347,24 @@ class DecisionTree {
       const rawChat = escalationResult.chatMessage || null;
       const chatMessage = rawChat && !/Ouch!|Autonomous decision/i.test(rawChat) ? rawChat : null;
 
-      // Chat dedup: suppress identical message within 60s
-      const CHAT_DEDUP_MS = 60_000;
       const now = Date.now();
       let finalChat = chatMessage;
-      if (chatMessage) {
-        const prev = this._recentChatMessages.get(chatMessage);
+
+      // Global chat cooldown: no more than one chat message per agent per 8 seconds
+      if (!this._lastChatSentAt) this._lastChatSentAt = 0;
+      if (finalChat && now - this._lastChatSentAt < 8000) {
+        finalChat = null;
+      }
+
+      // Exact dedup: suppress identical message within 60s
+      if (finalChat) {
+        const CHAT_DEDUP_MS = 60_000;
+        const prev = this._recentChatMessages.get(finalChat);
         if (prev && now - prev < CHAT_DEDUP_MS) {
           finalChat = null;
         } else {
-          this._recentChatMessages.set(chatMessage, now);
+          this._recentChatMessages.set(finalChat, now);
+          this._lastChatSentAt = now;
         }
         if (this._recentChatMessages.size > 50) {
           for (const [msg, ts] of this._recentChatMessages) {

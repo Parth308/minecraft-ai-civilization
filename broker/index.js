@@ -4,7 +4,7 @@ const ProviderRouter = require('./router');
 const logger = require('../shared/logger');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 const router = new ProviderRouter();
 
