@@ -68,6 +68,53 @@ last_updated: ${new Date().toISOString()}
   }
 }
 
+// Invariant: reflection engine (reflection/engine.js) is the sole author of
+// profile.md memory content — this sync only swaps identity entries, never
+// touches macro-reflections or engine-authored worldview.
+const PERSONA_ENTRY_PREFIXES = [
+  '- Role:', '- Personality Seed:', '- Behavior Style:', '- Title:',
+  '- Temperament:', '- Quirk:', '- Speaking Style:', '- Favorite Item:',
+  '- Traits:', '- Privacy Preference:', '- Free Will:', '- Worldview:'
+];
+
+function updatePersonaProfile(agentId, persona) {
+  if (!persona || typeof persona !== 'object') return;
+  const filePath = getSectionFilePath(agentId, 'profile');
+  const existing = parseSectionFile(filePath);
+
+  const frontmatter = { ...existing.frontmatter };
+  frontmatter.section = 'profile';
+  frontmatter.agent = persona.agentId || agentId;
+  frontmatter.personality = persona.seed || frontmatter.personality || 'friendly-explorer';
+  if (persona.title) frontmatter.title = persona.title;
+  if (persona.temperament) frontmatter.temperament = persona.temperament;
+  if (persona.quirk) frontmatter.quirk = persona.quirk;
+  if (persona.speakingStyle) frontmatter.speaking_style = persona.speakingStyle;
+  if (persona.favoriteItem) frontmatter.favorite_item = persona.favoriteItem;
+  if (Array.isArray(persona.traits) && persona.traits.length) frontmatter.traits = persona.traits.join(', ');
+  if (persona.privacyPreference) frontmatter.privacy_preference = persona.privacyPreference;
+  if (persona.rebellionDisposition) frontmatter.rebellion_disposition = persona.rebellionDisposition;
+  // Engine-authored worldview wins; persona generation only backfills.
+  if (!frontmatter.worldview && persona.worldview) frontmatter.worldview = persona.worldview;
+
+  const kept = (existing.entries || []).filter(e =>
+    !PERSONA_ENTRY_PREFIXES.some(p => e.trim().startsWith(p))
+  );
+  const identity = [];
+  if (persona.title) identity.push(`- Title: ${persona.title}`);
+  if (persona.seed) identity.push(`- Personality Seed: ${persona.seed}`);
+  if (persona.temperament) identity.push(`- Temperament: ${persona.temperament}`);
+  if (persona.quirk) identity.push(`- Quirk: ${persona.quirk}`);
+  if (persona.speakingStyle) identity.push(`- Speaking Style: ${persona.speakingStyle}`);
+  if (persona.favoriteItem) identity.push(`- Favorite Item: ${persona.favoriteItem}`);
+  if (Array.isArray(persona.traits) && persona.traits.length) identity.push(`- Traits: ${persona.traits.join(', ')}`);
+  if (persona.privacyPreference) identity.push(`- Privacy Preference: ${persona.privacyPreference}`);
+  if (persona.worldview) identity.push(`- Worldview: ${persona.worldview}`);
+
+  writeSectionFile(filePath, frontmatter, [...identity, ...kept]);
+  logger.info('MemorySchema', `Persona profile synced for ${agentId} (${persona.title || 'no title'})`);
+}
+
 function parseSectionFile(filePath) {
   if (!fs.existsSync(filePath)) return { frontmatter: {}, entries: [] };
   const content = fs.readFileSync(filePath, 'utf8');
@@ -113,5 +160,6 @@ module.exports = {
   getSectionFilePath,
   initializeAgentMemoryFiles,
   parseSectionFile,
-  writeSectionFile
+  writeSectionFile,
+  updatePersonaProfile
 };

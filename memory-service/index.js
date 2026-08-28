@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { initializeAgentMemoryFiles, getAgentDirectory, getSectionFilePath, parseSectionFile, writeSectionFile, SECTIONS } = require('./sections/schema');
+const { initializeAgentMemoryFiles, getAgentDirectory, getSectionFilePath, parseSectionFile, writeSectionFile, updatePersonaProfile, SECTIONS } = require('./sections/schema');
 const EventRouter = require('./router');
 const MemoryCompactor = require('./sections/compactor');
 const MemoryScheduler = require('./scheduler');
@@ -62,9 +62,15 @@ app.get('/health', (req, res) => {
 
 // Initialize Agent Storage & Indexing
 app.post('/api/memory/init', async (req, res) => {
-  const { agentId, personality } = req.body;
+  const { agentId, personality, persona } = req.body;
   if (!agentId) return res.status(400).json({ error: 'agentId required' });
   initializeAgentMemoryFiles(agentId, personality);
+
+  // Agent boot pushes its living persona; rewrite the generic template
+  // profile so persisted identity matches the running DynamicPersona.
+  if (persona && typeof persona === 'object') {
+    updatePersonaProfile(agentId, persona);
+  }
 
   // Index sections into vector store
   for (const s of ['profile', 'relationships', 'events', 'skills']) {

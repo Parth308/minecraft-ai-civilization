@@ -241,6 +241,16 @@ function createAgent() {
   // Cognitive & Social Architecture
   const persona = new DynamicPersona(config.username, config.personalitySeed);
   currentPersona = persona;
+  // Sync the living persona into memory-service profile.md, which stays a
+  // generic template until something overwrites it (agents never called init).
+  const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+  fetch(`${memUrl}/api/memory/init`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId: config.username, personality: config.personalitySeed, persona: persona.getPersonaPromptContext() })
+  })
+    .then(r => { if (!r.ok) logger.warn('AgentSync', `Persona init HTTP ${r.status}`); })
+    .catch(() => {});
   const goalManager = new GoalManager(config.username, persona);
   persistGoalAcrossRestarts(goalManager);
   const brainClient = new BrainClient(config.brokerUrl);
