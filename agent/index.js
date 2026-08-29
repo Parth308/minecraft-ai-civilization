@@ -681,7 +681,7 @@ function createAgent() {
   // resolves, inFlightTick stays true and ALL subsequent ticks silently
   // skip — the agent appears alive but does nothing.  A timeout rejects
   // the promise so the tick loop can recover on the next cycle.
-  const ACTION_TIMEOUT_MS = 20000;
+  const ACTION_TIMEOUT_MS = 30000;
   function withTimeout(promise, label) {
     return Promise.race([
       promise,

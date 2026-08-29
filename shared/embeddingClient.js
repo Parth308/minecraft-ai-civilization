@@ -1,9 +1,6 @@
 const crypto = require('crypto');
 const logger = require('./logger');
 
-// Shared embedding engine — consumed by BOTH broker (semantic cache) and
-// memory-service (vector store). Lives in shared/ so neither service image
-// needs to copy the other's source tree.
 class EmbeddingClient {
   constructor(
     provider = process.env.EMBEDDING_PROVIDER || 'auto',
@@ -14,31 +11,30 @@ class EmbeddingClient {
     this.ollamaHost = ollamaHost;
     this.ollamaModel = ollamaModel;
     this.dimension = 768;
-    // Identical texts recur constantly (cached broker decisions replay the
-    // same situation strings). One LRU-ish cache entry saves an ollama round
-    // trip — and ollama CPU was the box's top bottleneck.
+
     this._cache = new Map();
     this._cacheMax = 2000;
+
+    // Queue-based enrichment: local fallback now, Ollama in background
+    this._queue = [];
+    this._processing = false;
+    this._inflight = new Set();
+    this._stats = { served: 0, queued: 0, enriched: 0, failed: 0 };
   }
 
   _cacheKey(text) {
     return crypto.createHash('sha1').update(text).digest('hex');
   }
 
-  // Seed the memoization store with an already-computed vector (e.g. replayed
-  // from the vector-index snapshot at boot) so a cold process doesn't
-  // re-embed thousands of unchanged texts through ollama.
   primeCache(text, vector) {
     if (!text || !Array.isArray(vector) || vector.length !== this.dimension) return false;
-    if (this._cache.has(this._cacheKey(text))) return false;
+    const key = this._cacheKey(text);
+    if (this._cache.has(key)) return false;
     if (this._cache.size >= this._cacheMax) return false;
-    this._cache.set(this._cacheKey(text), vector);
+    this._cache.set(key, vector);
     return true;
   }
 
-  // Gemini embeddings removed entirely (text-embedding-004 endpoint 404'd 3.6K×
-  // per log window before removal). Chain is now strictly local-only:
-  // self-hosted Ollama nomic-embed-text → deterministic local engine fallback.
   getEffectiveProvider() {
     if (this.provider === 'local') return 'local';
     if (this.ollamaHost) return 'ollama';
@@ -49,32 +45,67 @@ class EmbeddingClient {
     if (!text || typeof text !== 'string') text = JSON.stringify(text || '');
 
     const key = this._cacheKey(text);
-    if (this._cache.has(key)) return this._cache.get(key);
 
-    let vector;
+    const cached = this._cache.get(key);
+    if (cached) {
+      this._stats.served++;
+      return cached;
+    }
+
+    // Cache miss — return local immediately, queue Ollama enrichment
+    const local = this.getLocalEmbedding(text);
+    this._setCache(key, local);
+    this._stats.served++;
 
     if (this.getEffectiveProvider() === 'ollama') {
-      try {
-        vector = await this.getOllamaEmbedding(text);
-      } catch (err) {
-        logger.warn('EmbeddingClient', `Ollama (${this.ollamaModel}) failed (${err.message}). Using local deterministic engine.`);
-        vector = this.getLocalEmbedding(text);
-      }
+      this._enqueue(text, key);
     }
 
-    if (vector === undefined) {
-      vector = this.getLocalEmbedding(text);
-    }
+    return local;
+  }
 
+  _setCache(key, vector) {
     if (this._cache.size >= this._cacheMax) {
       const oldest = this._cache.keys().next().value;
       this._cache.delete(oldest);
     }
     this._cache.set(key, vector);
-    return vector;
   }
 
-  // Ollama Embeddings API (nomic-embed-text: 768 dimensions)
+  _enqueue(text, key) {
+    if (this._inflight.has(key)) return;
+    if (this._queue.length >= 50) return;
+    this._inflight.add(key);
+    this._queue.push({ text, key });
+    this._stats.queued++;
+    this._drain();
+  }
+
+  async _drain() {
+    if (this._processing) return;
+    this._processing = true;
+
+    while (this._queue.length > 0) {
+      const { text, key } = this._queue.shift();
+      try {
+        const vector = await this.getOllamaEmbedding(text);
+        this._setCache(key, vector);
+        this._stats.enriched++;
+      } catch (err) {
+        this._stats.failed++;
+        logger.debug('EmbeddingClient', `Background Ollama enrichment failed: ${err.message}`);
+      } finally {
+        this._inflight.delete(key);
+      }
+    }
+
+    this._processing = false;
+  }
+
+  getStats() {
+    return { ...this._stats, queueLen: this._queue.length };
+  }
+
   async getOllamaEmbedding(text) {
     const url = `${this.ollamaHost.replace(/\/$/, '')}/api/embeddings`;
     const response = await fetch(url, {
@@ -83,7 +114,8 @@ class EmbeddingClient {
       body: JSON.stringify({
         model: this.ollamaModel,
         prompt: text
-      })
+      }),
+      signal: AbortSignal.timeout(30000)
     });
 
     if (!response.ok) {
@@ -98,7 +130,6 @@ class EmbeddingClient {
     return this.normalizeVector(data.embedding);
   }
 
-  // Fast, deterministic, zero-overhead Local Semantic Feature Embedding
   getLocalEmbedding(text) {
     const vector = new Array(this.dimension).fill(0);
     const tokens = text.toLowerCase().replace(/[^a-z0-9_\s]/g, ' ').split(/\s+/).filter(Boolean);

@@ -163,6 +163,8 @@ services:
       LITEROUTER_MODEL: "${LITEROUTER_MODEL:-deepseek/deepseek-v3:free}"
       TOKENREPLY_API_KEY: "${TOKENREPLY_API_KEY:-}"
       TOKENREPLY_MODEL: "${TOKENREPLY_MODEL:-qwen/qwen-2.5-72b-instruct}"
+      KIRA_API_KEY: "${KIRA_API_KEY:-}"
+      KIRA_MODEL: "${KIRA_MODEL:-kira-3.5-flash}"
       POLLINATIONS_MODEL: "${POLLINATIONS_MODEL:-openai}"
       CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-300}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-ollama}"

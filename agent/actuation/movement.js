@@ -92,7 +92,7 @@ class MovementActuator {
   // Bias away from nearby lethal blocks — random walks kept stepping into lava.
   _hazardWithin(radius = 3) {
     if (!this.bot.entity) return null;
-    const hazardKeywords = ['lava', 'fire', 'magma_block'];
+    const hazardKeywords = ['lava', 'fire', 'magma_block', 'water'];
     try {
       const found = this.bot.findBlocks({
         matching: (block) => block && hazardKeywords.some(k => block.name.includes(k)),
