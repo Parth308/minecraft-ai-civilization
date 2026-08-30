@@ -283,7 +283,7 @@ class DynamicRuleEngine {
   }
 
   async seedFromSharedLessons(memoryServiceUrl = 'http://localhost:3002', persona = null) {
-    if (this._seededOnce && this.tickCount - this._lastSeedTick < 500) return;
+    if (this._seededOnce && this.tickCount - this._lastSeedTick < 1500) return;
     this._lastSeedTick = this.tickCount;
 
     try {
