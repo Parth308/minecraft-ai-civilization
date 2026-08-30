@@ -12,7 +12,7 @@ module.exports = {
     mistral: process.env.MISTRAL_API_KEY,
     tokenreply: process.env.TOKENREPLY_API_KEY,
     agnes: process.env.AGNES_API_KEY,
-    llm7: process.env.LLM7_API_KEY || 'unused',
+    llm7: process.env.LLM7_API_KEY || undefined,
     cloudflare: process.env.CLOUDFLARE_API_TOKEN,
     huggingface: process.env.HF_TOKEN,
     cohere: process.env.COHERE_API_KEY,

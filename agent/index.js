@@ -942,7 +942,8 @@ function createAgent() {
           // Parse LLM's freeform trade offer: e.g. '4x oak_planks for 2x iron_ingot from Agent_Alpha'
           const offer = decision.tradeOffer || '';
           const partnerMatch = offer.match(/from (\S+)/i);
-          const tradePartner = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
+          const tradePartnerRaw = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
+          const tradePartner = typeof tradePartnerRaw === 'object' ? (tradePartnerRaw.username || tradePartnerRaw.name || String(tradePartnerRaw)) : tradePartnerRaw;
           const giveMatch = offer.match(/(\d+)x ([\w_]+) for/i);
           const wantMatch = offer.match(/for (\d+)x ([\w_]+)/i);
           const giveItem = giveMatch?.[2] || 'oak_planks';

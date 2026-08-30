@@ -490,15 +490,27 @@ class DecisionTree {
     const penalizedTop = candidates[0];
 
     const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK']);
-    const isStuckInLoop = (
-      this._actionHistory.length >= 6 &&
-      this._actionHistory.every(a => a === topCandidate.name) &&
-      LOOPABLE_ACTIONS.has(topCandidate.name)
+    const historyLen = this._actionHistory.length;
+    const uniqueRecent = [...new Set(this._actionHistory.slice(-6))];
+    const isSingleLoop = (
+      historyLen >= 6 &&
+      uniqueRecent.length === 1 &&
+      LOOPABLE_ACTIONS.has(uniqueRecent[0])
     );
+    const isDualLoop = (
+      historyLen >= 6 &&
+      uniqueRecent.length === 2 &&
+      LOOPABLE_ACTIONS.has(uniqueRecent[0]) &&
+      LOOPABLE_ACTIONS.has(uniqueRecent[1]) &&
+      this._actionHistory.slice(-6).every((a, i, arr) => a === arr[i - (i % 2)])
+    );
+    const isStuckInLoop = isSingleLoop || isDualLoop;
 
     if (isStuckInLoop) {
-      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent repeated '${topCandidate.name}' 6 consecutive cycles without progress. Penalizing action for 30s and escalating.`);
+      const loopType = isSingleLoop ? `repeated '${uniqueRecent[0]}' 6 consecutive` : `alternating ${uniqueRecent.join('/')} (2-action cycle)`;
+      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent ${loopType} cycles. Penalizing actions for 30s and escalating.`);
       this._loopPenalties.set(topCandidate.name, Date.now() + 30000);
+      for (const u of uniqueRecent) this._loopPenalties.set(u, Date.now() + 30000);
       this._actionHistory = [];
       if (penalizedTop.name !== topCandidate.name) {
         topCandidate = penalizedTop;
