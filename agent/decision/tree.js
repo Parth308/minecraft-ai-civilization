@@ -131,12 +131,138 @@ class DecisionTree {
       if (ruleCounts[c.name]) c.confidence += Math.min(0.04, ruleCounts[c.name] * 0.01);
     }
 
-    // Mob grudges: repeated harm from a creature type hardens into targeted aggression
-    for (const c of candidates) {
-      if (c.name === 'FIGHT' && c.meta?.target?.name) {
-        c.confidence += beliefs.grudgeAgainst(c.meta.target.name) * 0.08;
+    // Action chains: suggest next logical action after completion
+    const ACTION_CHAINS = {
+      'MINE': ['SMELT', 'CRAFT'],
+      'SMELT': ['CRAFT', 'BUILD'],
+      'HUNT': ['COOK', 'EAT'],
+      'FARM': ['HARVEST', 'EAT'],
+      'EXPLORE': ['MINE', 'SCOUT'],
+      'SCOUT': ['EXPLORE', 'MINE'],
+      'BUILD': ['GUARD', 'DEFEND'],
+    };
+    const lastCompletedAction = agentState.lastActionResult?.action;
+    if (lastCompletedAction && agentState.lastActionResult?.ok && ACTION_CHAINS[lastCompletedAction]) {
+      const nextActions = ACTION_CHAINS[lastCompletedAction];
+      for (const c of candidates) {
+        if (nextActions.includes(c.name)) {
+          c.confidence += 0.12;
+          c.reason += ` [chain from ${lastCompletedAction}]`;
+        }
       }
     }
+
+    // Time-of-day weighting: actions appropriate for current time get boost
+    const timeOfDay = agentState.timeOfDay || 'day';
+    const isNight = agentState.isNight || false;
+    const isDawn = agentState.isDawn || false;
+    const isDusk = agentState.isDusk || false;
+
+    for (const c of candidates) {
+      if (isNight) {
+        if (c.name === 'SLEEP') c.confidence += 0.20;
+        if (c.name === 'BUILD') c.confidence += 0.10;
+        if (c.name === 'EXPLORE') c.confidence -= 0.15;
+        if (c.name === 'SCOUT') c.confidence -= 0.12;
+        if (c.name === 'FARM') c.confidence -= 0.10;
+      }
+      if (isDawn || isDusk) {
+        if (c.name === 'EXPLORE') c.confidence += 0.10;
+        if (c.name === 'SCOUT') c.confidence += 0.08;
+        if (c.name === 'HUNT') c.confidence += 0.06;
+      }
+      if (timeOfDay === 'day' && !isNight) {
+        if (c.name === 'FARM') c.confidence += 0.12;
+        if (c.name === 'MINE') c.confidence += 0.06;
+        if (c.name === 'BUILD') c.confidence += 0.08;
+        if (c.name === 'GUARD') c.confidence += 0.05;
+      }
+    }
+
+    // Resource-aware actions: check tool durability before suggesting actions
+    const mainHand = senses.bot?.equipment?.items()?.[4];
+    if (mainHand) {
+      const durability = mainHand.durability || 0;
+      const maxDurability = mainHand.maxDurability || 1;
+      const durabilityRatio = durability / maxDurability;
+
+      for (const c of candidates) {
+        if (c.name === 'MINE' && durabilityRatio < 0.2) {
+          c.confidence -= 0.25;
+          c.reason += ` [tool low durability: ${Math.round(durabilityRatio * 100)}%]`;
+        }
+        if (c.name === 'FIGHT' && durabilityRatio < 0.15) {
+          c.confidence -= 0.20;
+          c.reason += ` [weapon critical: ${Math.round(durabilityRatio * 100)}%]`;
+        }
+        if (c.name === 'BUILD' && durabilityRatio < 0.1) {
+          c.confidence -= 0.15;
+        }
+      }
+    }
+
+    // Memory-weighted decisions: avoid death locations, revisit success spots
+    try {
+      const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+      const agentId = senses.bot?.username || persona?.agentId || 'Agent';
+      const pos = senses.bot?.entity?.position;
+      if (pos) {
+        const memRes = await fetch(`${memUrl}/api/memory/${agentId}/section/events?limit=20`, { signal: AbortSignal.timeout(2000) });
+        if (memRes.ok) {
+          const events = await memRes.json();
+          const recentEvents = events.content || '';
+
+          const deathNearby = recentEvents.includes('died') && (
+            recentEvents.includes(`(${Math.round(pos.x)},`) || recentEvents.includes(`x:${Math.round(pos.x)}`)
+          );
+          if (deathNearby) {
+            for (const c of candidates) {
+              if (c.name === 'EXPLORE' || c.name === 'SCOUT') {
+                c.confidence -= 0.18;
+                c.reason += ' [death memory nearby]';
+              }
+            }
+          }
+
+          const successNearby = recentEvents.includes('success') && (
+            recentEvents.includes(`(${Math.round(pos.x)},`) || recentEvents.includes(`x:${Math.round(pos.x)}`)
+          );
+          if (successNearby) {
+            for (const c of candidates) {
+              if (c.name === 'MINE' || c.name === 'BUILD') {
+                c.confidence += 0.08;
+                c.reason += ' [success memory nearby]';
+              }
+            }
+          }
+        }
+      }
+    } catch { /* memory is optional */ }
+
+    // Social graph awareness: actions depend on relationship quality
+    try {
+      const selfId = senses.bot?.username || persona?.agentId || 'Agent';
+      const client = SocietyClient.forAgent(selfId);
+      const society = await client.getContext();
+      if (society) {
+        const rep = society.reputationHighlights || [];
+        const isTrusted = rep.some(r => r.includes('trusted') || r.includes('ally'));
+        const isDistrusted = rep.some(r => r.includes('distrusted') || r.includes('enemy'));
+
+        for (const c of candidates) {
+          if (c.name === 'COOPERATE' || c.name === 'TRADE') {
+            if (isTrusted) c.confidence += 0.10;
+            if (isDistrusted) c.confidence -= 0.12;
+          }
+          if (c.name === 'GUARD' || c.name === 'DEFEND') {
+            if (isTrusted) c.confidence += 0.08;
+          }
+          if (c.name === 'STEAL') {
+            if (isDistrusted) c.confidence += 0.06;
+          }
+        }
+      }
+    } catch { /* society is optional */ }
 
     // Failure refractory: an action that JUST failed is deprioritized for the
     // immediate re-pick so alternates get a chance — previously a blocked
