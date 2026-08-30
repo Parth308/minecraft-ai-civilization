@@ -21,8 +21,9 @@ class GoalManager {
   }
 
   setGoal(description, details = {}) {
-    // Churn guard: identical re-adoption inside 3 minutes means the LLM is
-    // thrashing, not deciding — keep the incumbent goal.
+    if (typeof description === 'object') {
+      description = description.objective || description.description || JSON.stringify(description);
+    }
     const age = Date.now() - new Date(this.currentGoal.createdAt).getTime();
     if (description === this.currentGoal.description && age < 180000 && this.currentGoal.status === 'active') {
       logger.debug('Goals', `[GOAL KEPT] ${this.agentId} re-adopted '${description}' within ${Math.round(age / 1000)}s — ignoring`);

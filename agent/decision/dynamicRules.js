@@ -95,7 +95,11 @@ class DynamicRuleEngine {
     const rule = this.learnedRules.find(r => r.id === ruleId);
     if (!rule) return;
 
-    rule.lastReinforcedAt = Date.now();
+    // Cooldown: don't reinforce same rule within 30 seconds
+    const now = Date.now();
+    if (now - (rule.lastReinforcedAt || 0) < 30000) return;
+
+    rule.lastReinforcedAt = now;
     if (outcomeSuccess) {
       // Sublinear gain: delta shrinks as confidence rises so a trivially-successful
       // action cannot pump a rule to saturation (gamma hit 72k reinforcements on EXPLORE).
