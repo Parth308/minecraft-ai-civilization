@@ -254,19 +254,14 @@ class DynamicRuleEngine {
   }
 
   static categorizeLesson(text) {
-    const t = (text || '').toLowerCase();
-    if (/drown|water|swim|suffoc|breath|underwater/.test(t)) return 'survival';
-    if (/skeleton|zombie|creeper|spider|hostile|mob|combat|fight|attack|wither/.test(t)) return 'combat';
-    if (/trade|barter|exchange|deal|merchant|shop/.test(t)) return 'social';
-    if (/mine|ore|diamond|iron|gold|copper|tin|mineral|dig/.test(t)) return 'gathering';
-    if (/build|shelter|house|wall|fortif|base|camp/.test(t)) return 'building';
-    if (/explore|scout|wander|discover|journey|travel/.test(t)) return 'exploration';
-    if (/starv|food|hunger|eat|bread|wheat|farm|crop/.test(t)) return 'survival';
-    if (/fall|climb|ladder|drop|height/.test(t)) return 'survival';
-    if (/guard|protect|defend|patrol/.test(t)) return 'social';
-    if (/gossip|talk|social|chat|ally|trust/.test(t)) return 'social';
-    if (/craft|smelt|furnace|cook/.test(t)) return 'gathering';
-    if (/steal|loot|rob/.test(t)) return 'gathering';
+    let t = (text || '').toLowerCase();
+    t = t.replace(/\[hazard[^\]]*\]\s*/gi, '');
+    if (/slain|skeleton|zombie|creeper|spider|hostile|mob|combat|fight|attack|wither|kill|weapon|armor|sword|defend/.test(t)) return 'combat';
+    if (/trade|barter|exchange|deal|merchant|shop|ally|trust|social|chat|gossip|talk|faction|treaty|alliance/.test(t)) return 'social';
+    if (/mine|ore|diamond|iron|gold|copper|tin|mineral|dig|craft|smelt|furnace|cook|gather|wood|food|bread|wheat|farm|crop|steal|loot|rob/.test(t)) return 'gathering';
+    if (/build|shelter|house|wall|fortif|base|camp|place.*torch|torch.*place|air.pocket|settle|town|bunker/.test(t)) return 'building';
+    if (/explore|scout|wander|discover|journey|travel|surface|cave|navigate|pathfind/.test(t)) return 'exploration';
+    if (/drown|water|swim|suffoc|breath|underwater|starv|hunger|eat|fall|climb|ladder|drop|height|night|unarmored/.test(t)) return 'survival';
     return 'survival';
   }
 
