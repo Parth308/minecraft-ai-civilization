@@ -10,6 +10,12 @@ const evaluateTalk = require('./rules/talk');
 const evaluateCooperate = require('./rules/cooperate');
 const evaluateFarm = require('./rules/farm');
 const evaluateSteal = require('./rules/steal');
+const evaluateDefend = require('./rules/defend');
+const evaluateHunt = require('./rules/hunt');
+const evaluateSmelt = require('./rules/smelt');
+const evaluateScout = require('./rules/scout');
+const evaluateGuard = require('./rules/guard');
+const evaluateBuild = require('./rules/build');
 const buildAffordances = require('../perception/affordances');
 const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
@@ -52,7 +58,13 @@ class DecisionTree {
       evaluateTalk(senses, stats, persona, agentState),
       evaluateCooperate(senses, stats, persona, agentState),
       evaluateFarm(senses, stats, persona, agentState),
-      evaluateSteal(senses, stats, persona, agentState)
+      evaluateSteal(senses, stats, persona, agentState),
+      evaluateDefend(senses, stats, persona, agentState),
+      evaluateHunt(senses, stats, persona, agentState),
+      evaluateSmelt(senses, stats, persona, agentState),
+      evaluateScout(senses, stats, persona, agentState),
+      evaluateGuard(senses, stats, persona, agentState),
+      evaluateBuild(senses, stats, persona, agentState)
     ];
 
     // Include dynamically learned rules
@@ -60,7 +72,7 @@ class DecisionTree {
     const rawCandidates = [...staticCandidates, ...dynamicCandidates];
 
     // Apply persona trait biases so different agents make distinct behavioral choices
-    // Weights scaled to ±0.50+ so personality can override learned rules (max 0.94)
+    // Weights scaled to ±0.50+ so personality can override learned rules (max 0.85)
     const candidates = rawCandidates.map(c => {
       let conf = c.confidence;
       if (persona && persona.traits) {
@@ -74,6 +86,12 @@ class DecisionTree {
         if (c.name === 'STEAL') conf += (tr.greed - 0.5) * 0.40 + (0.5 - tr.caution) * 0.35;
         if (c.name === 'COOPERATE') conf += (tr.sociability - 0.5) * 0.50 + (tr.trust - 0.5) * 0.30;
         if (c.name === 'FARM') conf += (tr.patience - 0.5) * 0.35 + (tr.caution - 0.5) * 0.20;
+        if (c.name === 'DEFEND') conf += (tr.caution - 0.5) * 0.40 + (tr.ambition - 0.5) * 0.25;
+        if (c.name === 'HUNT') conf += (tr.ambition - 0.5) * 0.35 + (tr.patience - 0.5) * 0.20;
+        if (c.name === 'SMELT') conf += (tr.patience - 0.5) * 0.40 + (tr.caution - 0.5) * 0.20;
+        if (c.name === 'SCOUT') conf += (tr.curiosity - 0.5) * 0.45 + (tr.caution - 0.5) * 0.25;
+        if (c.name === 'GUARD') conf += (tr.sociability - 0.5) * 0.35 + (tr.caution - 0.5) * 0.30;
+        if (c.name === 'BUILD') conf += (tr.ambition - 0.5) * 0.40 + (tr.patience - 0.5) * 0.25;
       }
       return { ...c, confidence: Math.min(0.99, Math.max(0.01, Number(conf.toFixed(2)))) };
     });

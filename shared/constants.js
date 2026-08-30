@@ -25,7 +25,14 @@ module.exports = {
     TRADE: 'TRADE',
     EXPLORE: 'EXPLORE',
     BUILD: 'BUILD',
-    TALK: 'TALK'
+    TALK: 'TALK',
+    DEFEND: 'DEFEND',
+    HUNT: 'HUNT',
+    SMELT: 'SMELT',
+    SCOUT: 'SCOUT',
+    GUARD: 'GUARD',
+    COOPERATE: 'COOPERATE',
+    STEAL: 'STEAL'
   },
   SCARCE_RESOURCES: {
     emerald: { scarcityWeight: 2.8, baseValue: 50 },
