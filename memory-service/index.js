@@ -258,11 +258,21 @@ app.get('/api/ledger', (req, res) => {
 
 // Shared Lessons Endpoints
 app.get('/api/ledger/lessons', (req, res) => {
+  const since = req.query.since;
+  let shared = ledger.getSharedLessons();
+  let unshared = ledger.getUnsharedLessons();
+  if (since) {
+    const sinceTs = new Date(since).getTime();
+    if (!isNaN(sinceTs)) {
+      shared = shared.filter(l => new Date(l.timestamp).getTime() > sinceTs);
+      unshared = unshared.filter(l => new Date(l.timestamp).getTime() > sinceTs);
+    }
+  }
   res.json({
-    count: ledger.getSharedLessons().length,
-    sharedLessons: ledger.getSharedLessons(),
-    unsharedCount: ledger.getUnsharedLessons().length,
-    unsharedLessons: ledger.getUnsharedLessons()
+    count: shared.length,
+    sharedLessons: shared,
+    unsharedCount: unshared.length,
+    unsharedLessons: unshared
   });
 });
 

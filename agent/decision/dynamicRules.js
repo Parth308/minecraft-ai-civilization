@@ -254,12 +254,12 @@ class DynamicRuleEngine {
   }
 
   async seedFromSharedLessons(memoryServiceUrl = 'http://localhost:3002') {
-    // Seed ONCE at boot, then only re-seed every 500 ticks (~8 min) for new lessons
     if (this._seededOnce && this.tickCount - this._lastSeedTick < 500) return;
     this._lastSeedTick = this.tickCount;
 
     try {
-      const res = await fetch(`${memoryServiceUrl}/api/ledger/lessons`);
+      const sinceParam = this._lastSeedTimestamp ? `?since=${this._lastSeedTimestamp}` : '';
+      const res = await fetch(`${memoryServiceUrl}/api/ledger/lessons${sinceParam}`);
       if (!res.ok) return;
       const data = await res.json();
       const lessons = data.sharedLessons || [];
@@ -307,6 +307,7 @@ class DynamicRuleEngine {
         logger.info('DynamicRules', `[SEED UPDATE] ${seeded} new rules added from latest lessons`);
       }
       this._seededOnce = true;
+      this._lastSeedTimestamp = new Date().toISOString();
     } catch (err) {
       logger.debug('DynamicRules', `Failed to seed shared lessons from ledger: ${err.message}`);
       this._seededOnce = true; // Don't retry on error
