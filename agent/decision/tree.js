@@ -489,7 +489,7 @@ class DecisionTree {
     candidates.sort((a, b) => b.confidence - a.confidence);
     const penalizedTop = candidates[0];
 
-    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP']);
+    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK']);
     const isStuckInLoop = (
       this._actionHistory.length >= 6 &&
       this._actionHistory.every(a => a === topCandidate.name) &&
