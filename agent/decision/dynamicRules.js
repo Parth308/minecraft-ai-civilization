@@ -21,7 +21,7 @@ class DynamicRuleEngine {
     // Check if rule pattern was already learned
     const existing = this.learnedRules.find(r => r.patternSituation === situationName && r.action === action);
     if (existing) {
-      existing.confidence = Math.min(0.95, Number((existing.confidence + 0.05).toFixed(2)));
+      existing.confidence = Math.min(0.85, Number((existing.confidence + 0.05).toFixed(2)));
       existing.hitCount++;
       existing.lastReinforcedAt = now;
       logger.info('DynamicRules', `Reinforced existing learned rule ${existing.id} (confidence: ${existing.confidence})`);
@@ -104,7 +104,7 @@ class DynamicRuleEngine {
       // Sublinear gain: delta shrinks as confidence rises so a trivially-successful
       // action cannot pump a rule to saturation (gamma hit 72k reinforcements on EXPLORE).
       const gain = Number((0.05 * Math.max(0.1, 1 - rule.confidence)).toFixed(4));
-      rule.confidence = Math.min(0.98, Number((rule.confidence + gain).toFixed(2)));
+      rule.confidence = Math.min(0.85, Number((rule.confidence + gain).toFixed(2)));
       rule.hitCount = (rule.hitCount || 0) + 1;
       logger.info('DynamicRules', `[REINFORCE SUCCESS] Bumped rule ${rule.id} confidence to ${rule.confidence} (+${gain})`);
     } else {
@@ -329,7 +329,7 @@ class DynamicRuleEngine {
     if (matching.length > 0) {
       for (const rule of matching) {
         const delta = adj.recommendedConfidenceDelta || 0;
-        rule.confidence = Math.min(0.98, Math.max(0.1, Number((rule.confidence + delta).toFixed(2))));
+        rule.confidence = Math.min(0.85, Math.max(0.1, Number((rule.confidence + delta).toFixed(2))));
         rule.lastReinforcedAt = Date.now();
         logger.info('DynamicRules', `[FEEDBACK LOOP] Applied adjustment to rule ${rule.id} (${rule.action}): ${delta > 0 ? '+' : ''}${delta} -> New confidence: ${rule.confidence} (${adj.reason})`);
       }
@@ -341,7 +341,7 @@ class DynamicRuleEngine {
         id: ruleId,
         patternSituation: adj.situationPattern || adj.ruleType,
         action: adj.ruleType,
-        confidence: Math.min(0.95, Math.max(0.2, Number(baseConf.toFixed(2)))),
+        confidence: Math.min(0.85, Math.max(0.2, Number(baseConf.toFixed(2)))),
         reason: `[Macro Feedback]: ${adj.reason}`,
         hitCount: 0,
         createdAt: Date.now(),
