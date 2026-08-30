@@ -1,7 +1,5 @@
 const { ACTIONS } = require('../../../shared/constants');
 
-// Cooldown gates ONLY the ambient night-awareness variant. Threat-driven flee
-// must never be suppressed, or agents die to hostiles they could outrun.
 const fleeCooldowns = new Map();
 
 function setFleeCooldown(key = 'night', durationMs = 45000) {
@@ -21,8 +19,6 @@ function isFleeOnCooldown(key = 'night') {
 function evaluateFlee(senses, stats) {
   const hostiles = senses.getNearbyHostileMobs(12);
 
-  // Ranged bridging: arrows in flight expose shooters beyond melee-sense range.
-  // Being shot at is itself the threat — no need to see who holds the bow.
   if (hostiles.length === 0 && stats.health > 6) {
     const rangedThreat = typeof senses.getRangedThreat === 'function' ? senses.getRangedThreat(24) : null;
     if (rangedThreat) {
@@ -35,7 +31,6 @@ function evaluateFlee(senses, stats) {
     }
   }
 
-  // If health is critically low (< 6) and enemies nearby
   if (stats.health <= 6 && hostiles.length > 0) {
     return {
       name: ACTIONS.FLEE,
@@ -45,7 +40,6 @@ function evaluateFlee(senses, stats) {
     };
   }
 
-  // Overwhelmed by 3+ hostiles
   if (hostiles.length >= 3) {
     return {
       name: ACTIONS.FLEE,
@@ -55,7 +49,6 @@ function evaluateFlee(senses, stats) {
     };
   }
 
-  // Night-awareness: If it's night time and bot lacks armor/weapon protection
   const isNight = typeof senses.isNight === 'function' ? senses.isNight() : false;
   const hasWeapon = senses.hasItem('sword') ||
                     senses.hasItem('wooden_sword') ||
@@ -84,11 +77,47 @@ function evaluateFlee(senses, stats) {
 
     const lightLevel = typeof senses.getLightLevel === 'function' ? senses.getLightLevel() : 15;
     if (lightLevel <= 7) {
-      return {
-        name: ACTIONS.FLEE,
-        confidence: 0.93,
-        reason: 'Night survival awareness: Unarmored/unarmed during night cycle — retreating to shelter/safety'
-      };
+      const inv = senses.bot?.inventory?.items() || [];
+      const invCounts = {};
+      for (const item of inv) {
+        invCounts[item.name] = (invCounts[item.name] || 0) + item.count;
+      }
+      const hasBlocks = ['oak_planks','spruce_planks','birch_planks','cobblestone','stone_bricks','dirt','sand']
+        .some(b => (invCounts[b] || 0) >= 4);
+      const hasLogs = (invCounts['oak_log'] || invCounts['spruce_log'] || invCounts['birch_log'] || 0) >= 1;
+
+      if (hasBlocks) {
+        return {
+          name: ACTIONS.FLEE,
+          confidence: 0.82,
+          reason: 'Night without shelter — but I have blocks, time to build'
+        };
+      }
+
+      if (hasLogs) {
+        return {
+          name: ACTIONS.FLEE,
+          confidence: 0.70,
+          reason: 'Night without shelter — have logs, need to craft planks then build'
+        };
+      }
+
+      const nearbyLog = senses.getNearbyBlock?.('log', 16);
+      if (nearbyLog) {
+        return {
+          name: ACTIONS.FLEE,
+          confidence: 0.65,
+          reason: 'Night without shelter or materials — chopping nearest tree for emergency shelter'
+        };
+      }
+
+      if (hostiles.length === 0) {
+        return {
+          name: ACTIONS.FLEE,
+          confidence: 0.50,
+          reason: 'Night without shelter but no immediate threat — digging in or finding cover'
+        };
+      }
     }
   }
 

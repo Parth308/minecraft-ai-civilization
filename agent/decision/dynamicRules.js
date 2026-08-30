@@ -5,6 +5,8 @@ class DynamicRuleEngine {
     this.learnedRules = [];
     this.memoryClient = memoryClient;
     this.tickCount = 0;
+    this._seededOnce = false;
+    this._lastSeedTick = 0;
   }
 
   learnRule(situationPayload, decisionData) {
@@ -252,38 +254,62 @@ class DynamicRuleEngine {
   }
 
   async seedFromSharedLessons(memoryServiceUrl = 'http://localhost:3002') {
+    // Seed ONCE at boot, then only re-seed every 500 ticks (~8 min) for new lessons
+    if (this._seededOnce && this.tickCount - this._lastSeedTick < 500) return;
+    this._lastSeedTick = this.tickCount;
+
     try {
       const res = await fetch(`${memoryServiceUrl}/api/ledger/lessons`);
       if (!res.ok) return;
       const data = await res.json();
       const lessons = data.sharedLessons || [];
-      for (const item of lessons) {
-        if (!item || !item.lesson) continue;
-        const situationName = 'SHARED_LESSON';
-        const ruleId = `shared_${(item.agentId || 'peer').toLowerCase()}_${this.learnedRules.length + 1}`;
-        const existing = this.learnedRules.find(r => r.reason.includes(item.lesson));
-        if (!existing) {
-          // Public/severe hazard lessons seed with higher trust (0.60-0.70) than baseline (0.40)
-          const severity = typeof item.severity === 'number' ? item.severity : 0.5;
-          const initialConfidence = Number(Math.min(0.75, Math.max(0.40, 0.40 + (severity * 0.30))).toFixed(2));
 
-          this.learnedRules.push({
-            id: ruleId,
-            patternSituation: situationName,
-            action: 'WANDER',
-            confidence: initialConfidence,
-            reason: `[Shared Civ Lesson from ${item.agentId}]: ${item.lesson}`,
-            hitCount: 0,
-            isSharedPeerLesson: true,
-            severity,
-            createdAt: Date.now(),
-            lastReinforcedAt: Date.now()
-          });
-          logger.info('DynamicRules', `[SHARED SEED - SEVERITY WEIGHTED] Seeded rule ${ruleId} from ${item.agentId}'s shared lesson with trust ${initialConfidence} (severity: ${severity})`);
-        }
+      // Cap at 50 most severe lessons — 2000+ identical "died to drowning" rules
+      // waste memory and slow evaluation. Most severe = highest priority.
+      const sorted = lessons
+        .filter(item => item && item.lesson)
+        .sort((a, b) => (b.severity || 0.5) - (a.severity || 0.5))
+        .slice(0, 50);
+
+      // Build a Set for O(1) dedup instead of O(n) .find() per lesson
+      const existingReasons = new Set(
+        (this.learnedRules || []).map(r => r.reason ? r.reason.substring(0, 80) : '')
+      );
+
+      let seeded = 0;
+      for (const item of sorted) {
+        const fingerprint = `[Shared Civ Lesson from ${item.agentId}]: ${item.lesson}`.substring(0, 80);
+        if (existingReasons.has(fingerprint)) continue;
+
+        const ruleId = `shared_${(item.agentId || 'peer').toLowerCase()}_${this.learnedRules.length + 1}`;
+        const severity = typeof item.severity === 'number' ? item.severity : 0.5;
+        const initialConfidence = Number(Math.min(0.75, Math.max(0.40, 0.40 + (severity * 0.30))).toFixed(2));
+
+        this.learnedRules.push({
+          id: ruleId,
+          patternSituation: 'SHARED_LESSON',
+          action: 'WANDER',
+          confidence: initialConfidence,
+          reason: `[Shared Civ Lesson from ${item.agentId}]: ${item.lesson}`,
+          hitCount: 0,
+          isSharedPeerLesson: true,
+          severity,
+          createdAt: Date.now(),
+          lastReinforcedAt: Date.now()
+        });
+        existingReasons.add(fingerprint);
+        seeded++;
       }
+
+      if (!this._seededOnce) {
+        logger.info('DynamicRules', `[SEED COMPLETE] Initial seed done: ${seeded} new rules from ${sorted.length} top lessons (${lessons.length} total in ledger)`);
+      } else if (seeded > 0) {
+        logger.info('DynamicRules', `[SEED UPDATE] ${seeded} new rules added from latest lessons`);
+      }
+      this._seededOnce = true;
     } catch (err) {
       logger.debug('DynamicRules', `Failed to seed shared lessons from ledger: ${err.message}`);
+      this._seededOnce = true; // Don't retry on error
     }
   }
 
