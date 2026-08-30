@@ -25,8 +25,14 @@ class GoalManager {
       description = description.objective || description.description || JSON.stringify(description);
     }
     const age = Date.now() - new Date(this.currentGoal.createdAt).getTime();
+    const PERSISTENCE_MS = 120000; // 2 minutes persistence — goal must stick before switching
     if (description === this.currentGoal.description && age < 180000 && this.currentGoal.status === 'active') {
       logger.debug('Goals', `[GOAL KEPT] ${this.agentId} re-adopted '${description}' within ${Math.round(age / 1000)}s — ignoring`);
+      return;
+    }
+    // Persistence gate: don't let oscillation flip goals faster than PERSISTENCE_MS
+    if (age < PERSISTENCE_MS && this.currentGoal.status === 'active' && this.currentGoal.description !== 'Explore the immediate surroundings and gather basic survival resources') {
+      logger.debug('Goals', `[GOAL PERSIST] ${this.agentId} tried '${description}' but current goal '${this.currentGoal.description}' only ${Math.round(age / 1000)}s old (min ${PERSISTENCE_MS / 1000}s) — ignoring`);
       return;
     }
     this.currentGoal = {
