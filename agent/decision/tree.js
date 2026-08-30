@@ -264,6 +264,196 @@ class DecisionTree {
       }
     } catch { /* society is optional */ }
 
+    // Risk/reward scoring: calculate risk vs reward for each action
+    const healthRatio = stats.health / 20;
+    const hungerRatio = stats.hunger / 100;
+    const mobCount = senses.getNearbyHostileMobs?.(16)?.length || 0;
+    const toolDurability = mainHand ? (mainHand.durability || 0) / (mainHand.maxDurability || 1) : 1;
+    const isNightNow = agentState.isNight || false;
+
+    for (const c of candidates) {
+      let risk = 0;
+      let reward = 0;
+
+      // Risk factors
+      if (c.name === 'FIGHT' || c.name === 'DEFEND') {
+        risk += mobCount * 0.08;
+        risk += (1 - healthRatio) * 0.15;
+        risk += (1 - toolDurability) * 0.10;
+      }
+      if (c.name === 'MINE') {
+        risk += mobCount * 0.05;
+        risk += (1 - toolDurability) * 0.12;
+      }
+      if (c.name === 'EXPLORE' || c.name === 'SCOUT') {
+        risk += mobCount * 0.06;
+        risk += isNightNow ? 0.10 : 0;
+        risk += (1 - healthRatio) * 0.08;
+      }
+      if (c.name === 'STEAL') {
+        risk += mobCount * 0.04;
+        risk += (1 - healthRatio) * 0.06;
+      }
+
+      // Reward factors
+      if (c.name === 'MINE') {
+        reward += 0.12;
+        reward += stats.iron < 5 ? 0.08 : 0;
+        reward += stats.gold < 3 ? 0.06 : 0;
+      }
+      if (c.name === 'FARM') {
+        reward += 0.10;
+        reward += hungerRatio < 0.5 ? 0.10 : 0;
+      }
+      if (c.name === 'HUNT') {
+        reward += 0.08;
+        reward += hungerRatio < 0.4 ? 0.12 : 0;
+      }
+      if (c.name === 'BUILD') {
+        reward += 0.09;
+        reward += stats.wood > 10 ? 0.06 : 0;
+      }
+      if (c.name === 'CRAFT') {
+        reward += 0.11;
+        reward += stats.iron > 3 ? 0.07 : 0;
+      }
+      if (c.name === 'TRADE' || c.name === 'COOPERATE') {
+        reward += 0.07;
+      }
+      if (c.name === 'SMELT') {
+        reward += 0.08;
+        reward += stats.raw_iron > 0 || stats.raw_gold > 0 ? 0.09 : 0;
+      }
+
+      const riskRewardScore = reward - risk * 0.6;
+      c.confidence += Math.max(-0.20, Math.min(0.20, riskRewardScore));
+    }
+
+    // Opportunity recognition: spot chances to succeed
+    const nearbyPlayers = senses.getNearbyPlayers?.(16) || [];
+    const nearbyChests = senses.getNearbyBlock?.('chest', 12);
+    const hasFurnace = !!senses.getNearbyBlock?.('furnace', 8);
+    const hasCraftingTable = !!senses.getNearbyBlock?.('crafting_table', 8);
+    const nearbyAnimals = senses.getNearbyPassiveMobs?.(12) || [];
+
+    for (const c of candidates) {
+      if (c.name === 'TRADE' && nearbyPlayers.length > 0) {
+        c.confidence += 0.12;
+        c.reason += ' [opportunity: player nearby]';
+      }
+      if (c.name === 'SMELT' && hasFurnace && (stats.raw_iron > 0 || stats.raw_gold > 0)) {
+        c.confidence += 0.10;
+        c.reason += ' [opportunity: furnace + ores]';
+      }
+      if (c.name === 'CRAFT' && hasCraftingTable && stats.wood > 3) {
+        c.confidence += 0.08;
+        c.reason += ' [opportunity: table + materials]';
+      }
+      if (c.name === 'HUNT' && nearbyAnimals.length > 0 && hungerRatio < 0.6) {
+        c.confidence += 0.11;
+        c.reason += ' [opportunity: animals + hunger]';
+      }
+      if (c.name === 'STEAL' && nearbyPlayers.length > 0 && nearbyChests) {
+        c.confidence += 0.09;
+        c.reason += ' [opportunity: player + chest]';
+      }
+    }
+
+    // Faster learning from others' mistakes
+    try {
+      const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+      const ledgerRes = await fetch(`${memUrl}/api/ledger/lessons?limit=10&public=true`, { signal: AbortSignal.timeout(2000) });
+      if (ledgerRes.ok) {
+        const lessons = await ledgerRes.json();
+        for (const lesson of (lessons.lessons || [])) {
+          const text = lesson.lesson || '';
+          const otherAgent = lesson.agentId || '';
+
+          if (otherAgent !== (senses.bot?.username || 'Agent')) {
+            if (text.includes('died') && text.includes('lava')) {
+              for (const c of candidates) {
+                if (c.name === 'MINE' || c.name === 'EXPLORE') {
+                  c.confidence -= 0.06;
+                  c.reason += ' [learned: others died to lava]';
+                }
+              }
+            }
+            if (text.includes('starved')) {
+              for (const c of candidates) {
+                if (c.name === 'FARM' || c.name === 'HUNT') {
+                  c.confidence += 0.05;
+                  c.reason += ' [learned: others starved]';
+                }
+              }
+            }
+            if (text.includes('killed by') && text.includes('zombie')) {
+              for (const c of candidates) {
+                if (c.name === 'FIGHT' && stats.health < 14) {
+                  c.confidence -= 0.08;
+                  c.reason += ' [learned: others killed by zombies]';
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch { /* lessons are optional */ }
+
+    // Inventory management: prioritize useful items
+    const inventory = agentState.inventory || [];
+    const hasPickaxe = inventory.some(i => i.name?.includes('pickaxe'));
+    const hasSword = inventory.some(i => i.name?.includes('sword'));
+    const hasFood = inventory.some(i => ['bread', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton', 'apple'].includes(i.name));
+    const hasWood = inventory.some(i => i.name?.includes('_log'));
+    const hasOre = inventory.some(i => i.name?.includes('raw_') || i.name?.includes('iron') || i.name?.includes('gold'));
+    const inventoryFull = inventory.length >= 36;
+
+    for (const c of candidates) {
+      if (c.name === 'MINE' && !hasPickaxe) {
+        c.confidence -= 0.25;
+        c.reason += ' [no pickaxe]';
+      }
+      if (c.name === 'FIGHT' && !hasSword) {
+        c.confidence -= 0.15;
+        c.reason += ' [no sword]';
+      }
+      if (c.name === 'EAT' && !hasFood) {
+        c.confidence -= 0.30;
+        c.reason += ' [no food]';
+      }
+      if (c.name === 'CRAFT' && !hasWood) {
+        c.confidence -= 0.20;
+        c.reason += ' [no wood]';
+      }
+      if (c.name === 'SMELT' && !hasOre) {
+        c.confidence -= 0.22;
+        c.reason += ' [no ores]';
+      }
+      if (inventoryFull && (c.name === 'MINE' || c.name === 'HUNT' || c.name === 'FARM')) {
+        c.confidence -= 0.18;
+        c.reason += ' [inventory full]';
+      }
+      if (inventoryFull && c.name === 'BUILD') {
+        c.confidence += 0.08;
+        c.reason += ' [opportunity: use materials]';
+      }
+    }
+
+    // Death consequences: real penalty for dying
+    const deathCount = agentState.deathCount || 0;
+    if (deathCount > 0) {
+      for (const c of candidates) {
+        if (c.name === 'FIGHT' || c.name === 'STEAL' || c.name === 'EXPLORE') {
+          c.confidence -= deathCount * 0.04;
+          c.reason += ` [died ${deathCount}x: more cautious]`;
+        }
+        if (c.name === 'BUILD' || c.name === 'GUARD') {
+          c.confidence += deathCount * 0.03;
+          c.reason += ` [died ${deathCount}x: seeking safety]`;
+        }
+      }
+    }
+
     // Failure refractory: an action that JUST failed is deprioritized for the
     // immediate re-pick so alternates get a chance — previously a blocked
     // action re-won every tick until the 6-cycle stuck-loop detector fired,
