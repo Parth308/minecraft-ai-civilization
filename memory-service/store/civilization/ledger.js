@@ -424,7 +424,7 @@ class CivilizationLedger {
     return data.factions;
   }
 
-  recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8, severity = 0.5, status = null) {
+   recordLesson(agentId, lesson, isPublic = true, context = {}, confidence = 0.8, severity = 0.5, status = null) {
     if (!lesson) return { saved: false, reason: 'Empty lesson' };
     const data = this.getLedger();
     if (!Array.isArray(data.sharedLessons)) data.sharedLessons = [];
@@ -432,6 +432,8 @@ class CivilizationLedger {
 
     const isPublicBool = isPublic === true || isPublic === 'true';
     const lessonStatus = status || (isPublicBool ? 'shared' : 'unshared_private');
+
+    const traitTags = this._extractTraitTags(lesson);
 
     const entry = {
       id: `lsn_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
@@ -442,7 +444,8 @@ class CivilizationLedger {
       confidence: typeof confidence === 'number' ? Number(confidence.toFixed(2)) : (isPublicBool ? 0.8 : 0.4),
       isPublic: isPublicBool,
       status: lessonStatus,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      traitTags
     };
 
     if (isPublicBool) {
@@ -484,6 +487,30 @@ class CivilizationLedger {
     detailedLogger.logCivilizationMilestone('treaty_ratified', `Treaty ratified between ${proposer} and ${target}`, lawEntry);
     const chronicle = this.addChronicleEntry(`Diplomatic Accord: ${proposer} & ${target} Sign ${treatyType}`, `An official accord (${treatyType}) was established between ${proposer} and ${target}.`, [proposer, target], 'treaty_signed');
     return { success: true, treaty: lawEntry, chronicle };
+  }
+
+  _extractTraitTags(lesson) {
+    const text = (lesson || '').toLowerCase();
+    const tags = new Set();
+
+    const survival = ['drown', 'water', 'swim', 'fall', 'starve', 'hunger', 'suffocate', 'lava', 'fire', 'burn', 'die', 'death', 'killed', 'damage', 'hurt', 'low health', 'critical'];
+    const combat = ['skeleton', 'zombie', 'creeper', 'spider', 'hostile', 'mob', 'attack', 'fight', 'sword', 'weapon', 'defend', 'shield', 'ambush', 'raid', 'combat'];
+    const social = ['trade', 'barter', 'exchange', 'negotiate', 'ally', 'alliance', 'treaty', 'cooperate', 'trust', 'betray', 'friend', 'enemy', 'gossip', 'talk'];
+    const gathering = ['mine', 'ore', 'diamond', 'iron', 'gold', 'coal', 'copper', 'lapis', 'redstone', 'dig', 'excavate', 'chop', 'wood', 'log', 'tree', 'farm', 'crop', 'wheat'];
+    const building = ['build', 'shelter', 'house', 'wall', 'roof', 'door', 'craft', 'plank', 'brick', 'foundation', 'fortif', 'barricade', 'base'];
+    const exploration = ['explore', 'wander', 'scout', 'discover', 'biome', 'cave', 'mountain', 'river', 'ocean', 'travel', 'journey', 'voyage', 'new land'];
+
+    const matches = (keywords) => keywords.some(k => text.includes(k));
+
+    if (matches(survival))  tags.add('caution');
+    if (matches(combat))    { tags.add('ambition'); tags.add('caution'); }
+    if (matches(social))    { tags.add('sociability'); tags.add('greed'); }
+    if (matches(gathering)) { tags.add('greed'); tags.add('ambition'); }
+    if (matches(building))  { tags.add('ambition'); tags.add('caution'); }
+    if (matches(exploration)) { tags.add('curiosity'); tags.add('openness'); }
+
+    if (tags.size === 0) tags.add('caution');
+    return [...tags];
   }
 
   getSharedLessons() {

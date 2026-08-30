@@ -253,7 +253,36 @@ class DynamicRuleEngine {
     return candidateActions;
   }
 
-  async seedFromSharedLessons(memoryServiceUrl = 'http://localhost:3002') {
+  static categorizeLesson(text) {
+    const t = (text || '').toLowerCase();
+    if (/drown|water|swim|suffoc|breath|underwater/.test(t)) return 'survival';
+    if (/skeleton|zombie|creeper|spider|hostile|mob|combat|fight|attack|wither/.test(t)) return 'combat';
+    if (/trade|barter|exchange|deal|merchant|shop/.test(t)) return 'social';
+    if (/mine|ore|diamond|iron|gold|copper|tin|mineral|dig/.test(t)) return 'gathering';
+    if (/build|shelter|house|wall|fortif|base|camp/.test(t)) return 'building';
+    if (/explore|scout|wander|discover|journey|travel/.test(t)) return 'exploration';
+    if (/starv|food|hunger|eat|bread|wheat|farm|crop/.test(t)) return 'survival';
+    if (/fall|climb|ladder|drop|height/.test(t)) return 'survival';
+    if (/guard|protect|defend|patrol/.test(t)) return 'social';
+    if (/gossip|talk|social|chat|ally|trust/.test(t)) return 'social';
+    if (/craft|smelt|furnace|cook/.test(t)) return 'gathering';
+    if (/steal|loot|rob/.test(t)) return 'gathering';
+    return 'survival';
+  }
+
+  static traitAffinity(category, traits) {
+    const affinities = {
+      survival:    (traits.caution || 0.5) * 0.6 + (1 - (traits.ambition || 0.5)) * 0.4,
+      combat:      (traits.ambition || 0.5) * 0.5 + (1 - (traits.caution || 0.5)) * 0.5,
+      social:      (traits.sociability || 0.5) * 0.6 + (traits.greed || 0.5) * 0.4,
+      gathering:   (traits.greed || 0.5) * 0.5 + (traits.ambition || 0.5) * 0.5,
+      building:    (traits.ambition || 0.5) * 0.5 + (traits.curiosity || 0.5) * 0.5,
+      exploration: (traits.curiosity || 0.5) * 0.6 + (traits.openness || 0.5) * 0.4,
+    };
+    return affinities[category] || 0.5;
+  }
+
+  async seedFromSharedLessons(memoryServiceUrl = 'http://localhost:3002', persona = null) {
     if (this._seededOnce && this.tickCount - this._lastSeedTick < 500) return;
     this._lastSeedTick = this.tickCount;
 
@@ -264,26 +293,54 @@ class DynamicRuleEngine {
       const data = await res.json();
       const lessons = data.sharedLessons || [];
 
-      // Cap at 50 most severe lessons — 2000+ identical "died to drowning" rules
-      // waste memory and slow evaluation. Most severe = highest priority.
-      const sorted = lessons
+      const traits = persona?.traits || {};
+      const enriched = lessons
         .filter(item => item && item.lesson)
-        .sort((a, b) => (b.severity || 0.5) - (a.severity || 0.5))
-        .slice(0, 50);
+        .map(item => {
+          const category = DynamicRuleEngine.categorizeLesson(item.lesson);
+          const affinity = DynamicRuleEngine.traitAffinity(category, traits);
+          const severity = typeof item.severity === 'number' ? item.severity : 0.5;
+          const traitScore = severity * 0.4 + affinity * 0.6;
+          return { ...item, category, affinity, severity, traitScore };
+        });
 
-      // Build a Set for O(1) dedup instead of O(n) .find() per lesson
+      const hasPersonality = Object.keys(traits).length > 0;
+      const MIN_AFFINITY = hasPersonality ? 0.38 : 0;
+      const MAX_SLOTS = 50;
+      const MAX_PER_CATEGORY = 12;
+
+      const highAffinity = enriched.filter(i => i.affinity >= MIN_AFFINITY);
+      const lowAffinity = enriched.filter(i => i.affinity < MIN_AFFINITY);
+      const highByScore = [...highAffinity].sort((a, b) => b.traitScore - a.traitScore);
+      const lowBySeverity = [...lowAffinity].sort((a, b) => b.severity - a.severity);
+
+      // Round-robin with per-category cap: prevents one category from filling all slots
+      const catCounts = {};
+      const combined = [];
+      for (const item of [...highByScore, ...lowBySeverity]) {
+        const cat = item.category || 'survival';
+        if ((catCounts[cat] || 0) >= MAX_PER_CATEGORY) continue;
+        combined.push(item);
+        catCounts[cat] = (catCounts[cat] || 0) + 1;
+        if (combined.length >= MAX_SLOTS) break;
+      }
+
       const existingReasons = new Set(
         (this.learnedRules || []).map(r => r.reason ? r.reason.substring(0, 80) : '')
       );
 
       let seeded = 0;
-      for (const item of sorted) {
+      const categoryCount = {};
+      const traitAffinities = {};
+      for (const item of combined) {
         const fingerprint = `[Shared Civ Lesson from ${item.agentId}]: ${item.lesson}`.substring(0, 80);
         if (existingReasons.has(fingerprint)) continue;
 
         const ruleId = `shared_${(item.agentId || 'peer').toLowerCase()}_${this.learnedRules.length + 1}`;
-        const severity = typeof item.severity === 'number' ? item.severity : 0.5;
-        const initialConfidence = Number(Math.min(0.75, Math.max(0.40, 0.40 + (severity * 0.30))).toFixed(2));
+        const severity = item.severity || 0.5;
+        const baseConfidence = Math.min(0.75, Math.max(0.40, 0.40 + (severity * 0.30)));
+        const traitBoost = (item.affinity - 0.5) * 0.30;
+        const initialConfidence = Number(Math.min(0.75, Math.max(0.35, baseConfidence + traitBoost)).toFixed(2));
 
         this.learnedRules.push({
           id: ruleId,
@@ -294,23 +351,30 @@ class DynamicRuleEngine {
           hitCount: 0,
           isSharedPeerLesson: true,
           severity,
+          category: item.category,
+          traitAffinity: Number(item.affinity.toFixed(2)),
           createdAt: Date.now(),
           lastReinforcedAt: Date.now()
         });
         existingReasons.add(fingerprint);
+        categoryCount[item.category] = (categoryCount[item.category] || 0) + 1;
+        if (!traitAffinities[item.category]) traitAffinities[item.category] = item.affinity;
         seeded++;
       }
 
+      const skipped = enriched.length - highAffinity.length;
+      const breakdown = Object.entries(categoryCount).map(([k, v]) => `${k}:${v}`).join(' ');
+      const affinityDebug = Object.entries(traitAffinities).map(([k, v]) => `${k}@${v.toFixed(2)}`).join(' ');
       if (!this._seededOnce) {
-        logger.info('DynamicRules', `[SEED COMPLETE] Initial seed done: ${seeded} new rules from ${sorted.length} top lessons (${lessons.length} total in ledger)`);
+        logger.info('DynamicRules', `[SEED COMPLETE] ${seeded} rules seeded (${lessons.length} total${skipped > 0 ? `, ${skipped} low-affinity skipped` : ''}, breakdown: ${breakdown || 'none new'}${affinityDebug ? ` [${affinityDebug}]` : ''})`);
       } else if (seeded > 0) {
-        logger.info('DynamicRules', `[SEED UPDATE] ${seeded} new rules added from latest lessons`);
+        logger.info('DynamicRules', `[SEED UPDATE] ${seeded} new rules (breakdown: ${breakdown}${affinityDebug ? ` [${affinityDebug}]` : ''})`);
       }
       this._seededOnce = true;
       this._lastSeedTimestamp = new Date().toISOString();
     } catch (err) {
       logger.debug('DynamicRules', `Failed to seed shared lessons from ledger: ${err.message}`);
-      this._seededOnce = true; // Don't retry on error
+      this._seededOnce = true;
     }
   }
 

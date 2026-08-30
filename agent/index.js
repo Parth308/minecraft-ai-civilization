@@ -447,8 +447,8 @@ function createAgent() {
         timeOfDay: senses.getTimeOfDay()
       });
 
-      // Seed dynamic rules from civilization shared lessons
-      decisionTree.dynamicRuleEngine.seedFromSharedLessons(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
+      // Seed dynamic rules from civilization shared lessons (personality-weighted)
+      decisionTree.dynamicRuleEngine.seedFromSharedLessons(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', persona);
 
       // Grounded curriculum check: when basics (tools/shelter) are missing,
       // nudge the goal toward the next tech milestone every few minutes.
