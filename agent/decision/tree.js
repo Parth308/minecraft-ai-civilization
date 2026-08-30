@@ -502,7 +502,7 @@ class DecisionTree {
       uniqueRecent.length === 2 &&
       LOOPABLE_ACTIONS.has(uniqueRecent[0]) &&
       LOOPABLE_ACTIONS.has(uniqueRecent[1]) &&
-      this._actionHistory.slice(-6).every((a, i, arr) => a === arr[i - (i % 2)])
+      this._actionHistory.slice(-6).every((a, i) => a === this._actionHistory[i % 2])
     );
     const isStuckInLoop = isSingleLoop || isDualLoop;
 
