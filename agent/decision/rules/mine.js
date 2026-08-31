@@ -83,21 +83,10 @@ function evaluateMine(senses, stats) {
     }
 
     const candidates = [];
-    const ores = [
-      'diamond_ore', 'deepslate_diamond_ore',
-      'emerald_ore', 'deepslate_emerald_ore',
-      'gold_ore', 'deepslate_gold_ore', 'nether_gold_ore',
-      'redstone_ore', 'deepslate_redstone_ore', 'nether_redstone_ore',
-      'lapis_ore', 'deepslate_lapis_ore',
-      'iron_ore', 'deepslate_iron_ore',
-      'copper_ore', 'deepslate_copper_ore',
-      'coal_ore', 'deepslate_coal_ore',
-    ];
+    const nearbyOres = senses.getNearbyOres(ORE_SEARCH_RADIUS) || [];
 
-    for (const oreName of ores) {
-      const block = senses.getNearbyBlock(oreName, ORE_SEARCH_RADIUS);
-      if (!block) continue;
-
+    for (const block of nearbyOres) {
+      const oreName = block.name;
       const requiresIron = ['diamond_ore', 'deepslate_diamond_ore', 'emerald_ore', 'deepslate_emerald_ore',
                             'gold_ore', 'deepslate_gold_ore', 'nether_gold_ore',
                             'redstone_ore', 'deepslate_redstone_ore', 'nether_redstone_ore',

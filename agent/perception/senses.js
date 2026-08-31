@@ -3,12 +3,51 @@ const Vec3 = require('vec3');
 class Senses {
   constructor(bot) {
     this.bot = bot;
+    this._blockCache = new Map();
+    this._cacheLastPos = null;
+  }
+
+  _checkCacheMovement() {
+    const pos = this.bot.entity?.position;
+    if (!pos) return;
+    if (!this._cacheLastPos) {
+      this._cacheLastPos = { x: pos.x, y: pos.y, z: pos.z };
+      return;
+    }
+    const dx = pos.x - this._cacheLastPos.x;
+    const dy = pos.y - this._cacheLastPos.y;
+    const dz = pos.z - this._cacheLastPos.z;
+    if (dx * dx + dy * dy + dz * dz > 9) { // moved > 3 blocks
+      this._blockCache.clear();
+      this._cacheLastPos = { x: pos.x, y: pos.y, z: pos.z };
+    }
+  }
+
+  _getCached(key, ttlMs, fetchFn) {
+    this._checkCacheMovement();
+    const now = Date.now();
+    const cached = this._blockCache.get(key);
+    if (cached && now < cached.expiry) {
+      return cached.data;
+    }
+    const data = fetchFn();
+    this._blockCache.set(key, { data, expiry: now + ttlMs });
+    if (this._blockCache.size > 60) {
+      for (const [k, v] of this._blockCache) {
+        if (now >= v.expiry) this._blockCache.delete(k);
+      }
+    }
+    return data;
+  }
+
+  clearBlockCache() {
+    this._blockCache.clear();
   }
 
   // ─── Entity & Mob Senses ─────────────────────────────────────────────────────
 
   getNearbyMobs(maxDistance = 16) {
-    if (!this.bot.entity) return [];
+    if (!this.bot.entity || !this.bot.entities) return [];
     return Object.values(this.bot.entities).filter(entity => {
       if (!entity || entity === this.bot.entity) return false;
       if (entity.type !== 'mob') return false;
@@ -53,7 +92,7 @@ class Senses {
   }
 
   getNearbyPlayers(maxDistance = 32) {
-    if (!this.bot.entity) return [];
+    if (!this.bot.entity || !this.bot.players) return [];
     return Object.values(this.bot.players)
       .filter(p => p.username !== this.bot.username && p.entity)
       .filter(p => this.bot.entity.position.distanceTo(p.entity.position) <= maxDistance);
@@ -61,7 +100,7 @@ class Senses {
 
   // Dropped item entities on the ground (e.g. to pick up)
   getNearbyItems(maxDistance = 16) {
-    if (!this.bot.entity) return [];
+    if (!this.bot.entity || !this.bot.entities) return [];
     return Object.values(this.bot.entities).filter(entity => {
       if (!entity || entity === this.bot.entity) return false;
       const kind = String(entity.name || entity.displayName || '').toLowerCase();
@@ -73,7 +112,7 @@ class Senses {
 
   // Detect incoming projectiles (arrows, fireballs) within radius
   getNearbyProjectiles(maxDistance = 12) {
-    if (!this.bot.entity) return [];
+    if (!this.bot.entity || !this.bot.entities) return [];
     const projectileTypes = ['arrow', 'spectral_arrow', 'fireball', 'small_fireball', 'snowball', 'egg', 'trident', 'wither_skull'];
     return Object.values(this.bot.entities).filter(entity => {
       if (!entity || entity === this.bot.entity) return false;
@@ -122,22 +161,28 @@ class Senses {
 
   getNearbyBlock(blockName, maxDistance = 16) {
     if (!this.bot.entity) return null;
-    const blocks = this.bot.findBlocks({
-      matching: (block) => block && block.name.includes(blockName),
-      maxDistance,
-      count: 1
+    const key = `block:${blockName}:${maxDistance}`;
+    return this._getCached(key, 2500, () => {
+      const blocks = this.bot.findBlocks({
+        matching: (block) => block && block.name.includes(blockName),
+        maxDistance,
+        count: 1
+      });
+      return blocks.length > 0 ? this.bot.blockAt(blocks[0]) : null;
     });
-    return blocks.length > 0 ? this.bot.blockAt(blocks[0]) : null;
   }
 
   getNearbyBlocks(blockName, maxDistance = 16, count = 5) {
     if (!this.bot.entity) return [];
-    const blockPositions = this.bot.findBlocks({
-      matching: (block) => block && block.name.includes(blockName),
-      maxDistance,
-      count
+    const key = `blocks:${blockName}:${maxDistance}:${count}`;
+    return this._getCached(key, 2500, () => {
+      const blockPositions = this.bot.findBlocks({
+        matching: (block) => block && block.name.includes(blockName),
+        maxDistance,
+        count
+      });
+      return blockPositions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
     });
-    return blockPositions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
   }
 
   getNearbyBed(maxDistance = 16) {
@@ -159,12 +204,15 @@ class Senses {
   getNearbyOres(maxDistance = 16) {
     const oreKeywords = ['coal_ore', 'iron_ore', 'gold_ore', 'diamond_ore', 'copper_ore', 'redstone_ore', 'lapis_ore', 'emerald_ore', 'nether_quartz_ore', 'ancient_debris'];
     if (!this.bot.entity) return [];
-    const blockPositions = this.bot.findBlocks({
-      matching: (block) => block && oreKeywords.some(ore => block.name.includes(ore)),
-      maxDistance,
-      count: 10
+    const key = `ores:${maxDistance}`;
+    return this._getCached(key, 3000, () => {
+      const blockPositions = this.bot.findBlocks({
+        matching: (block) => block && oreKeywords.some(ore => block.name.includes(ore)),
+        maxDistance,
+        count: 10
+      });
+      return blockPositions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
     });
-    return blockPositions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
   }
 
   getNearbyTrees(maxDistance = 16) {
@@ -181,13 +229,16 @@ class Senses {
 
   getNearbyHazards(maxDistance = 4, count = 8) {
     if (!this.bot.entity) return [];
-    const hazardKeywords = ['lava', 'fire', 'magma_block', 'cactus'];
-    const positions = this.bot.findBlocks({
-      matching: (block) => block && hazardKeywords.some(h => block.name.includes(h)),
-      maxDistance,
-      count
+    const key = `hazards:${maxDistance}:${count}`;
+    return this._getCached(key, 2000, () => {
+      const hazardKeywords = ['lava', 'fire', 'magma_block', 'cactus'];
+      const positions = this.bot.findBlocks({
+        matching: (block) => block && hazardKeywords.some(h => block.name.includes(h)),
+        maxDistance,
+        count
+      });
+      return positions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
     });
-    return positions.map(pos => this.bot.blockAt(pos)).filter(Boolean);
   }
 
   hazardProximity(maxDistance = 3) {

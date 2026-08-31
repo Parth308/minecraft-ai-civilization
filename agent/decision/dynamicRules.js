@@ -201,6 +201,46 @@ class DynamicRuleEngine {
     }
 
     const candidateActions = [];
+    if (!this.learnedRules || this.learnedRules.length === 0) return candidateActions;
+
+    // Batch pre-computed context checks once per tick (avoids 100x redundant block/item scans)
+    const cachedMiningBlock = senses.getNearbyBlock('iron_ore', 16) ||
+                              senses.getNearbyBlock('coal_ore', 16) ||
+                              senses.getNearbyBlock('log', 24) ||
+                              senses.getNearbyBlock('stone', 8) ||
+                              senses.getNearbyBlock('copper_ore', 16) ||
+                              senses.getNearbyBlock('deepslate', 12);
+    const hasCraftable = senses.hasItem('log') || senses.hasItem('oak_planks') ||
+                         senses.hasItem('cobblestone') || senses.hasItem('iron_ingot') ||
+                         senses.hasItem('raw_iron') || senses.hasItem('stick');
+    const hasSmeltable = senses.hasItem('raw_iron') || senses.hasItem('raw_gold') ||
+                         senses.hasItem('raw_copper') || senses.hasItem('iron_ore');
+    const hasFuel = senses.hasItem('coal') || senses.hasItem('charcoal') || senses.hasItem('log') || senses.hasItem('oak_planks');
+    const hasFurnace = !!senses.getNearbyBlock?.('furnace', 16);
+    const hasBlocks = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
+                      senses.hasItem('dirt') || senses.hasItem('stone') || senses.hasItem('stone_bricks');
+    const hostileCount16 = typeof senses.getNearbyHostileMobs === 'function'
+      ? (senses.getNearbyHostileMobs(16) || []).length : 0;
+    const hostiles12 = typeof senses.getNearbyHostileMobs === 'function'
+      ? (senses.getNearbyHostileMobs(12) || []) : [];
+    const inWater = senses.isInWater?.();
+    const onFire = senses.isOnFire?.();
+    const oxygenLow = (senses.bot?.oxygenLevel ?? 20) < 12;
+    const lowHealth = stats.health < 12;
+    const hasWeapon = senses.hasItem('sword') || senses.hasItem('iron_sword') || senses.hasItem('stone_sword') || senses.hasItem('wooden_sword');
+    const hasFood = senses.hasItem('bread') || senses.hasItem('cooked_beef') ||
+                    senses.hasItem('cooked_porkchop') || senses.hasItem('apple') || senses.hasItem('baked_potato');
+    const allies20 = typeof senses.getNearbyPlayers === 'function'
+      ? (senses.getNearbyPlayers(20) || []).filter(p => !/spectate/i.test(p.username)) : [];
+    const targets24 = typeof senses.getNearbyPlayers === 'function'
+      ? (senses.getNearbyPlayers(24) || []).filter(p => !/spectate/i.test(p.username)) : [];
+    const nearHazard = typeof senses.hazardProximity === 'function' && !!senses.hazardProximity(2);
+    const unsafeExplore = stats.health < 10 || hostiles12.length >= 2 || onFire || inWater || nearHazard;
+    const hasTradable = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
+                        senses.hasItem('iron_ore') || senses.hasItem('diamond') ||
+                        senses.hasItem('iron_ingot') || senses.hasItem('gold_ingot') ||
+                        senses.hasItem('coal') || senses.hasItem('raw_iron') ||
+                        senses.hasItem('bread') || senses.hasItem('cooked_beef');
 
     for (const rule of this.learnedRules) {
       // Disallow executing meta-actions as repeating dynamic rules
@@ -211,97 +251,47 @@ class DynamicRuleEngine {
 
       // Context-aware validation for learned rules
       if (rule.action === 'MINE') {
-        const nearbyBlock = senses.getNearbyBlock('iron_ore', 16) ||
-                            senses.getNearbyBlock('coal_ore', 16) ||
-                            senses.getNearbyBlock('log', 24) ||
-                            senses.getNearbyBlock('stone', 8) ||
-                            senses.getNearbyBlock('copper_ore', 16) ||
-                            senses.getNearbyBlock('deepslate', 12);
-        if (!nearbyBlock) {
+        if (!cachedMiningBlock) {
           conf = 0.10; // No valid target nearby
         } else {
-          targetMeta = { ...targetMeta, targetBlock: nearbyBlock };
+          targetMeta = { ...targetMeta, targetBlock: cachedMiningBlock };
         }
       } else if (rule.action === 'CRAFT') {
-        const hasCraftable = senses.hasItem('log') || senses.hasItem('oak_planks') ||
-                             senses.hasItem('cobblestone') || senses.hasItem('iron_ingot') ||
-                             senses.hasItem('raw_iron') || senses.hasItem('stick');
         if (!hasCraftable) {
           conf = 0.10;
         }
       } else if (rule.action === 'SMELT') {
-        const hasSmeltable = senses.hasItem('raw_iron') || senses.hasItem('raw_gold') ||
-                             senses.hasItem('raw_copper') || senses.hasItem('iron_ore');
-        const hasFuel = senses.hasItem('coal') || senses.hasItem('charcoal') || senses.hasItem('log') || senses.hasItem('oak_planks');
-        const hasFurnace = !!senses.getNearbyBlock?.('furnace', 16);
         if (!hasSmeltable || (!hasFurnace && !hasFuel)) {
           conf = 0.10;
         }
       } else if (rule.action === 'BUILD') {
-        const hasBlocks = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
-                          senses.hasItem('dirt') || senses.hasItem('stone') || senses.hasItem('stone_bricks');
         if (!hasBlocks) {
           conf = 0.10;
         }
       } else if (rule.action === 'FLEE') {
-        const hostileCount = typeof senses.getNearbyHostileMobs === 'function'
-          ? (senses.getNearbyHostileMobs(16) || []).length : 0;
-        const inWater = senses.isInWater?.();
-        const onFire = senses.isOnFire?.();
-        const oxygenLow = (senses.bot?.oxygenLevel ?? 20) < 12;
-        const lowHealth = stats.health < 12;
         // Only trigger FLEE learned rule when there's an actual danger
-        if (hostileCount === 0 && !inWater && !onFire && !lowHealth && !oxygenLow) {
+        if (hostileCount16 === 0 && !inWater && !onFire && !lowHealth && !oxygenLow) {
           conf = 0.05;
         }
       } else if (rule.action === 'FIGHT') {
-        const hostiles = typeof senses.getNearbyHostileMobs === 'function'
-          ? (senses.getNearbyHostileMobs(12) || []) : [];
-        const hasWeapon = senses.hasItem('sword') || senses.hasItem('iron_sword') || senses.hasItem('stone_sword') || senses.hasItem('wooden_sword');
-        if (hostiles.length === 0 || (stats.health < 8 && !hasWeapon)) {
+        if (hostiles12.length === 0 || (stats.health < 8 && !hasWeapon)) {
           conf = 0.05;
-        } else if (hostiles.length > 0) {
-          targetMeta = { ...targetMeta, target: hostiles[0] };
+        } else if (hostiles12.length > 0) {
+          targetMeta = { ...targetMeta, target: hostiles12[0] };
         }
       } else if (rule.action === 'EAT') {
-        const hasFood = senses.hasItem('bread') || senses.hasItem('cooked_beef') ||
-                        senses.hasItem('cooked_porkchop') || senses.hasItem('apple') || senses.hasItem('baked_potato');
         if (!hasFood || stats.hunger > 90) {
           conf = 0.05;
         }
       } else if (rule.action === 'GUARD') {
-        const allies = typeof senses.getNearbyPlayers === 'function'
-          ? (senses.getNearbyPlayers(20) || []).filter(p => !/spectate/i.test(p.username)) : [];
-        if (allies.length === 0) {
+        if (allies20.length === 0) {
           conf = 0.10;
         }
       } else if (rule.action === 'EXPLORE' || rule.action === 'WANDER') {
-        // Exploration is trivially "successful", so an unvalidated explore rule
-        // saturates confidence and crowds out every other action. Suppress it
-        // whenever survival or combat should take priority.
-        const hostileCount = typeof senses.getNearbyHostileMobs === 'function'
-          ? (senses.getNearbyHostileMobs(12) || []).length : 0;
-        const nearHazard = typeof senses.hazardProximity === 'function' &&
-                           !!senses.hazardProximity(2);
-        const unsafe = stats.health < 10 ||
-                       hostileCount >= 2 ||
-                       senses.isOnFire?.() ||
-                       senses.isInWater?.() ||
-                       nearHazard;
-        if (unsafe) conf = 0.10;
+        if (unsafeExplore) conf = 0.10;
       } else if (rule.action === 'TALK') {
-        // Learned talk rules looped endlessly at non-citizens (SpectatorBot)
-        // when no real conversation partner was around. Only fire when a
-        // genuine chat target is within conversational range.
-        const targets = typeof senses.getNearbyPlayers === 'function'
-          ? (senses.getNearbyPlayers(24) || []).filter(p => !/spectate/i.test(p.username)) : [];
-        if (targets.length === 0) conf = 0.10;
+        if (targets24.length === 0) conf = 0.10;
       } else if (rule.action === 'TRADE') {
-        const hasTradable = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
-                            senses.hasItem('iron_ore') || senses.hasItem('diamond') ||
-                            senses.hasItem('iron_ingot') || senses.hasItem('gold_ingot') ||
-                            senses.hasItem('coal') || senses.hasItem('raw_iron') ||
-                            senses.hasItem('bread') || senses.hasItem('cooked_beef');
         if (!hasTradable) conf = 0.10;
       }
 

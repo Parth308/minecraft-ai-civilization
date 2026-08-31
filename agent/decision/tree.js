@@ -31,6 +31,9 @@ class DecisionTree {
     this.escalator = new EscalationManager(brainClient);
     this.dynamicRuleEngine = new DynamicRuleEngine(memoryClient);
     this._recentChatMessages = new Map();
+    this._eventsCache = { data: '', expiry: 0 };
+    this._lessonsCache = { data: [], expiry: 0 };
+    this._discoveriesCache = new Map();
   }
 
   async evaluate(senses, statsManager, persona = null, agentState = {}) {
@@ -38,7 +41,7 @@ class DecisionTree {
 
     if (!this._evalCount) this._evalCount = 0;
     this._evalCount++;
-    if (this._evalCount % 30 === 0) {
+    if (this._evalCount % 120 === 0) {
       const agentId = senses.bot?.username || persona?.agentId || 'Agent';
       this.dynamicRuleEngine.pollRuleAdjustments(agentId, process.env.MEMORY_SERVICE_URL || 'http://localhost:3002');
     }
@@ -219,17 +222,26 @@ class DecisionTree {
       }
     }
 
-    // Memory-weighted decisions: avoid death locations, revisit success spots
+    // Memory-weighted decisions: avoid death locations, revisit success spots (cached 30s)
     try {
       const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
       const agentId = senses.bot?.username || persona?.agentId || 'Agent';
       const pos = senses.bot?.entity?.position;
       if (pos) {
-        const memRes = await fetch(`${memUrl}/api/memory/${agentId}/section/events?limit=20`, { signal: AbortSignal.timeout(2000) });
-        if (memRes.ok) {
-          const events = await memRes.json();
-          const recentEvents = events.content || '';
+        let recentEvents = '';
+        const now = Date.now();
+        if (now < this._eventsCache.expiry) {
+          recentEvents = this._eventsCache.data;
+        } else {
+          const memRes = await fetch(`${memUrl}/api/memory/${agentId}/section/events?limit=20`, { signal: AbortSignal.timeout(2000) });
+          if (memRes.ok) {
+            const events = await memRes.json();
+            recentEvents = events.content || '';
+            this._eventsCache = { data: recentEvents, expiry: now + 30000 };
+          }
+        }
 
+        if (recentEvents) {
           const deathNearby = recentEvents.includes('died') && (
             recentEvents.includes(`(${Math.round(pos.x)},`) || recentEvents.includes(`x:${Math.round(pos.x)}`)
           );
@@ -399,39 +411,48 @@ class DecisionTree {
       }
     }
 
-    // Faster learning from others' mistakes
+    // Faster learning from others' mistakes (cached 30s)
     try {
       const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
-      const ledgerRes = await fetch(`${memUrl}/api/ledger/lessons?limit=10&public=true`, { signal: AbortSignal.timeout(2000) });
-      if (ledgerRes.ok) {
-        const lessons = await ledgerRes.json();
-        for (const lesson of (lessons.lessons || [])) {
-          const text = lesson.lesson || '';
-          const otherAgent = lesson.agentId || '';
+      const now = Date.now();
+      let lessonsList = [];
+      if (now < this._lessonsCache.expiry) {
+        lessonsList = this._lessonsCache.data;
+      } else {
+        const ledgerRes = await fetch(`${memUrl}/api/ledger/lessons?limit=10&public=true`, { signal: AbortSignal.timeout(2000) });
+        if (ledgerRes.ok) {
+          const lessonsData = await ledgerRes.json();
+          lessonsList = lessonsData.lessons || [];
+          this._lessonsCache = { data: lessonsList, expiry: now + 30000 };
+        }
+      }
 
-          if (otherAgent !== (senses.bot?.username || 'Agent')) {
-            if (text.includes('died') && text.includes('lava')) {
-              for (const c of candidates) {
-                if (c.name === 'MINE' || c.name === 'EXPLORE') {
-                  c.confidence -= 0.06;
-                  c.reason += ' [learned: others died to lava]';
-                }
+      for (const lesson of lessonsList) {
+        const text = lesson.lesson || '';
+        const otherAgent = lesson.agentId || '';
+
+        if (otherAgent !== (senses.bot?.username || 'Agent')) {
+          if (text.includes('died') && text.includes('lava')) {
+            for (const c of candidates) {
+              if (c.name === 'MINE' || c.name === 'EXPLORE') {
+                c.confidence -= 0.06;
+                c.reason += ' [learned: others died to lava]';
               }
             }
-            if (text.includes('starved')) {
-              for (const c of candidates) {
-                if (c.name === 'FARM' || c.name === 'HUNT') {
-                  c.confidence += 0.05;
-                  c.reason += ' [learned: others starved]';
-                }
+          }
+          if (text.includes('starved')) {
+            for (const c of candidates) {
+              if (c.name === 'FARM' || c.name === 'HUNT') {
+                c.confidence += 0.05;
+                c.reason += ' [learned: others starved]';
               }
             }
-            if (text.includes('killed by') && text.includes('zombie')) {
-              for (const c of candidates) {
-                if (c.name === 'FIGHT' && stats.health < 14) {
-                  c.confidence -= 0.08;
-                  c.reason += ' [learned: others killed by zombies]';
-                }
+          }
+          if (text.includes('killed by') && text.includes('zombie')) {
+            for (const c of candidates) {
+              if (c.name === 'FIGHT' && stats.health < 14) {
+                c.confidence -= 0.08;
+                c.reason += ' [learned: others killed by zombies]';
               }
             }
           }
@@ -765,11 +786,22 @@ class DecisionTree {
           client.setLastPosition(pos.x, pos.z);
           const near = await client.placesNear(pos.x, pos.z, 24);
           if (near.length > 0) societyContext.nearbyPlaceMemories = near;
-          // Field observations other settlers logged nearby — offered as hints,
+          // Field observations other settlers logged nearby (cached 30s) — offered as hints,
           // never instructions.
           try {
-            const dRes = await fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/world/discoveries?x=${Math.round(pos.x)}&z=${Math.round(pos.z)}&radius=64&limit=5`, { signal: AbortSignal.timeout(3000) });
-            if (dRes.ok) societyContext.nearbyDiscoveries = (await dRes.json()).discoveries || [];
+            const discKey = `${Math.round(pos.x / 32)},${Math.round(pos.z / 32)}`;
+            const cachedDisc = this._discoveriesCache.get(discKey);
+            const now = Date.now();
+            if (cachedDisc && now < cachedDisc.expiry) {
+              societyContext.nearbyDiscoveries = cachedDisc.data;
+            } else {
+              const dRes = await fetch(`${process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'}/api/world/discoveries?x=${Math.round(pos.x)}&z=${Math.round(pos.z)}&radius=64&limit=5`, { signal: AbortSignal.timeout(3000) });
+              if (dRes.ok) {
+                const discData = (await dRes.json()).discoveries || [];
+                societyContext.nearbyDiscoveries = discData;
+                this._discoveriesCache.set(discKey, { data: discData, expiry: now + 30000 });
+              }
+            }
           } catch { /* optional context */ }
         }
       } catch { /* society knowledge is optional */ }

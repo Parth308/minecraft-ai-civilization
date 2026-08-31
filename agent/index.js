@@ -529,7 +529,7 @@ function createAgent() {
       }, 90000);
       professionTimer.unref?.();
 
-      // Heap watchdog: samples RSS/heap growth every 10s. If heap approaches
+      // Heap watchdog: samples RSS/heap growth every 2s. If heap approaches
       // the V8 cap we exit(0) CLEANLY — docker restarts a fresh process with
       // zero crash side-effects — and the growth log names what is leaking.
       let _lastHeapLog = 0;
@@ -542,13 +542,13 @@ function createAgent() {
             _lastHeapLog = now;
             logger.info('AgentLoop', `[HEAP] rss=${mb(mu.rss)}MB heapUsed=${mb(mu.heapUsed)}MB external=${mb(mu.external)}MB arrayBuffers=${mb(mu.arrayBuffers)}MB`);
           }
-          if (mu.heapUsed > 380 * 1048576 || mu.rss > 800 * 1048576) {
+          if (mu.heapUsed > 420 * 1048576 || mu.rss > 750 * 1048576) {
             logger.error('AgentLoop', `[HEAP WATCHDOG] heapUsed=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB — clean restart`);
             detailedLogger.logCognition(bot.username, 'Clean restart triggered by heap watchdog');
             process.exit(0);
           }
         } catch { /* watchdog must never throw */ }
-      }, 10000);
+      }, 2000);
       heapTimer.unref?.();
 
       process.on('warning', (warn) => {
@@ -577,7 +577,7 @@ function createAgent() {
           inFlightTick = true;
 
           const mu = process.memoryUsage();
-          if (mu.rss > 700 * 1048576 || mu.heapUsed > 400 * 1048576) {
+          if (mu.rss > 750 * 1048576 || mu.heapUsed > 420 * 1048576) {
             logger.error('AgentLoop', `[IN-TICK GUARD] rss=${Math.round(mu.rss / 1048576)}MB heap=${Math.round(mu.heapUsed / 1048576)}MB — clean exit`);
             process.exit(0);
           }
@@ -759,7 +759,7 @@ function createAgent() {
           }
 
           const _preExecMu = process.memoryUsage();
-          if (_preExecMu.rss > 550 * 1048576 || _preExecMu.heapUsed > 350 * 1048576) {
+          if (_preExecMu.rss > 750 * 1048576 || _preExecMu.heapUsed > 420 * 1048576) {
             logger.error('AgentLoop', `[PRE-EXEC GUARD] rss=${Math.round(_preExecMu.rss / 1048576)}MB heap=${Math.round(_preExecMu.heapUsed / 1048576)}MB — clean exit`);
             process.exit(0);
           }
@@ -1931,11 +1931,6 @@ function createAgent() {
   events.on('weatherChanged', ({ isRaining }) => {
     detailedLogger.logSenses(bot.username, `Weather changed: isRaining=${isRaining}`);
     eventBuffer.addEvent('weatherChanged', { isRaining });
-  });
-
-  events.on('timeTransition', ({ phase, timeOfDay }) => {
-    detailedLogger.logSenses(bot.username, `Time of day phase entered: ${phase}`, { timeOfDay });
-    eventBuffer.addEvent('timeTransition', { phase, timeOfDay });
   });
 
   events.on('playerChat', async ({ username, message }) => {
