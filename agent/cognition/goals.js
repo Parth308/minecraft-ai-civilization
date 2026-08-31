@@ -218,9 +218,12 @@ class GoalManager {
       this.personalGoals = [this.currentGoal];
     }
     if (snap.lifeAspiration) this.lifeAspiration = snap.lifeAspiration;
-    if (snap.activePlan && Array.isArray(snap.activePlan.steps) && snap.activePlan.idx < snap.activePlan.steps.length) {
-      this.activePlan = snap.activePlan;
+    // NEVER restore stale plans — world state changes between restarts (blocks mined,
+    // positions shifted) and pathfinding on a stale target blows the heap on first tick.
+    if (snap.activePlan) {
+      logger.info('Goals', `[PLAN NOT RESTORED] ${this.agentId}: discarding stale plan "${snap.activePlan.steps?.[0] || '?'}" from snapshot`);
     }
+    this.activePlan = null;
     logger.info('Goals', `[GOAL RESTORED] ${this.agentId}: "${this.currentGoal.description}" (snapshot from ${snap.savedAt || 'unknown'})`);
     return true;
   }

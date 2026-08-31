@@ -307,6 +307,7 @@ function createAgent() {
 
   let tickInterval = null;
   let inFlightTick = false;
+  let _heapLogCounter = 0;
 
   // Chat anti-spam: per-sender cooldown and global outgoing throttle
   const chatCooldowns = new Map(); // sender -> last response timestamp
@@ -502,12 +503,13 @@ function createAgent() {
         try {
           const mu = process.memoryUsage();
           const mb = n => Math.round(n / 1048576);
-          if (Date.now() - _lastHeapLog > 60000) {
-            _lastHeapLog = Date.now();
+          const now = Date.now();
+          if (now - _lastHeapLog > 30000) {
+            _lastHeapLog = now;
             logger.info('AgentLoop', `[HEAP] rss=${mb(mu.rss)}MB heapUsed=${mb(mu.heapUsed)}MB external=${mb(mu.external)}MB arrayBuffers=${mb(mu.arrayBuffers)}MB`);
           }
-          if (mu.heapUsed > 440 * 1048576) {
-            logger.error('AgentLoop', `[HEAP WATCHDOG] heapUsed=${mb(mu.heapUsed)}MB approaching cap — clean restart (growth trend in [HEAP] logs above)`);
+          if (mu.heapUsed > 380 * 1048576 || mu.rss > 800 * 1048576) {
+            logger.error('AgentLoop', `[HEAP WATCHDOG] heapUsed=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB — clean restart`);
             detailedLogger.logCognition(bot.username, 'Clean restart triggered by heap watchdog');
             process.exit(0);
           }
@@ -515,12 +517,39 @@ function createAgent() {
       }, 10000);
       heapTimer.unref?.();
 
+      process.on('warning', (warn) => {
+        if (warn.name === 'JS heap near memory limit' || (warn.message && warn.message.includes('heap'))) {
+          logger.error('AgentLoop', `[HEAP WARNING] ${warn.message} — clean exit`);
+          process.exit(0);
+        }
+      });
+
+      try {
+        const { spawn } = require('child_process');
+        const _memMon = spawn(process.execPath, [
+          require('path').join(__dirname, 'mem-mon.js'),
+          String(process.pid)
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
+        _memMon.stderr.on('data', (d) => process.stderr.write(d));
+        _memMon.on('exit', () => {});
+        _memMon.unref();
+      } catch {}
+
       // Main Agent Loop (Tick-based with agent-staggered start to prevent API congestion)
       const staggerDelay = config.username === 'Agent_Alpha' ? 0 : config.username === 'Agent_Beta' ? 350 : 700;
       setTimeout(() => {
         tickInterval = setInterval(async () => {
           if (inFlightTick) return;
           inFlightTick = true;
+
+          const mu = process.memoryUsage();
+          if (mu.rss > 700 * 1048576 || mu.heapUsed > 400 * 1048576) {
+            logger.error('AgentLoop', `[IN-TICK GUARD] rss=${Math.round(mu.rss / 1048576)}MB heap=${Math.round(mu.heapUsed / 1048576)}MB — clean exit`);
+            process.exit(0);
+          }
+          if (_heapLogCounter++ % 3 === 0) {
+            logger.info('AgentLoop', `[HEAP-TICK ${_heapLogCounter}] heap=${Math.round(mu.heapUsed / 1048576)}MB rss=${Math.round(mu.rss / 1048576)}MB`);
+          }
 
           try {
             // 1. Sync MC stats
@@ -541,32 +570,38 @@ function createAgent() {
           statsDecay.tick();
 
           if (goalManager.getActivePlan()) {
-            const plan = goalManager.getActivePlan();
-            const stepText = goalManager.getCurrentPlanStep();
-            const planDecision = planStepToDecision(stepText);
-
-            if (!planDecision) {
-              goalManager.advancePlan();
+            const planMu = process.memoryUsage();
+            if (planMu.heapUsed > 150 * 1048576) {
+              logger.warn('AgentLoop', `[PLAN GUARD] heap=${Math.round(planMu.heapUsed / 1048576)}MB — clearing plan to avoid OOM from pathfinding`);
+              goalManager.clearPlan('heap pressure');
             } else {
-              logger.info('AgentLoop', `[PLAN ${plan.idx + 1}/${plan.steps.length}] "${stepText}"`);
-              const beforeOk = agentState.lastActionResult;
-              await withTimeout(executeDecision({ ...planDecision, escalated: false, source: 'plan' }), `planStep(${stepText})`);
-              const outcome = agentState.lastActionResult;
+              const plan = goalManager.getActivePlan();
+              const stepText = goalManager.getCurrentPlanStep();
+              const planDecision = planStepToDecision(stepText);
 
-              if (outcome && outcome !== beforeOk && outcome.ok === false) {
-                goalManager.failCurrentStep();
-                if (plan.consecutiveFailures >= 2) {
-                  goalManager.clearPlan('2 consecutive failures');
-                }
-              } else {
+              if (!planDecision) {
                 goalManager.advancePlan();
-                if (!goalManager.getActivePlan()) {
-                  goalManager.markGoalCompleted('plan steps complete');
-                }
-              }
+              } else {
+                logger.info('AgentLoop', `[PLAN ${plan.idx + 1}/${plan.steps.length}] "${stepText}"`);
+                const beforeOk = agentState.lastActionResult;
+                await withTimeout(executeDecision({ ...planDecision, escalated: false, source: 'plan' }), `planStep(${stepText})`);
+                const outcome = agentState.lastActionResult;
 
-              detailedLogger.logCognition(bot.username, `Plan tick: ${stepText}`, { ok: outcome ? outcome.ok : null });
-              return; // finally still resets inFlightTick
+                if (outcome && outcome !== beforeOk && outcome.ok === false) {
+                  goalManager.failCurrentStep();
+                  if (plan.consecutiveFailures >= 2) {
+                    goalManager.clearPlan('2 consecutive failures');
+                  }
+                } else {
+                  goalManager.advancePlan();
+                  if (!goalManager.getActivePlan()) {
+                    goalManager.markGoalCompleted('plan steps complete');
+                  }
+                }
+
+                detailedLogger.logCognition(bot.username, `Plan tick: ${stepText}`, { ok: outcome ? outcome.ok : null });
+                return;
+              }
             }
           }
 
@@ -574,6 +609,8 @@ function createAgent() {
           let decision;
           try {
             decision = await withTimeout(decisionTree.evaluate(senses, stats, persona, agentState), 'decisionTree.evaluate');
+            const _muAfterDT = process.memoryUsage();
+            logger.info('AgentLoop', `[HEAP-POST-DT] heap=${Math.round(_muAfterDT.heapUsed / 1048576)}MB rss=${Math.round(_muAfterDT.rss / 1048576)}MB`);
           } catch (dtErr) {
             logger.error('AgentLoop', `DecisionTree evaluation failed: ${dtErr.message}`);
             decision = { action: 'WANDER', reason: 'DecisionTree timeout fallback', confidence: 0.5, escalated: false };
@@ -659,7 +696,15 @@ function createAgent() {
             combat.stopCombat();
           }
 
+          const _preExecMu = process.memoryUsage();
+          if (_preExecMu.rss > 550 * 1048576 || _preExecMu.heapUsed > 350 * 1048576) {
+            logger.error('AgentLoop', `[PRE-EXEC GUARD] rss=${Math.round(_preExecMu.rss / 1048576)}MB heap=${Math.round(_preExecMu.heapUsed / 1048576)}MB — clean exit`);
+            process.exit(0);
+          }
+
           await executeDecision(decision);
+          const _muAfterExec = process.memoryUsage();
+          logger.info('AgentLoop', `[HEAP-POST-EXEC ${decision.action}] heap=${Math.round(_muAfterExec.heapUsed / 1048576)}MB rss=${Math.round(_muAfterExec.rss / 1048576)}MB`);
         } catch (err) {
           logger.error('AgentLoop', 'Error in agent tick loop:', err);
         } finally {
@@ -681,7 +726,7 @@ function createAgent() {
   // resolves, inFlightTick stays true and ALL subsequent ticks silently
   // skip — the agent appears alive but does nothing.  A timeout rejects
   // the promise so the tick loop can recover on the next cycle.
-  const ACTION_TIMEOUT_MS = 30000;
+  const ACTION_TIMEOUT_MS = 15000;
   function withTimeout(promise, label) {
     return Promise.race([
       promise,
@@ -995,13 +1040,12 @@ function createAgent() {
               }
             }).catch(() => {});
           } else {
-            // Broadcast trade desire to world if no partner specified
             if (Date.now() - lastOutgoingChat > 3000) {
               lastOutgoingChat = Date.now();
               chat.say(`anyone want to trade? ${offer || 'I have stuff to offer'}`);
             }
+            actionSuccess = true;
           }
-          actionSuccess = true;
           break;
         }
 

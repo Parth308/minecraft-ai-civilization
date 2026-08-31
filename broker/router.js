@@ -795,9 +795,18 @@ Reply ONLY as raw JSON:
   }
 
   fallbackHeuristic(payload) {
+    // When the agent is stuck in a loop, never return the stuck action — the
+    // fallback was the only thing keeping the loop alive because providers were
+    // down. Force EXPLORE so the agent breaks out and gathers new information.
+    const stuckAction = payload.isStuckInLoop ? payload.topCandidate?.name : null;
+    const action = (stuckAction && (payload.topCandidate?.name === stuckAction))
+      ? 'EXPLORE'
+      : (payload.topCandidate?.name || 'WANDER');
     return {
-      action: payload.topCandidate?.name || 'WANDER',
-      reason: 'Fallback baseline decision due to provider unavailability',
+      action,
+      reason: payload.isStuckInLoop
+        ? `Fallback loop-break: all providers down while stuck repeating '${stuckAction}'`
+        : 'Fallback baseline decision due to provider unavailability',
       chatMessage: null,
       tacticLearned: null,
       emotionDelta: { anger: 0, happiness: 0, fatigue: 0 },
