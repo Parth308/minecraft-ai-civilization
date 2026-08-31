@@ -259,6 +259,7 @@ app.get('/api/ledger', (req, res) => {
 // Shared Lessons Endpoints
 app.get('/api/ledger/lessons', (req, res) => {
   const since = req.query.since;
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
   let shared = ledger.getSharedLessons();
   let unshared = ledger.getUnsharedLessons();
   if (since) {
@@ -267,6 +268,10 @@ app.get('/api/ledger/lessons', (req, res) => {
       shared = shared.filter(l => new Date(l.timestamp).getTime() > sinceTs);
       unshared = unshared.filter(l => new Date(l.timestamp).getTime() > sinceTs);
     }
+  }
+  if (limit && !isNaN(limit) && limit > 0) {
+    shared = shared.slice(-limit);
+    unshared = unshared.slice(-limit);
   }
   res.json({
     count: shared.length,
@@ -277,7 +282,12 @@ app.get('/api/ledger/lessons', (req, res) => {
 });
 
 app.get('/api/ledger/lessons/unshared', (req, res) => {
-  res.json({ count: ledger.getUnsharedLessons().length, unsharedLessons: ledger.getUnsharedLessons() });
+  const limit = req.query.limit ? parseInt(req.query.limit, 10) : null;
+  let unshared = ledger.getUnsharedLessons();
+  if (limit && !isNaN(limit) && limit > 0) {
+    unshared = unshared.slice(-limit);
+  }
+  res.json({ count: unshared.length, unsharedLessons: unshared });
 });
 
 app.post('/api/ledger/lessons', (req, res) => {

@@ -1,5 +1,7 @@
 const logger = require('../../shared/logger');
 
+const MAX_ACTIVE_RULES = 80;
+
 class DynamicRuleEngine {
   constructor(memoryClient = null) {
     this.learnedRules = [];
@@ -7,6 +9,26 @@ class DynamicRuleEngine {
     this.tickCount = 0;
     this._seededOnce = false;
     this._lastSeedTick = 0;
+  }
+
+  _ensureCapacity() {
+    if (this.learnedRules.length < MAX_ACTIVE_RULES) return;
+
+    let lowestIdx = -1;
+    let lowestConf = Infinity;
+    for (let i = 0; i < this.learnedRules.length; i++) {
+      const r = this.learnedRules[i];
+      if (r.deathPenalty?.permanent) continue;
+      if (r.confidence < lowestConf) {
+        lowestConf = r.confidence;
+        lowestIdx = i;
+      }
+    }
+
+    if (lowestIdx !== -1) {
+      const removed = this.learnedRules.splice(lowestIdx, 1)[0];
+      logger.info('DynamicRules', `[CAP EVICTION] Evicted lowest-confidence rule ${removed.id} (${removed.action}, conf: ${removed.confidence}) to stay under MAX_ACTIVE_RULES=${MAX_ACTIVE_RULES}`);
+    }
   }
 
   learnRule(situationPayload, decisionData) {
@@ -48,6 +70,7 @@ class DynamicRuleEngine {
       lastReinforcedAt: now
     };
 
+    this._ensureCapacity();
     this.learnedRules.push(newRule);
     logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: ${initialConfidence})`);
 
@@ -379,8 +402,8 @@ class DynamicRuleEngine {
     this._lastSeedTick = this.tickCount;
 
     try {
-      const sinceParam = this._lastSeedTimestamp ? `?since=${this._lastSeedTimestamp}` : '';
-      const res = await fetch(`${memoryServiceUrl}/api/ledger/lessons${sinceParam}`);
+      const sinceParam = this._lastSeedTimestamp ? `&since=${this._lastSeedTimestamp}` : '';
+      const res = await fetch(`${memoryServiceUrl}/api/ledger/lessons?limit=60${sinceParam}`);
       if (!res.ok) return;
       const data = await res.json();
       // Pre-filter: skip pure coordinate death-dumps and generic mob warnings.
@@ -449,6 +472,7 @@ class DynamicRuleEngine {
                            item.context?.triggerCondition ||
                            (item.category ? `SHARED_${item.category.toUpperCase()}` : 'SHARED_LESSON');
 
+        this._ensureCapacity();
         this.learnedRules.push({
           id: ruleId,
           patternSituation: patternSit,
@@ -493,6 +517,7 @@ class DynamicRuleEngine {
     const existing = this.learnedRules.find(r => r.reason.includes(cleanTip));
     if (!existing) {
       const gossipAction = DynamicRuleEngine.extractActionFromLesson(cleanTip);
+      this._ensureCapacity();
       this.learnedRules.push({
         id: ruleId,
         patternSituation: 'GOSSIP_HEARING',
@@ -537,6 +562,7 @@ class DynamicRuleEngine {
       // Create new dynamic rule with the suggested delta if none existed
       const ruleId = `macro_${adj.ruleType.toLowerCase()}_${this.learnedRules.length + 1}`;
       const baseConf = 0.50 + adj.recommendedConfidenceDelta;
+      this._ensureCapacity();
       this.learnedRules.push({
         id: ruleId,
         patternSituation: adj.situationPattern || adj.ruleType,
