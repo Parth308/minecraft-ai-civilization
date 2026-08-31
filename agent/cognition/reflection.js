@@ -65,6 +65,8 @@ Reply ONLY with a valid JSON object:
 {
   "diaryEntry": "your 2-sentence journal entry",
   "lifeLesson": "one key tactical or philosophical principle learned",
+  "recommendedAction": "e.g. CRAFT, MINE, FLEE, BUILD, SMELT, TRADE, FIGHT, EAT, or null",
+  "avoidAction": "e.g. FIGHT, EXPLORE, WANDER, or null",
   "newGoal": "optional ambitious new goal or null",
   "selfImage": "one sentence: who am I becoming? (evolving self-concept)",
   "faithReflection": "optional: a spiritual/existential thought IF genuinely stirred by experience, else null",
@@ -83,6 +85,8 @@ Reply ONLY with a valid JSON object:
         detailedLogger.logCognition(this.agentId, 'Authored Episodic Diary Reflection', {
           diary: response.diaryEntry,
           lesson: response.lifeLesson,
+          recommendedAction: response.recommendedAction || null,
+          avoidAction: response.avoidAction || null,
           newGoal: response.newGoal,
           selfImage: response.selfImage || null,
           faithReflection: response.faithReflection || null,
@@ -167,12 +171,20 @@ Reply ONLY with a valid JSON object:
     const lessonEntry = {
       agentId: this.agentId,
       lesson: lessonText,
+      recommendedAction: reflectionResponse.recommendedAction || null,
+      avoidAction: reflectionResponse.avoidAction || null,
       severity,
       baseOpenness: effective.baseOpenness,
       effectiveOpenness: effective.effectiveOpenness,
       isPublic: privacy === 'public',
       status: privacy === 'public' ? 'shared' : (privacy === 'ask' ? 'ask_pending' : 'unshared_private'),
-      context: { diary: reflectionResponse.diaryEntry, newGoal: reflectionResponse.newGoal, isHazard },
+      context: {
+        diary: reflectionResponse.diaryEntry,
+        newGoal: reflectionResponse.newGoal,
+        isHazard,
+        recommendedAction: reflectionResponse.recommendedAction || null,
+        avoidAction: reflectionResponse.avoidAction || null
+      },
       confidence: privacy === 'public' ? Math.max(0.65, effective.effectiveOpenness) : 0.40,
       timestamp: Date.now()
     };

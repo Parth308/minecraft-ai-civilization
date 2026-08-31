@@ -314,10 +314,44 @@ function createAgent() {
   const AGENT_CHAT_COOLDOWN_MS = 6000;  // min 6s between replies to same sender
   const PLAYER_CHAT_COOLDOWN_MS = 1800; // min 1.8s between replies to player
   let lastOutgoingChat = 0;             // global outgoing chat throttle
-  let lastTorchPlacement = 0;
-  let lastDiscoveryPost = 0;
   const lastDeathLessonAt = {};
+  const milestoneLessonsRecorded = new Set();
+  let lastNearMissLessonAt = 0;
+  let lowestRecentHealth = 20;
+  let nearMissThreat = null;
   let tickCount = 0;
+
+  function recordCivLesson({ lesson, recommendedAction = null, avoidAction = null, triggerCondition = null, severity = 0.7, context = {} }) {
+    if (!lesson) return;
+    const serviceUrl = memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+    fetch(`${serviceUrl}/api/ledger/lessons`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId: bot.username,
+        lesson,
+        recommendedAction,
+        avoidAction,
+        triggerCondition,
+        severity,
+        baseOpenness: persona?.traits?.openness ?? 0.5,
+        effectiveOpenness: 1.0,
+        isPublic: true,
+        status: 'shared',
+        context: {
+          deterministic: true,
+          recommendedAction,
+          avoidAction,
+          triggerCondition,
+          biome: senses.getBiome?.(),
+          timeOfDay: senses.getTimeOfDay?.(),
+          ...context
+        },
+        confidence: 0.75,
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+  }
 
   const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
 
@@ -556,7 +590,35 @@ function createAgent() {
           stats.updateHealth(bot.health);
           stats.updateHungerFromMC(bot.food);
 
-          // 1b. Death investigation — voluntary, agent decides via LLM
+          // 1b. Near-miss survival lesson detection
+          const curHp = bot.health ?? 20;
+          const curOxygen = bot.oxygenLevel ?? 20;
+          const nearHostilesCount = typeof senses.getNearbyHostileMobs === 'function'
+            ? (senses.getNearbyHostileMobs(12) || []).length : 0;
+          if (curHp <= 6 || (senses.isInWater?.() && curOxygen <= 6)) {
+            lowestRecentHealth = Math.min(lowestRecentHealth, curHp);
+            if (nearHostilesCount > 0) nearMissThreat = 'mob attack';
+            else if (senses.isInWater?.() || curOxygen <= 6) nearMissThreat = 'drowning';
+            else if (senses.isOnFire?.()) nearMissThreat = 'fire';
+            else nearMissThreat = 'hazard';
+          } else if (curHp >= 14 && lowestRecentHealth <= 6 && nearMissThreat) {
+            const now = Date.now();
+            if (now - lastNearMissLessonAt > 300000) {
+              lastNearMissLessonAt = now;
+              const threatLabel = nearMissThreat;
+              recordCivLesson({
+                lesson: `Survived near-death ${threatLabel} at critical health (${lowestRecentHealth}/20) — retreating to safe ground and regenerating health preserved life.`,
+                recommendedAction: 'FLEE',
+                avoidAction: 'FIGHT',
+                triggerCondition: 'low_health_critical',
+                severity: 0.75,
+                context: { lowestHealth: lowestRecentHealth, threatType: nearMissThreat }
+              });
+              logger.info('AgentLoop', `[NEAR-MISS LESSON] Recorded survival lesson from ${threatLabel} (low HP: ${lowestRecentHealth})`);
+            }
+            lowestRecentHealth = 20;
+            nearMissThreat = null;
+          }
 
           // 1c. Record current position in chunk memory
           if (bot.entity?.position) {
@@ -837,6 +899,41 @@ function createAgent() {
               EmotionalState.forAgent(bot.username).appraise('craft_success', {}, persona?.traits || {});
               BeliefNetwork.forAgent(bot.username).learnFrom('craft_success', {});
               actionSuccess = true;
+
+              // Tool Progression & Crafting Milestone Lessons
+              if (item === 'wooden_pickaxe' && !milestoneLessonsRecorded.has('craft_wooden_pickaxe')) {
+                milestoneLessonsRecorded.add('craft_wooden_pickaxe');
+                recordCivLesson({
+                  lesson: 'Crafted wooden pickaxe — foundational first tool that allows mining stone and gathering cobblestone.',
+                  recommendedAction: 'MINE',
+                  triggerCondition: 'has_wooden_pickaxe',
+                  severity: 0.55
+                });
+              } else if (item === 'stone_pickaxe' && !milestoneLessonsRecorded.has('craft_stone_pickaxe')) {
+                milestoneLessonsRecorded.add('craft_stone_pickaxe');
+                recordCivLesson({
+                  lesson: 'Crafted stone pickaxe from cobblestone — allows mining iron ore and significantly speeds up resource gathering.',
+                  recommendedAction: 'MINE',
+                  triggerCondition: 'has_stone_pickaxe',
+                  severity: 0.65
+                });
+              } else if (item === 'iron_pickaxe' && !milestoneLessonsRecorded.has('craft_iron_pickaxe')) {
+                milestoneLessonsRecorded.add('craft_iron_pickaxe');
+                recordCivLesson({
+                  lesson: 'Crafted iron pickaxe — unlocks mining high-tier ores including diamond, gold, redstone, and deepslate.',
+                  recommendedAction: 'MINE',
+                  triggerCondition: 'has_iron_pickaxe',
+                  severity: 0.75
+                });
+              } else if ((item.includes('chestplate') || item === 'shield' || item.includes('helmet')) && !milestoneLessonsRecorded.has('craft_armor')) {
+                milestoneLessonsRecorded.add('craft_armor');
+                recordCivLesson({
+                  lesson: `Crafted ${item.replace(/_/g, ' ')} — defensive armor and shields drastically mitigate hostile mob damage in combat.`,
+                  recommendedAction: 'FIGHT',
+                  triggerCondition: 'has_armor',
+                  severity: 0.70
+                });
+              }
             } else {
               actionSuccess = false;
             }
@@ -977,6 +1074,15 @@ function createAgent() {
             lastOutgoingChat = Date.now();
             chat.say(`just finished building a ${buildType}!`);
           }
+          if (didBuild && !milestoneLessonsRecorded.has('build_shelter')) {
+            milestoneLessonsRecorded.add('build_shelter');
+            recordCivLesson({
+              lesson: 'Constructed secure shelter with walls and light — blocks hostile mob spawns and guarantees night survival.',
+              recommendedAction: 'BUILD',
+              triggerCondition: 'night_survival',
+              severity: 0.75
+            });
+          }
           eventBuffer.addEvent('buildShelter', { buildType });
           actionSuccess = !!didBuild;
           break;
@@ -1032,6 +1138,15 @@ function createAgent() {
                 valueGive: tradeResult.valueGive, valueWant: tradeResult.valueWant,
                 fairnessScore: tradeResult.fairnessScore, success: true, totalValue
               });
+              if (!milestoneLessonsRecorded.has('trade_deal')) {
+                milestoneLessonsRecorded.add('trade_deal');
+                recordCivLesson({
+                  lesson: `Completed resource trade with ${tradePartner} — mutual exchange accelerates tech progression without duplicate gathering.`,
+                  recommendedAction: 'TRADE',
+                  triggerCondition: 'player_nearby_tradable',
+                  severity: 0.60
+                });
+              }
             }
             factionManager.considerAllianceWith(tradePartner).then(announcement => {
               if (announcement && Date.now() - lastOutgoingChat > 3000) {
@@ -1171,6 +1286,16 @@ function createAgent() {
                 logger.info('AgentLoop', `Loaded furnace: ${rawItem.name} + ${fuelItem.name}`);
                 eventBuffer.addEvent('smeltItem', { input: rawItem.name });
                 actionSuccess = true;
+
+                if (rawItem.name.includes('iron') && !milestoneLessonsRecorded.has('smelt_iron')) {
+                  milestoneLessonsRecorded.add('smelt_iron');
+                  recordCivLesson({
+                    lesson: 'Smelted raw iron into ingots using furnace and fuel — unlocks the iron tool and armor civilization tier.',
+                    recommendedAction: 'CRAFT',
+                    triggerCondition: 'has_iron_ingots',
+                    severity: 0.70
+                  });
+                }
               }
               furnace.close();
             } catch (fErr) {
@@ -1597,8 +1722,7 @@ function createAgent() {
     // Deterministic hazard lesson posted straight to the civ ledger — the
     // LLM reflection path can be provider-starved, but civilization-level
     // learning from a death must never depend on quota. Throttled per cause.
-    // Lesson text is deliberately actionable so it passes the DT's noise filter
-    // (_isActionableLesson) and seeds into useful rules instead of being discarded.
+    // Lesson text is deliberately actionable with explicit recommendedAction/avoidAction.
     const deathLessonKey = `${bot.username}:${cause || 'hazard'}`;
     if (Date.now() - (lastDeathLessonAt[deathLessonKey] || 0) > 600000) {
       lastDeathLessonAt[deathLessonKey] = Date.now();
@@ -1608,41 +1732,62 @@ function createAgent() {
       const hadFood  = inv.some(i => ['bread','cooked_beef','cooked_porkchop','apple'].includes(i.name));
 
       let lessonText;
+      let recAction = 'BUILD';
+      let avAction = 'EXPLORE';
+      let trigCond = 'unknown_hazard';
+
       if (killerName === 'zombie' || killerName === 'skeleton' || killerName === 'creeper' || killerName === 'spider' || killerName === 'drowned') {
-        const advice = !hadArmor
-          ? `craft iron armor and equip it before fighting ${killerName}s`
-          : !hadSword
-          ? `craft a sword before engaging ${killerName}s — fists are not enough`
-          : `flee when health drops below 10 — ${killerName}s will finish you off`;
-        lessonText = `Killed by ${killerName} while ${!hadArmor ? 'unarmored' : !hadSword ? 'unarmed' : 'low health'} — ${advice}. Avoid, flee to shelter, or smelt iron first.`;
+        if (!hadArmor) {
+          recAction = 'CRAFT';
+          avAction = 'FIGHT';
+          trigCond = 'hostile_nearby_unarmored';
+          lessonText = `Killed by ${killerName} while unarmored — craft iron armor and equip it before fighting ${killerName}s. Avoid, flee to shelter, or smelt iron first.`;
+        } else if (!hadSword) {
+          recAction = 'CRAFT';
+          avAction = 'FIGHT';
+          trigCond = 'hostile_nearby_unarmed';
+          lessonText = `Killed by ${killerName} while unarmed — craft a sword before engaging ${killerName}s — fists are not enough. Avoid or flee to shelter.`;
+        } else {
+          recAction = 'FLEE';
+          avAction = 'FIGHT';
+          trigCond = 'low_health_combat';
+          lessonText = `Killed by ${killerName} while low health — flee when health drops below 10 — ${killerName}s will finish you off. Retreat to shelter.`;
+        }
       } else if (cause === 'drowning') {
+        recAction = 'FLEE';
+        avAction = 'MINE';
+        trigCond = 'critical_oxygen_water';
         lessonText = `Drowned at Y:${position?.y ?? '?'} — surface immediately when oxygen drops, place a torch against a wall for an air pocket underwater, or avoid deep water without a way out.`;
       } else if (cause === 'lava' || cause === 'fire') {
+        recAction = 'FLEE';
+        avAction = 'MINE';
+        trigCond = 'on_fire';
         lessonText = `Died to ${cause} — carry a water bucket to extinguish flames, avoid mining at Y<16 without caution, and flee immediately when on fire.`;
       } else if (cause === 'fall') {
+        recAction = 'BUILD';
+        avAction = 'EXPLORE';
+        trigCond = 'cliff_mining';
         lessonText = `Died from fall damage — avoid edges when mining, use ladders or scaffolding for deep shafts, and check Y level before jumping.`;
       } else if (killerName) {
+        recAction = 'CRAFT';
+        avAction = 'EXPLORE';
+        trigCond = 'unknown_killer';
         lessonText = `Killed by ${killerName} — equip armor and weapon before exploring, flee when outnumbered or at low health.`;
       } else {
+        recAction = 'BUILD';
+        avAction = 'EXPLORE';
+        trigCond = 'unknown_hazard';
         lessonText = `Died to ${cause || 'unknown hazard'} at Y:${position?.y ?? '?'} — avoid that area, craft better gear, and build a shelter for safety.`;
       }
 
-      fetch(`${serviceUrl}/api/ledger/lessons`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentId: bot.username,
-          lesson: lessonText,
-          severity: 0.9,
-          baseOpenness: persona?.traits?.openness ?? 0.5,
-          effectiveOpenness: 1.0,
-          isPublic: true,
-          status: 'shared',
-          context: { deterministic: true, penalizedRules, killerName, hadArmor, hadSword },
-          confidence: 0.75,
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
+      recordCivLesson({
+        lesson: lessonText,
+        recommendedAction: recAction,
+        avoidAction: avAction,
+        triggerCondition: trigCond,
+        severity: 0.9,
+        context: { deterministic: true, penalizedRules, killerName, hadArmor, hadSword, deathCause: cause }
+      });
     }
 
     // The world remembers where agents fell — a shared haunted-geography emerges

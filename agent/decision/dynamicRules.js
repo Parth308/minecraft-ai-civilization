@@ -214,14 +214,65 @@ class DynamicRuleEngine {
         const nearbyBlock = senses.getNearbyBlock('iron_ore', 16) ||
                             senses.getNearbyBlock('coal_ore', 16) ||
                             senses.getNearbyBlock('log', 24) ||
-                            senses.getNearbyBlock('stone', 8);
+                            senses.getNearbyBlock('stone', 8) ||
+                            senses.getNearbyBlock('copper_ore', 16) ||
+                            senses.getNearbyBlock('deepslate', 12);
         if (!nearbyBlock) {
           conf = 0.10; // No valid target nearby
         } else {
           targetMeta = { ...targetMeta, targetBlock: nearbyBlock };
         }
       } else if (rule.action === 'CRAFT') {
-        if (!senses.hasItem('log') && !senses.hasItem('oak_planks') && !senses.hasItem('cobblestone')) {
+        const hasCraftable = senses.hasItem('log') || senses.hasItem('oak_planks') ||
+                             senses.hasItem('cobblestone') || senses.hasItem('iron_ingot') ||
+                             senses.hasItem('raw_iron') || senses.hasItem('stick');
+        if (!hasCraftable) {
+          conf = 0.10;
+        }
+      } else if (rule.action === 'SMELT') {
+        const hasSmeltable = senses.hasItem('raw_iron') || senses.hasItem('raw_gold') ||
+                             senses.hasItem('raw_copper') || senses.hasItem('iron_ore');
+        const hasFuel = senses.hasItem('coal') || senses.hasItem('charcoal') || senses.hasItem('log') || senses.hasItem('oak_planks');
+        const hasFurnace = !!senses.getNearbyBlock?.('furnace', 16);
+        if (!hasSmeltable || (!hasFurnace && !hasFuel)) {
+          conf = 0.10;
+        }
+      } else if (rule.action === 'BUILD') {
+        const hasBlocks = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
+                          senses.hasItem('dirt') || senses.hasItem('stone') || senses.hasItem('stone_bricks');
+        if (!hasBlocks) {
+          conf = 0.10;
+        }
+      } else if (rule.action === 'FLEE') {
+        const hostileCount = typeof senses.getNearbyHostileMobs === 'function'
+          ? (senses.getNearbyHostileMobs(16) || []).length : 0;
+        const inWater = senses.isInWater?.();
+        const onFire = senses.isOnFire?.();
+        const oxygenLow = (senses.bot?.oxygenLevel ?? 20) < 12;
+        const lowHealth = stats.health < 12;
+        // Only trigger FLEE learned rule when there's an actual danger
+        if (hostileCount === 0 && !inWater && !onFire && !lowHealth && !oxygenLow) {
+          conf = 0.05;
+        }
+      } else if (rule.action === 'FIGHT') {
+        const hostiles = typeof senses.getNearbyHostileMobs === 'function'
+          ? (senses.getNearbyHostileMobs(12) || []) : [];
+        const hasWeapon = senses.hasItem('sword') || senses.hasItem('iron_sword') || senses.hasItem('stone_sword') || senses.hasItem('wooden_sword');
+        if (hostiles.length === 0 || (stats.health < 8 && !hasWeapon)) {
+          conf = 0.05;
+        } else if (hostiles.length > 0) {
+          targetMeta = { ...targetMeta, target: hostiles[0] };
+        }
+      } else if (rule.action === 'EAT') {
+        const hasFood = senses.hasItem('bread') || senses.hasItem('cooked_beef') ||
+                        senses.hasItem('cooked_porkchop') || senses.hasItem('apple') || senses.hasItem('baked_potato');
+        if (!hasFood || stats.hunger > 90) {
+          conf = 0.05;
+        }
+      } else if (rule.action === 'GUARD') {
+        const allies = typeof senses.getNearbyPlayers === 'function'
+          ? (senses.getNearbyPlayers(20) || []).filter(p => !/spectate/i.test(p.username)) : [];
+        if (allies.length === 0) {
           conf = 0.10;
         }
       } else if (rule.action === 'EXPLORE' || rule.action === 'WANDER') {
@@ -298,6 +349,27 @@ class DynamicRuleEngine {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Extracts the intended action verb from lesson text when not explicitly provided
+   * in the structured lesson payload.
+   */
+  static extractActionFromLesson(text) {
+    if (!text || typeof text !== 'string') return 'EXPLORE';
+    const t = text.toLowerCase();
+    if (/flee|retreat|escape|run away|surface|air pocket|avoid.*danger/.test(t)) return 'FLEE';
+    if (/craft|make.*tool|make.*armor|make.*sword|make.*pickaxe|plank/.test(t)) return 'CRAFT';
+    if (/smelt|furnace|ingot|melt/.test(t)) return 'SMELT';
+    if (/mine|dig|ore|coal|iron ore|diamond|stone|gather.*wood|chop/.test(t)) return 'MINE';
+    if (/build|shelter|wall|bunker|roof|fortify|torch.*place|place.*torch/.test(t)) return 'BUILD';
+    if (/eat|food|hunger|starv|bread|apple|meat/.test(t)) return 'EAT';
+    if (/fight|attack|sword|weapon|engage|strike|slay/.test(t)) return 'FIGHT';
+    if (/trade|barter|exchange|merchant|deal/.test(t)) return 'TRADE';
+    if (/talk|chat|gossip|speak|ally|dialogue/.test(t)) return 'TALK';
+    if (/guard|defend.*base|patrol|stand guard/.test(t)) return 'GUARD';
+    if (/explore|scout|wander|discover|search/.test(t)) return 'EXPLORE';
+    return 'EXPLORE';
   }
 
   static traitAffinity(category, traits) {
@@ -377,10 +449,21 @@ class DynamicRuleEngine {
         const traitBoost = (item.affinity - 0.5) * 0.30;
         const initialConfidence = Number(Math.min(0.75, Math.max(0.35, baseConfidence + traitBoost)).toFixed(2));
 
+        // Use explicit recommendedAction from structured lesson if available,
+        // or extract actionable verb from lesson text. NO MORE DEFAULTING TO 'WANDER'!
+        const resolvedAction = item.recommendedAction ||
+                               item.context?.recommendedAction ||
+                               DynamicRuleEngine.extractActionFromLesson(item.lesson);
+
+        const patternSit = item.triggerCondition ||
+                           item.context?.triggerCondition ||
+                           (item.category ? `SHARED_${item.category.toUpperCase()}` : 'SHARED_LESSON');
+
         this.learnedRules.push({
           id: ruleId,
-          patternSituation: 'SHARED_LESSON',
-          action: 'WANDER',
+          patternSituation: patternSit,
+          action: resolvedAction,
+          avoidAction: item.avoidAction || item.context?.avoidAction || null,
           confidence: initialConfidence,
           reason: `[Shared Civ Lesson from ${item.agentId}]: ${item.lesson}`,
           hitCount: 0,
@@ -419,10 +502,11 @@ class DynamicRuleEngine {
     const cleanTip = tipMessage.replace(/^(hey|yo|look|listen|watch out),?\s*/i, '').substring(0, 120);
     const existing = this.learnedRules.find(r => r.reason.includes(cleanTip));
     if (!existing) {
+      const gossipAction = DynamicRuleEngine.extractActionFromLesson(cleanTip);
       this.learnedRules.push({
         id: ruleId,
         patternSituation: 'GOSSIP_HEARING',
-        action: 'WANDER',
+        action: gossipAction,
         confidence: informalConfidence, // Gossip seeds lower (0.30-0.35) due to informal channel
         reason: `[Gossiped Advice from ${sender}]: ${cleanTip}`,
         hitCount: 0,
@@ -430,7 +514,7 @@ class DynamicRuleEngine {
         createdAt: Date.now(),
         lastReinforcedAt: Date.now()
       });
-      logger.info('DynamicRules', `[GOSSIP SEED] Seeded informal rule ${ruleId} from ${sender} with trust ${informalConfidence}`);
+      logger.info('DynamicRules', `[GOSSIP SEED] Seeded informal rule ${ruleId} -> ${gossipAction} from ${sender} with trust ${informalConfidence}`);
     }
   }
 
