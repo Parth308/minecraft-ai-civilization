@@ -18,7 +18,8 @@ module.exports = {
     cohere: process.env.COHERE_API_KEY,
     qwen: process.env.DASHSCOPE_API_KEY,
     freellm: process.env.FREELLMAPI_KEY,
-    kiraai: process.env.KIRA_API_KEY
+    kiraai: process.env.KIRA_API_KEY,
+    omniroute: process.env.OMNIROUTE_API_KEY
   },
   cacheTTLSeconds: parseInt(process.env.CACHE_TTL_SECONDS, 10) || 300
 };

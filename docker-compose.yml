@@ -165,6 +165,12 @@ services:
       TOKENREPLY_MODEL: "${TOKENREPLY_MODEL:-qwen/qwen-2.5-72b-instruct}"
       KIRA_API_KEY: "${KIRA_API_KEY:-}"
       KIRA_MODEL: "${KIRA_MODEL:-kira-3.5-flash}"
+      # OmniRoute: standalone Node.js router on the VPS host (port 20128)
+      # host-gateway resolves to the Docker bridge gateway IP — needed so the
+      # broker container can reach a process running on the host's network.
+      OMNIROUTE_API_KEY: "${OMNIROUTE_API_KEY:-}"
+      OMNIROUTE_BASE_URL: "${OMNIROUTE_BASE_URL:-http://host.docker.internal:20128}"
+      OMNIROUTE_MODEL: "${OMNIROUTE_MODEL:-auto/best-fast}"
       POLLINATIONS_MODEL: "${POLLINATIONS_MODEL:-openai}"
       CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-300}"
       EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER:-ollama}"
@@ -179,6 +185,8 @@ services:
     depends_on:
       memory-service:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits:

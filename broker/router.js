@@ -15,6 +15,7 @@ const queryQwen = require('./providers/qwen');
 const queryFreellm = require('./providers/freellm');
 const queryKiraAI = require('./providers/kiraai');
 const queryOllamaLocal = require('./providers/ollamalocal');
+const queryOmniRoute = require('./providers/omniroute');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -41,7 +42,8 @@ const BENCHMARK_RATES_PER_MTOK = {
   Agnes:       { input: 0.15, output: 0.60, name: 'Agnes AI API (OpenAI Compatible Hub)' },
   LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' },
   FreellmAPI:  { input: 0.00, output: 0.00, name: 'FreeLLMAPI self-hosted pooled router (~30 provider tiers)' },
-  KiraAI:      { input: 0.00, output: 0.00, name: 'KiraAI (150M free tokens/day, 57+ models)' }
+  KiraAI:       { input: 0.00, output: 0.00, name: 'KiraAI (150M free tokens/day, 57+ models)' },
+  OmniRoute:    { input: 0.00, output: 0.00, name: 'OmniRoute (self-hosted local router, 390 models, $0)' }
 };
 
 const MAX_ESCALATION_LOG = 200;
@@ -74,7 +76,8 @@ class ProviderRouter {
       Qwen: { name: 'Qwen', key: config.keys.qwen, fn: queryQwen },
       FreellmAPI: { name: 'FreellmAPI', key: config.keys.freellm, fn: queryFreellm },
       KiraAI: { name: 'KiraAI', key: config.keys.kiraai, fn: queryKiraAI },
-      OllamaLocal: { name: 'OllamaLocal', key: 'local', fn: queryOllamaLocal }
+      OllamaLocal: { name: 'OllamaLocal', key: 'local', fn: queryOllamaLocal },
+      OmniRoute: { name: 'OmniRoute', key: config.keys.omniroute, fn: queryOmniRoute }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -212,19 +215,19 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'KiraAI', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['KiraAI', 'SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['KiraAI', 'OmniRoute', 'SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['KiraAI', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['KiraAI', 'OmniRoute', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models.
       // OllamaLocal appended as last-resort — ~50s latency is painful but
       // a real reply strictly beats the blind-WANDER fallbackHeuristic
       // during total provider exhaustion.
-      baseOrder = ['Groq', 'KiraAI', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
     }
 
     // Filter to configured, non-rate-limited providers
