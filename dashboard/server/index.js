@@ -126,7 +126,6 @@ wss.on('connection', (ws, req) => {
 async function handleWsMessage(msg, ws) {
   switch (msg.type) {
     case 'spectate_agent': {
-      // Client requests to point spectator bot at a specific agent
       if (!spectator) {
         ws.send(JSON.stringify({ type: 'error', data: { message: 'Spectator bot not running' } }));
         return;
@@ -135,6 +134,36 @@ async function handleWsMessage(msg, ws) {
       const ok = await spectator.teleportToAgent(agentName);
       aggregator.setSpectatorStatus(spectator.getStatus());
       ws.send(JSON.stringify({ type: 'spectate_ack', data: { agentId: agentName, ok } }));
+      break;
+    }
+    case 'spectator_move': {
+      if (!spectator) return;
+      spectator.setMovementState(msg.state || {});
+      break;
+    }
+    case 'spectator_stop': {
+      if (!spectator) return;
+      spectator.stopMovement();
+      break;
+    }
+    case 'spectator_look': {
+      if (!spectator) return;
+      spectator.lookAt(msg.yaw || 0, msg.pitch || 0);
+      break;
+    }
+    case 'spectator_teleport': {
+      if (!spectator) return;
+      const { x, y, z } = msg;
+      if (typeof x === 'number' && typeof z === 'number') {
+        await spectator.teleportToCoords(x, y ?? 64, z);
+        aggregator.setSpectatorStatus(spectator.getStatus());
+      }
+      break;
+    }
+    case 'spectator_pos': {
+      if (!spectator) return;
+      const pos = spectator.getPosition();
+      ws.send(JSON.stringify({ type: 'spectator_pos', data: pos }));
       break;
     }
     case 'ping': {

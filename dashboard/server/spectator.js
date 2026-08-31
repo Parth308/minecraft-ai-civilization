@@ -164,8 +164,46 @@ class SpectatorManager {
     logger.info('Spectator', `Teleported to ${agentName}: ${result}`);
   }
 
+  setMovementState(state) {
+    if (!this.bot || !this.bot.entity) return;
+    const map = { forward: 'forward', back: 'back', left: 'left', right: 'right', up: 'jump', down: 'sneak' };
+    for (const [key, control] of Object.entries(map)) {
+      this.bot.setControlState(control, !!state[key]);
+    }
+  }
+
+  stopMovement() {
+    if (!this.bot) return;
+    ['forward', 'back', 'left', 'right', 'jump', 'sneak'].forEach(c => {
+      this.bot.setControlState(c, false);
+    });
+  }
+
+  lookAt(yaw, pitch) {
+    if (!this.bot || !this.bot.entity) return;
+    this.bot.look(yaw, pitch);
+  }
+
+  async teleportToCoords(x, y, z) {
+    if (!this.rcon) return false;
+    try {
+      await this.rcon.send(`tp ${SPECTATOR_NAME} ${x} ${y} ${z}`);
+      logger.info('Spectator', `Teleported to coordinates ${x} ${y} ${z}`);
+      return true;
+    } catch (err) {
+      logger.error('Spectator', `Teleport to coords failed: ${err.message}`);
+      return false;
+    }
+  }
+
   isOnline() {
     return this.bot && this.bot.entity != null;
+  }
+
+  getPosition() {
+    if (!this.bot || !this.bot.entity) return null;
+    const p = this.bot.entity.position;
+    return p ? { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 } : null;
   }
 
   getStatus() {
@@ -173,7 +211,8 @@ class SpectatorManager {
       online: this.isOnline(),
       currentTarget: this.currentTarget,
       viewerPort: VIEWER_PORT,
-      viewerReady: this.viewerStarted
+      viewerReady: this.viewerStarted,
+      position: this.getPosition()
     };
   }
 }

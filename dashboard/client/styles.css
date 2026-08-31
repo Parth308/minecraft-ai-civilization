@@ -800,6 +800,18 @@ tr:hover td { background: rgba(255,255,255,0.015); }
   background: rgba(16, 185, 129, 0.25);
 }
 
+.fly-active {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #60a5fa !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  animation: fly-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fly-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 12px 2px rgba(59, 130, 246, 0.4); }
+}
+
 /* 3D World View */
 .world-container {
   display: flex;
@@ -888,6 +900,49 @@ tr:hover td { background: rgba(255,255,255,0.015); }
   font-size: 12px;
   color: var(--text);
   pointer-events: none;
+  z-index: 10;
+}
+
+.fly-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  cursor: crosshair;
+  pointer-events: none;
+}
+
+.fly-overlay.active {
+  display: block;
+}
+
+.fly-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 300;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.fly-hud {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(12, 10, 9, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #93c5fd;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .world-hud-card {

@@ -13,6 +13,7 @@
     brokerStats: null,
     spectator: null,
     spectateTarget: null,
+    flyMode: false,
     chat: [],
     wsOnline: false
   };
@@ -351,7 +352,14 @@
       if (chatFeedEl) {
         chatFeedEl.innerHTML = chatFeed(state.chat.slice(-20));
       }
-      return null; // Signals render() that in-place DOM update was completed
+      const flyOverlay = document.getElementById('fly-overlay');
+      if (flyOverlay) flyOverlay.classList.toggle('active', state.flyMode);
+      const flyBtn = document.getElementById('fly-toggle-btn');
+      if (flyBtn) {
+        flyBtn.className = `btn btn-spectate${state.flyMode ? ' fly-active' : ''}`;
+        flyBtn.textContent = state.flyMode ? '✈ Flying — ESC to exit' : '🕊 Free Fly';
+      }
+      return null;
     }
 
     return `
@@ -375,6 +383,9 @@
 
           <div style="display:flex;align-items:center;gap:8px">
             <span class="badge ${online ? 'badge-online' : 'badge-offline'}">${online ? 'SPECTATOR READY' : 'SPECTATOR CONNECTING'}</span>
+            <button class="btn btn-spectate ${state.flyMode ? 'fly-active' : ''}" onclick="window.toggleFlyMode()" id="fly-toggle-btn">
+              ${state.flyMode ? '✈ Flying — ESC to exit' : '🕊 Free Fly'}
+            </button>
             <button class="btn btn-spectate" onclick="window.reloadWorldViewer()">↻ Reload Stream</button>
           </div>
         </div>
@@ -390,6 +401,10 @@
               <span class="num">${posStr}</span>
             </div>
             <iframe id="world-stream-frame" src="/viewer/" class="world-iframe" title="Minecraft 3D World View"></iframe>
+            <div class="fly-overlay ${state.flyMode ? 'active' : ''}" id="fly-overlay">
+              <div class="fly-crosshair">+</div>
+              <div class="fly-hud" id="fly-hud">WASD move · Space up · Shift down · Mouse look</div>
+            </div>
           </div>
 
           <!-- Live Agent HUD & Chat Stream -->
@@ -1814,6 +1829,93 @@
       frame.src = '/viewer/?t=' + Date.now();
     }
   };
+
+  // ── Free Fly Mode ──────────────────────────────────────────────────
+  const flyKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
+  let flySendInterval = null;
+  let mouseSensitivity = 0.002;
+
+  function sendFlyState() {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: 'spectator_move', state: flyKeys }));
+  }
+
+  function sendLook(yaw, pitch) {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: 'spectator_look', yaw, pitch }));
+  }
+
+  function sendStop() {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: 'spectator_stop' }));
+  }
+
+  window.toggleFlyMode = function() {
+    state.flyMode = !state.flyMode;
+    if (state.flyMode) {
+      document.addEventListener('keydown', flyKeyDown);
+      document.addEventListener('keyup', flyKeyUp);
+      document.addEventListener('mousemove', flyMouseMove);
+      document.addEventListener('pointerlockchange', flyPointerLockChange);
+      const overlay = document.getElementById('fly-overlay');
+      if (overlay) {
+        overlay.style.pointerEvents = 'auto';
+        overlay.addEventListener('click', requestFlyPointerLock);
+        overlay.requestPointerLock();
+      }
+      flySendInterval = setInterval(sendFlyState, 50);
+      render();
+    } else {
+      exitFlyMode();
+    }
+  };
+
+  function requestFlyPointerLock() {
+    const overlay = document.getElementById('fly-overlay');
+    if (overlay && !document.pointerLockElement) {
+      overlay.requestPointerLock();
+    }
+  }
+
+  function exitFlyMode() {
+    state.flyMode = false;
+    document.removeEventListener('keydown', flyKeyDown);
+    document.removeEventListener('keyup', flyKeyUp);
+    document.removeEventListener('mousemove', flyMouseMove);
+    document.removeEventListener('pointerlockchange', flyPointerLockChange);
+    if (flySendInterval) { clearInterval(flySendInterval); flySendInterval = null; }
+    Object.keys(flyKeys).forEach(k => flyKeys[k] = false);
+    sendStop();
+    if (document.pointerLockElement) document.exitPointerLock();
+    const overlay = document.getElementById('fly-overlay');
+    if (overlay) overlay.style.pointerEvents = 'none';
+    render();
+  }
+
+  function flyKeyDown(e) {
+    if (!state.flyMode) return;
+    const map = { KeyW: 'forward', KeyS: 'back', KeyA: 'left', KeyD: 'right', Space: 'up', ShiftLeft: 'down', ShiftRight: 'down' };
+    if (map[e.code]) { flyKeys[map[e.code]] = true; e.preventDefault(); }
+    if (e.code === 'Escape') exitFlyMode();
+  }
+
+  function flyKeyUp(e) {
+    const map = { KeyW: 'forward', KeyS: 'back', KeyA: 'left', KeyD: 'right', Space: 'up', ShiftLeft: 'down', ShiftRight: 'down' };
+    if (map[e.code]) { flyKeys[map[e.code]] = false; }
+  }
+
+  let flyYaw = 0, flyPitch = 0;
+  function flyMouseMove(e) {
+    if (!state.flyMode || !document.pointerLockElement) return;
+    flyYaw -= e.movementX * mouseSensitivity;
+    flyPitch -= e.movementY * mouseSensitivity;
+    flyPitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, flyPitch));
+    sendLook(flyYaw, flyPitch);
+  }
+
+  function flyPointerLockChange() {
+    if (!document.pointerLockElement && state.flyMode) exitFlyMode();
+  }
 
   window.setAgentTrait = async function(agentName, traitKey, val) {
     const numVal = parseFloat(val);
