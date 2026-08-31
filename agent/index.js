@@ -1597,23 +1597,48 @@ function createAgent() {
     // Deterministic hazard lesson posted straight to the civ ledger — the
     // LLM reflection path can be provider-starved, but civilization-level
     // learning from a death must never depend on quota. Throttled per cause.
+    // Lesson text is deliberately actionable so it passes the DT's noise filter
+    // (_isActionableLesson) and seeds into useful rules instead of being discarded.
     const deathLessonKey = `${bot.username}:${cause || 'hazard'}`;
     if (Date.now() - (lastDeathLessonAt[deathLessonKey] || 0) > 600000) {
       lastDeathLessonAt[deathLessonKey] = Date.now();
+      const inv = bot.inventory?.items() || [];
+      const hadArmor = inv.some(i => i.name?.includes('chestplate') || i.name?.includes('helmet'));
+      const hadSword = inv.some(i => i.name?.includes('sword'));
+      const hadFood  = inv.some(i => ['bread','cooked_beef','cooked_porkchop','apple'].includes(i.name));
+
+      let lessonText;
+      if (killerName === 'zombie' || killerName === 'skeleton' || killerName === 'creeper' || killerName === 'spider' || killerName === 'drowned') {
+        const advice = !hadArmor
+          ? `craft iron armor and equip it before fighting ${killerName}s`
+          : !hadSword
+          ? `craft a sword before engaging ${killerName}s — fists are not enough`
+          : `flee when health drops below 10 — ${killerName}s will finish you off`;
+        lessonText = `Killed by ${killerName} while ${!hadArmor ? 'unarmored' : !hadSword ? 'unarmed' : 'low health'} — ${advice}. Avoid, flee to shelter, or smelt iron first.`;
+      } else if (cause === 'drowning') {
+        lessonText = `Drowned at Y:${position?.y ?? '?'} — surface immediately when oxygen drops, place a torch against a wall for an air pocket underwater, or avoid deep water without a way out.`;
+      } else if (cause === 'lava' || cause === 'fire') {
+        lessonText = `Died to ${cause} — carry a water bucket to extinguish flames, avoid mining at Y<16 without caution, and flee immediately when on fire.`;
+      } else if (cause === 'fall') {
+        lessonText = `Died from fall damage — avoid edges when mining, use ladders or scaffolding for deep shafts, and check Y level before jumping.`;
+      } else if (killerName) {
+        lessonText = `Killed by ${killerName} — equip armor and weapon before exploring, flee when outnumbered or at low health.`;
+      } else {
+        lessonText = `Died to ${cause || 'unknown hazard'} at Y:${position?.y ?? '?'} — avoid that area, craft better gear, and build a shelter for safety.`;
+      }
+
       fetch(`${serviceUrl}/api/ledger/lessons`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: bot.username,
-          lesson: killerName
-            ? `Killed by ${killerName} — they are dangerous, avoid or prepare defenses`
-            : `Died to ${cause || 'hazard'} at X:${position?.x ?? '?'} Y:${position?.y ?? '?'} Z:${position?.z ?? '?'} — treat that terrain/situation as lethal`,
+          lesson: lessonText,
           severity: 0.9,
           baseOpenness: persona?.traits?.openness ?? 0.5,
           effectiveOpenness: 1.0,
           isPublic: true,
           status: 'shared',
-          context: { deterministic: true, penalizedRules, killerName },
+          context: { deterministic: true, penalizedRules, killerName, hadArmor, hadSword },
           confidence: 0.75,
           timestamp: Date.now()
         })
@@ -1664,6 +1689,11 @@ function createAgent() {
     stats.hunger = 100;
     detailedLogger.logCognition(bot.username, 'Agent Respawned');
     eventBuffer.addEvent('respawn', {});
+
+    // Signal the DT to activate post-death gear-up urgency (Improvement 3).
+    // justDied is consumed once by the next DT tick and then cleared.
+    agentState.justDied = true;
+    agentState.lastDeathCause = cause || null; // cause is in scope from the death handler closure
 
     // ── PvP Consequence: Remote Respawn ────────────────────────────────────
     // Death displaces you. Respawn far from where you fell — 200-400 blocks

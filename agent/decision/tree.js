@@ -149,6 +149,27 @@ class DecisionTree {
       }
     }
 
+    // ── Improvement 1: Productivity stagnation detector ───────────────────────
+    // If no resource-gathering action in the last 60s, nudge the agent away from
+    // pure exploration loops and toward productive work. This breaks the
+    // EXPLORE→SCOUT→EXPLORE soft-loop observed when 10+ ores are visible.
+    const PRODUCTIVE_ACTIONS = new Set(['MINE', 'CRAFT', 'SMELT', 'BUILD', 'FARM', 'HARVEST', 'HUNT']);
+    if (!this._lastProductiveAt) this._lastProductiveAt = Date.now();
+    const recentTen = (this._actionHistory || []).slice(-10);
+    if (recentTen.some(a => PRODUCTIVE_ACTIONS.has(a))) {
+      this._lastProductiveAt = Date.now();
+    } else if (Date.now() - this._lastProductiveAt > 60000) {
+      for (const c of candidates) {
+        if (PRODUCTIVE_ACTIONS.has(c.name)) {
+          c.confidence += 0.15;
+          c.reason += ' [productivity nudge: no resource-gathering in 60s]';
+        }
+        if (c.name === 'EXPLORE' || c.name === 'SCOUT' || c.name === 'WANDER') {
+          c.confidence -= 0.10;
+        }
+      }
+    }
+
     // Time-of-day weighting: actions appropriate for current time get boost
     const timeOfDay = agentState.timeOfDay || 'day';
     const isNight = agentState.isNight || false;
@@ -356,6 +377,28 @@ class DecisionTree {
       }
     }
 
+    // ── Improvement 2: Ore-visible urgency ────────────────────────────────────
+    // 10 ores visible in logs but MINE wasn't winning. When ores are detectable
+    // and agent has a pickaxe and decent health, MINE gets an urgency boost so
+    // it beats ambient EXPLORE/SCOUT.
+    const nearbyOres = typeof senses.getNearbyOres === 'function' ? senses.getNearbyOres(20) : [];
+    const hasAnyPickaxe = (agentState.inventory || []).some(i => i.name?.includes('pickaxe'));
+    if (nearbyOres.length >= 3 && hasAnyPickaxe && stats.health > 12 && stats.hunger > 25) {
+      for (const c of candidates) {
+        if (c.name === 'MINE') {
+          c.confidence += 0.20;
+          c.reason += ` [urgency: ${nearbyOres.length} ores visible]`;
+        }
+      }
+    } else if (nearbyOres.length >= 1 && hasAnyPickaxe && stats.health > 14) {
+      for (const c of candidates) {
+        if (c.name === 'MINE') {
+          c.confidence += 0.10;
+          c.reason += ` [opportunity: ${nearbyOres.length} ore${nearbyOres.length > 1 ? 's' : ''} spotted]`;
+        }
+      }
+    }
+
     // Faster learning from others' mistakes
     try {
       const memUrl = process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
@@ -451,6 +494,76 @@ class DecisionTree {
       }
     }
 
+    // ── Improvement 3: Post-death gear-up urgency ─────────────────────────────
+    // When an agent just respawned (justDied flag set by index.js), open a 3min
+    // window where CRAFT/SMELT/BUILD are heavily boosted. Creates natural
+    // 'die → gear up → survive better' learning without LLM dependency.
+    if (agentState.justDied) {
+      this._deathRecoveryUntil = Date.now() + 3 * 60 * 1000;
+      this._lastDeathCause = agentState.lastDeathCause || 'unknown';
+      agentState.justDied = false; // consume once — window is tracked by _deathRecoveryUntil
+      logger.info('DecisionTree', `[POST-DEATH RECOVERY] ${this._lastDeathCause} kill — 3min gear-up window activated`);
+    }
+    if (this._deathRecoveryUntil && Date.now() < this._deathRecoveryUntil) {
+      const hasIronInInv = (agentState.inventory || []).some(i => i.name?.includes('iron'));
+      const hasWoodInInv = (agentState.inventory || []).some(i => i.name?.includes('log') || i.name?.includes('plank'));
+      for (const c of candidates) {
+        if (c.name === 'CRAFT' || c.name === 'SMELT') {
+          c.confidence += hasIronInInv ? 0.22 : 0.12;
+          c.reason += ' [post-death: gear up priority]';
+        }
+        if (c.name === 'BUILD') {
+          c.confidence += 0.15;
+          c.reason += ' [post-death: shelter priority]';
+        }
+        if (c.name === 'MINE' && !hasAnyPickaxe && hasWoodInInv) {
+          // Has wood but no pickaxe — craft first, then mine
+          c.confidence -= 0.15;
+        }
+        // Killer-specific avoidance: if a zombie/drowned killed us, extra flee when they're nearby again
+        if (c.name === 'FLEE' && (this._lastDeathCause === 'zombie' || this._lastDeathCause === 'drowned') && stats.health < 16) {
+          c.confidence += 0.15;
+          c.reason += ` [post-death: avoided ${this._lastDeathCause}]`;
+        }
+      }
+    }
+
+    // ── Improvement 4: Tech-tier progression bias ─────────────────────────────
+    // Detects which tool tier the agent is on and nudges toward the next upgrade.
+    // Wood → Stone → Iron is the critical progression ladder; without it agents
+    // mine cobblestone forever with a wooden pickaxe or ignore available iron.
+    {
+      const inv = agentState.inventory || [];
+      const hasStonePick = inv.some(i => i.name === 'stone_pickaxe');
+      const hasIronPick  = inv.some(i => i.name === 'iron_pickaxe' || i.name === 'diamond_pickaxe' || i.name === 'netherite_pickaxe');
+      const ironIngots   = inv.filter(i => i.name === 'iron_ingot').reduce((s, i) => s + i.count, 0);
+      const cobble       = inv.filter(i => i.name === 'cobblestone' || i.name === 'cobbled_deepslate').reduce((s, i) => s + i.count, 0);
+      const hasStick     = inv.some(i => i.name === 'stick');
+      const woodPlanks   = inv.filter(i => i.name?.includes('planks')).reduce((s, i) => s + i.count, 0);
+
+      if (!hasStonePick && !hasIronPick && cobble >= 3) {
+        // Tier 0→1: have cobble, craft stone pickaxe NOW
+        for (const c of candidates) {
+          if (c.name === 'CRAFT') { c.confidence += 0.25; c.reason += ' [tier-up: craft stone pickaxe]'; }
+        }
+      } else if (!hasIronPick && ironIngots >= 3) {
+        // Tier 1→2: have iron ingots, craft iron pickaxe NOW
+        for (const c of candidates) {
+          if (c.name === 'CRAFT') { c.confidence += 0.25; c.reason += ' [tier-up: craft iron pickaxe]'; }
+        }
+      } else if (!hasIronPick && ironIngots < 3 && (hasStonePick || hasAnyPickaxe)) {
+        // Tier 1: need more iron ore — mining is the path
+        for (const c of candidates) {
+          if (c.name === 'MINE') { c.confidence += 0.18; c.reason += ' [tier-up: mining for iron]'; }
+        }
+      } else if (!hasAnyPickaxe && woodPlanks >= 3) {
+        // Tier 0: have planks but no pickaxe at all — craft wooden pickaxe first
+        for (const c of candidates) {
+          if (c.name === 'CRAFT') { c.confidence += 0.30; c.reason += ' [tier-up: craft wooden pickaxe — no tools]'; }
+        }
+      }
+    }
+
     // Failure refractory: track consecutive failures per action and apply
     // escalating penalties. A flat -0.18 was overwhelmed by stacked persona
     // (+0.35), opportunity (+0.12), mastery (+0.04), chain (+0.12), and social
@@ -539,12 +652,31 @@ class DecisionTree {
 
     logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
 
+    // ── Improvement 5: Drowning pre-emption (hard gate, not soft boost) ───────
+    // Most common death cause in the ledger: drowning. The existing isWaterRisk
+    // only fires when already at low health OR oxygen < 15. By that point the
+    // DT may still choose MINE or EXPLORE. This hard gate overrides the sort
+    // result instantly when oxygen is in the danger zone (< 10 = 2 bubbles left).
+    const oxygenLevel = senses.bot?.oxygenLevel ?? 20;
+    const isInWaterNow = senses.isInWater?.() || agentState.isInWater;
+    if (isInWaterNow && oxygenLevel < 10) {
+      for (const c of candidates) {
+        if (c.name === 'FLEE') {
+          c.confidence = Math.max(c.confidence, 0.97);
+          c.reason = `[DROWNING] Oxygen critically low (${oxygenLevel}/20) — surface immediately`;
+        }
+      }
+      candidates.sort((a, b) => b.confidence - a.confidence);
+      topCandidate = candidates[0];
+      logger.warn('DecisionTree', `[DROWNING PRE-EMPTION] Oxygen=${oxygenLevel} — forcing FLEE`);
+    }
+
     // Environmental Hazard Detection & Counter-Strategy Tagging
     const biomeLower = (agentState.biome || senses.getBiome?.() || '').toLowerCase();
     const isColdBiome = biomeLower.includes('snow') || biomeLower.includes('ice') || biomeLower.includes('frozen') || biomeLower.includes('peak') || biomeLower.includes('cold') || biomeLower.includes('grove');
     const isFreezingRisk = isColdBiome && (stats.health < 20 || (topCandidate.reason || '').toLowerCase().includes('snow') || (topCandidate.reason || '').toLowerCase().includes('freeze'));
     const isFireRisk = senses.isOnFire?.() || agentState.isOnFire || (topCandidate.reason || '').toLowerCase().includes('lava') || (topCandidate.reason || '').toLowerCase().includes('fire');
-    const isWaterRisk = (senses.isInWater?.() || agentState.isInWater) && (stats.health < 16 || senses.bot?.oxygenLevel < 15);
+    const isWaterRisk = isInWaterNow && (stats.health < 16 || oxygenLevel < 15);
     const isMobRisk = (senses.getNearbyHostileMobs?.(8)?.length || 0) >= 2 || (stats.health <= 10 && (senses.getNearbyHostileMobs?.(12)?.length || 0) > 0);
 
     const isHazard = isFreezingRisk || isFireRisk || isWaterRisk || isMobRisk;

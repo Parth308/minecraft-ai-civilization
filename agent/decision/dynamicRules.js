@@ -279,6 +279,27 @@ class DynamicRuleEngine {
     return 'survival';
   }
 
+  /**
+   * Returns false for pure noise lessons that provide no actionable DT signal:
+   * - Raw coordinate death dumps: "Died to X at X:... Y:... Z:..." with no strategy
+   * - Generic mob danger notices: "Killed by zombie — they are dangerous" (DT already knows)
+   * Returns true for lessons with verbs/strategies that can inform rule seeding.
+   */
+  static _isActionableLesson(text) {
+    if (!text || typeof text !== 'string') return false;
+    const t = text.trim();
+    // Pure coordinate death dumps: no actionable content beyond "place was lethal"
+    if (/^Died to .+ at X:[\d.-]+\s+Y:[\d.-]+\s+Z:[\d.-]+\s+[\u2014-]/.test(t) &&
+        !/avoid|craft|flee|build|torch|shelter|surface|swim|breath|leather|bucket|armor|weapon|equip|smelt|mine|food/i.test(t)) {
+      return false;
+    }
+    // Generic "they are dangerous" mob warnings — static rules already handle these
+    if (/^Killed by .+ [\u2014-] they are dangerous, avoid or prepare defenses$/.test(t)) {
+      return false;
+    }
+    return true;
+  }
+
   static traitAffinity(category, traits) {
     const affinities = {
       survival:    (traits.caution || 0.5) * 0.6 + (1 - (traits.ambition || 0.5)) * 0.4,
@@ -300,7 +321,12 @@ class DynamicRuleEngine {
       const res = await fetch(`${memoryServiceUrl}/api/ledger/lessons${sinceParam}`);
       if (!res.ok) return;
       const data = await res.json();
-      const lessons = data.sharedLessons || [];
+      // Pre-filter: skip pure coordinate death-dumps and generic mob warnings.
+      // These make up ~85% of the ledger but have zero actionable signal for the DT.
+      const allLessons = (data.sharedLessons || []).filter(item =>
+        item && item.lesson && DynamicRuleEngine._isActionableLesson(item.lesson)
+      );
+      const lessons = allLessons;
 
       const traits = persona?.traits || {};
       const enriched = lessons
