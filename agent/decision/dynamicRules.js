@@ -30,11 +30,18 @@ class DynamicRuleEngine {
       return;
     }
 
+    const socialActions = new Set(['TRADE', 'TALK', 'COOPERATE']);
+    // Initial confidence is intentionally kept BELOW the escalation threshold (0.75)
+    // so that learned rules execute directly from accumulated knowledge without
+    // needing live LLM confirmation every tick. 0.60 for most actions; 0.52 for
+    // social actions (TRADE/TALK) since those require a partner + items — lower
+    // initial weight prevents them from dominating over survival actions.
+    const initialConfidence = socialActions.has(action) ? 0.52 : 0.60;
     const newRule = {
       id: ruleId,
       patternSituation: situationName,
       action: action,
-      confidence: 0.72, // Soft learned preference that still allows LLM escalation when needed
+      confidence: initialConfidence,
       reason: `Learned from Broker LLM: ${decisionData.reason || 'Replicated decision'}`,
       hitCount: 1,
       createdAt: now,
@@ -42,7 +49,7 @@ class DynamicRuleEngine {
     };
 
     this.learnedRules.push(newRule);
-    logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: 0.72)`);
+    logger.info('DynamicRules', `[RULE REPLICATION] Learned dynamic rule ${ruleId} -> Action '${action}' (Confidence: ${initialConfidence})`);
 
     if (this.memoryClient) {
       if (decisionData.tacticLearned) {
@@ -238,6 +245,13 @@ class DynamicRuleEngine {
         const targets = typeof senses.getNearbyPlayers === 'function'
           ? (senses.getNearbyPlayers(24) || []).filter(p => !/spectate/i.test(p.username)) : [];
         if (targets.length === 0) conf = 0.10;
+      } else if (rule.action === 'TRADE') {
+        const hasTradable = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
+                            senses.hasItem('iron_ore') || senses.hasItem('diamond') ||
+                            senses.hasItem('iron_ingot') || senses.hasItem('gold_ingot') ||
+                            senses.hasItem('coal') || senses.hasItem('raw_iron') ||
+                            senses.hasItem('bread') || senses.hasItem('cooked_beef');
+        if (!hasTradable) conf = 0.10;
       }
 
       candidateActions.push({

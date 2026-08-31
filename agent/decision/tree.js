@@ -451,15 +451,31 @@ class DecisionTree {
       }
     }
 
-    // Failure refractory: an action that JUST failed is deprioritized for the
-    // immediate re-pick so alternates get a chance — previously a blocked
-    // action re-won every tick until the 6-cycle stuck-loop detector fired,
-    // burning escalation budget on doomed repeats.
+    // Failure refractory: track consecutive failures per action and apply
+    // escalating penalties. A flat -0.18 was overwhelmed by stacked persona
+    // (+0.35), opportunity (+0.12), mastery (+0.04), chain (+0.12), and social
+    // graph (+0.10) boosts — total ~0.73, leaving confidence at 0.54+ even
+    // after repeated failures. Escalating penalty = 0.18 × count (cap 0.50).
+    if (!this._actionConsecutiveFailures) this._actionConsecutiveFailures = new Map();
     const lastResult = agentState.lastActionResult;
-    if (lastResult && lastResult.action && lastResult.ok === false) {
-      for (const c of candidates) {
-        if (c.name === lastResult.action) c.confidence -= 0.18;
+    if (lastResult && lastResult.action) {
+      if (lastResult.ok === false) {
+        const prev = this._actionConsecutiveFailures.get(lastResult.action) || 0;
+        this._actionConsecutiveFailures.set(lastResult.action, prev + 1);
+        const penalty = Math.min(0.50, 0.18 * (prev + 1));
+        for (const c of candidates) {
+          if (c.name === lastResult.action) c.confidence -= penalty;
+        }
+      } else if (lastResult.ok === true) {
+        this._actionConsecutiveFailures.delete(lastResult.action);
       }
+    }
+
+    // Confidence ceiling: persona, emotion, opportunity, mastery, and chain
+    // boosts stack additively after the initial 0.99 cap, pushing learned rules
+    // past 1.0 and preventing the stuck-loop detector from firing. Hard clamp.
+    for (const c of candidates) {
+      c.confidence = Math.min(0.99, Math.max(0.01, c.confidence));
     }
 
     // Sort by highest confidence
@@ -514,6 +530,13 @@ class DecisionTree {
       }
     }
 
+    // Escalation suppression: if the last N escalations for this action all returned
+    // fallback (providers were down), stop escalating for 90s and resolve locally.
+    // This prevents the TRADE/TALK alternation loop where the DT throws away its own
+    // correct decision in favour of a stale cached broker response, every single tick.
+    if (!this._escalationFallbackStreak) this._escalationFallbackStreak = new Map();
+    if (!this._escalationSuppressedUntil) this._escalationSuppressedUntil = new Map();
+
     logger.info('DecisionTree', `Evaluated top action '${topCandidate.name}' with confidence ${topCandidate.confidence} (${topCandidate.reason}) [Learned Rules: ${this.dynamicRuleEngine.getRulesCount()}]`);
 
     // Environmental Hazard Detection & Counter-Strategy Tagging
@@ -545,6 +568,40 @@ class DecisionTree {
     // Society knowledge snapshot (cached ~60s) is only consumed by escalation
     // payloads, so its network calls live inside the escalation branch — they
     // previously ran on every 1s tick even when the decision resolved locally.
+
+    // Self-sufficient local resolution: if escalation has been suppressed for
+    // this action (providers were consistently returning fallbacks), bypass the
+    // broker entirely and resolve from DT knowledge. Hazards always escalate.
+    const suppressedUntil = this._escalationSuppressedUntil.get(topCandidate.name) || 0;
+    const isEscalationSuppressed = !isHazard && !isStuckInLoop && (Date.now() < suppressedUntil);
+
+    if (isEscalationSuppressed) {
+      logger.info('DecisionTree', `[LOCAL RESOLVE] Escalation suppressed for '${topCandidate.name}' (providers were down). DT resolves locally with confidence ${topCandidate.confidence}.`);
+      return {
+        action: topCandidate.name,
+        confidence: topCandidate.confidence,
+        escalated: false,
+        source: topCandidate.isDynamic ? 'learned_rule' : 'builtin_rule',
+        provider: null,
+        model: null,
+        cached: false,
+        cacheType: null,
+        fallback: false,
+        costUsd: 0,
+        latencyMs: 0,
+        reason: `[Local DT — escalation suppressed: providers were down] ${topCandidate.reason || ''}`,
+        ruleId: topCandidate.ruleId || topCandidate.meta?.ruleId || null,
+        meta: topCandidate,
+        allCandidates: candidates.map(c => ({
+          name: c.name,
+          confidence: c.confidence,
+          reason: c.reason || '',
+          isDynamic: !!c.isDynamic,
+          ruleId: c.ruleId || c.meta?.ruleId || null
+        }))
+      };
+    }
+
     if (this.confidenceEvaluator.shouldEscalate(topCandidate.confidence) || isStuckInLoop || isHazard) {
       const isResearchNeeded = isHazard || (
         topCandidate.name === 'CRAFT' ||
@@ -584,7 +641,7 @@ class DecisionTree {
           } catch { /* optional context */ }
         }
       } catch { /* society knowledge is optional */ }
-      
+
       const payload = {
         agentId: senses.bot?.username || persona?.agentId || 'Agent',
         taskType,
@@ -690,6 +747,47 @@ class DecisionTree {
       const isFallback = !!escalationResult.fallback;
       const source = isCached ? 'cache' : (isFallback ? 'fallback' : 'llm');
 
+      // ── Provider-down self-sufficiency (Issue A fix) ──────────────────────
+      // When the broker returns a fallback (all providers down), do NOT blindly
+      // use the broker's stale action — that's what caused the TRADE/TALK loop.
+      // Instead: trust the DT's own best non-stuck candidate. The agent has
+      // accumulated learned rules from prior LLM interactions; it can act on
+      // them without needing live LLM confirmation every tick.
+      //
+      // Exception: stuck-loop breaks and hazard counter-strategies still use
+      // the broker result because those require creative new directions the DT
+      // alone can't generate.
+      let resolvedAction = escalationResult.action || 'WANDER';
+      if (isFallback && !isStuckInLoop && !isHazard) {
+        // Track consecutive fallback streak for this action
+        const streakKey = topCandidate.name;
+        const streak = (this._escalationFallbackStreak.get(streakKey) || 0) + 1;
+        this._escalationFallbackStreak.set(streakKey, streak);
+        logger.warn('DecisionTree', `[PROVIDER DOWN] Broker returned fallback for '${streakKey}' (streak: ${streak}). DT resolving locally.`);
+
+        // After 3 consecutive fallbacks for same action, suppress escalation
+        // for 90s so we stop burning broker round-trips during provider outages.
+        if (streak >= 3) {
+          this._escalationSuppressedUntil.set(streakKey, Date.now() + 90000);
+          this._escalationFallbackStreak.set(streakKey, 0);
+          logger.warn('DecisionTree', `[ESCALATION SUPPRESSED] Action '${streakKey}' will resolve locally for 90s (3 consecutive provider-down fallbacks).`);
+        }
+
+        // Pick the best non-stuck, non-looping candidate from the DT itself.
+        // Prefer a different action than the one that kept triggering escalation.
+        const loopedActions = new Set([topCandidate.name, ...(uniqueRecent || [])]);
+        const dtFallback = candidates.find(c => !loopedActions.has(c.name) && c.confidence > 0.15)
+          || candidates.find(c => c.name !== topCandidate.name && c.confidence > 0.10)
+          || topCandidate;
+        resolvedAction = dtFallback.name;
+        logger.info('DecisionTree', `[LOCAL RESOLVE] Provider-down: using DT candidate '${resolvedAction}' (confidence: ${dtFallback.confidence}) instead of broker fallback '${escalationResult.action}'.`);
+      } else if (!isFallback) {
+        // Successful LLM response — reset fallback streak for this action.
+        this._escalationFallbackStreak.set(topCandidate.name, 0);
+        this._escalationSuppressedUntil.delete(topCandidate.name);
+      }
+      // ── end Issue A fix ───────────────────────────────────────────────────
+
       // Suppress meta-commentary that leaks from cached LLM reasoning
       const rawChat = escalationResult.chatMessage || null;
       const chatMessage = rawChat && !/Ouch!|Autonomous decision/i.test(rawChat) ? rawChat : null;
@@ -721,7 +819,7 @@ class DecisionTree {
       }
 
       return {
-        action: escalationResult.action || 'WANDER',
+        action: resolvedAction,
         confidence: topCandidate.confidence,
         escalated: true,
         source,
@@ -735,7 +833,9 @@ class DecisionTree {
         costUsd: typeof escalationResult.costUsd === 'number' ? escalationResult.costUsd : null,
         latencyMs: typeof escalationResult.latencyMs === 'number' ? escalationResult.latencyMs : null,
         webKnowledgeUsed: !!escalationResult.webKnowledgeUsed,
-        reason: escalationResult.reason || (isHazard ? `Autonomous hazard counter-strategy executed for ${hazardType}` : 'Escalated to LLM for autonomous reasoning'),
+        reason: isFallback && !isStuckInLoop && !isHazard
+          ? `[Provider-down local DT] ${resolvedAction} chosen from learned rules — broker unavailable`
+          : (escalationResult.reason || (isHazard ? `Autonomous hazard counter-strategy executed for ${hazardType}` : 'Escalated to LLM for autonomous reasoning')),
         tacticLearned: escalationResult.tacticLearned || null,
         chatMessage: finalChat,
         newGoal: escalationResult.newGoal || null,
