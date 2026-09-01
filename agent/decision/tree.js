@@ -25,6 +25,19 @@ const EmotionalState = require('../cognition/emotions');
 const BeliefNetwork = require('../cognition/beliefs');
 const logger = require('../../shared/logger');
 
+/** Slim a Mineflayer block object: strip 200+ fields down to the ~8 the broker uses.
+ *  Prevents V8 old-gen bloat from retained block-state objects causing heap OOM. */
+function slimBlock(block) {
+  if (!block || typeof block !== 'object') return block;
+  return {
+    name: block.name, displayName: block.displayName || block.name,
+    position: block.position ? { x: block.position.x, y: block.position.y, z: block.position.z } : null,
+    type: block.type ?? block.stateId, hardness: block.hardness,
+    lightLevel: block.lightLevel, isUnderground: block.isUnderground,
+    drops: block.drops ? (Array.isArray(block.drops) ? block.drops[0] : block.drops) : null,
+  };
+}
+
 class DecisionTree {
   constructor(threshold = 0.6, memoryClient = null, brainClient = null) {
     this.confidenceEvaluator = new ConfidenceEvaluator(threshold);
@@ -1010,7 +1023,7 @@ class DecisionTree {
         meta: {
           ...topCandidate,
           itemToCraft: escalationResult.itemToCraft || topCandidate.itemToCraft,
-          targetBlock: topCandidate.targetBlock || null,
+          targetBlock: topCandidate.targetBlock ? slimBlock(topCandidate.targetBlock) : null,
           threat: topCandidate.threat || null,
           target: topCandidate.target || null
         },

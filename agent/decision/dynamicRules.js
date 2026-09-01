@@ -1,5 +1,16 @@
 const logger = require('../../shared/logger');
 
+function slimBlock(block) {
+  if (!block || typeof block !== 'object') return block;
+  return {
+    name: block.name, displayName: block.displayName || block.name,
+    position: block.position ? { x: block.position.x, y: block.position.y, z: block.position.z } : null,
+    type: block.type ?? block.stateId, hardness: block.hardness,
+    lightLevel: block.lightLevel, isUnderground: block.isUnderground,
+    drops: block.drops ? (Array.isArray(block.drops) ? block.drops[0] : block.drops) : null,
+  };
+}
+
 const MAX_ACTIVE_RULES = 80;
 
 class DynamicRuleEngine {
@@ -277,7 +288,7 @@ class DynamicRuleEngine {
         if (!cachedMiningBlock) {
           conf = 0.10; // No valid target nearby
         } else {
-          targetMeta = { ...targetMeta, targetBlock: cachedMiningBlock };
+          targetMeta = { ...targetMeta, targetBlock: slimBlock(cachedMiningBlock) };
         }
       } else if (rule.action === 'CRAFT') {
         if (!hasCraftable) {

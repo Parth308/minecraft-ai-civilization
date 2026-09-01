@@ -1,5 +1,24 @@
 const { ACTIONS } = require('../../../shared/constants');
 
+/** Slim a Mineflayer block object to only what the broker/DT needs.
+ *  Raw block objects carry 200+ fields (computedStates, shapes, boundingBox,
+ *  harvestTools, _properties) that bloat every escalation log line and hold
+ *  ~600MB in the V8 old-gen before a GC can free them, causing OOM.
+ *  This keeps only the fields actually read downstream (name, position, etc). */
+function slimBlock(block) {
+  if (!block || typeof block !== 'object') return block;
+  return {
+    name: block.name,
+    displayName: block.displayName || block.name,
+    position: block.position ? { x: block.position.x, y: block.position.y, z: block.position.z } : null,
+    type: block.type ?? block.stateId,
+    hardness: block.hardness,
+    lightLevel: block.lightLevel,
+    isUnderground: block.isUnderground,
+    drops: block.drops ? (Array.isArray(block.drops) ? block.drops[0] : block.drops) : null,
+  };
+}
+
 const ORE_VALUES = {
   diamond_ore: 10, deepslate_diamond_ore: 10,
   emerald_ore: 8, deepslate_emerald_ore: 8,
@@ -64,7 +83,7 @@ function evaluateMine(senses, stats) {
       return {
         name: ACTIONS.MINE,
         confidence: 0.90,
-        targetBlock: tree,
+        targetBlock: slimBlock(tree),
         reason: `Chopping tree: found ${tree.name} (have ${logCount} logs, need wood for tools)`
       };
     }
@@ -97,7 +116,7 @@ function evaluateMine(senses, stats) {
       if (requiresStone && !hasStonePickOrBetter) continue;
 
       const score = scoreOre(block, inventory);
-      candidates.push({ block, score, oreName });
+      candidates.push({ block: slimBlock(block), score, oreName });
     }
 
     if (candidates.length > 0) {
@@ -107,7 +126,7 @@ function evaluateMine(senses, stats) {
       return {
         name: ACTIONS.MINE,
         confidence,
-        targetBlock: best.block,
+        targetBlock: slimBlock(best.block),
         reason: `Mining ${best.oreName.replace(/_/g, ' ')} (score: ${best.score.toFixed(2)}, value: ${ORE_VALUES[best.oreName]})`
       };
     }
@@ -119,7 +138,7 @@ function evaluateMine(senses, stats) {
       return {
         name: ACTIONS.MINE,
         confidence: 0.75,
-        targetBlock: stoneBlock,
+        targetBlock: slimBlock(stoneBlock),
         reason: `Mining stone for tool upgrades (have ${cobbleCount}/16 cobblestone)`
       };
     }
