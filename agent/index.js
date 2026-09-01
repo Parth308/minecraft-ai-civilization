@@ -305,6 +305,8 @@ function createAgent() {
   const AGENT_CHAT_COOLDOWN_MS = 6000;  // min 6s between replies to same sender
   const PLAYER_CHAT_COOLDOWN_MS = 1800; // min 1.8s between replies to player
   let lastOutgoingChat = 0;             // global outgoing chat throttle
+  let lastTorchPlacement = 0;            // throttle: min 30s between torch placements (per WANDER/EXPLORE path)
+  let lastDiscoveryPost = 0;             // throttle: min 10s between ore-discovery posts
   const lastDeathLessonAt = {};
   const milestoneLessonsRecorded = new Set();
   let lastNearMissLessonAt = 0;
@@ -1566,6 +1568,7 @@ function createAgent() {
     // Store last death position for remote respawn
     agentState.lastDeathPosition = position ? { x: position.x, y: position.y, z: position.z } : null;
     agentState.killedBy = killerName;
+    agentState.lastDeathCause = cause || null; // persisted so agentRespawn handler can read it (cause is out of scope there)
 
     // ── PvP Consequence: Killer Reputation Broadcast ───────────────────────
     // The kill echoes through the social network. Nearby agents hear about it,
@@ -1816,7 +1819,7 @@ function createAgent() {
     // Signal the DT to activate post-death gear-up urgency (Improvement 3).
     // justDied is consumed once by the next DT tick and then cleared.
     agentState.justDied = true;
-    agentState.lastDeathCause = cause || null; // cause is in scope from the death handler closure
+    agentState.lastDeathCause = agentState.lastDeathCause || null; // read persisted cause from death handler (never throws)
 
     // ── PvP Consequence: Remote Respawn ────────────────────────────────────
     // Death displaces you. Respawn far from where you fell — 200-400 blocks
