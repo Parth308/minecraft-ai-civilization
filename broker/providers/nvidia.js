@@ -11,7 +11,10 @@ async function queryNvidia(apiKey, prompt, options = {}) {
     model: model,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.6,
-    max_tokens: 1024
+    max_tokens: 1024,
+    // Reasoning model: low effort keeps JSON answers fast — broker prompts
+    // are big and full reasoning blows the 30s timeout (24% fail rate).
+    reasoning_effort: 'low'
   };
   if (options.jsonMode) {
     requestBody.response_format = { type: 'json_object' };
