@@ -347,20 +347,25 @@ function createAgent() {
   }
 
   const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
+  const STONE_PLUS_ORES = ['iron_ore', 'deepslate_iron_ore', 'copper_ore', 'deepslate_copper_ore'];
 
-  function hasIronPickOrBetter() {
-    return senses.hasItem('iron_pickaxe') || senses.hasItem('diamond_pickaxe') || senses.hasItem('netherite_pickaxe');
+  function hasStonePickOrBetter() {
+    return senses.hasItem('stone_pickaxe') || hasIronPickOrBetter();
   }
 
   function preflightValidateDecision(decision) {
-    if (!decision || decision.escalated !== true) return decision;
-
-    if (decision.action === 'MINE' && decision.targetResource && IRON_PLUS_ORES.includes(decision.targetResource)) {
-      if (!hasIronPickOrBetter()) {
+    // Tier gate applies to ALL sources (plan steps bypass escalation but still
+    // hit this path — Golf looped iron_ore 555x via plan without a stone pick).
+    if (decision && decision.action === 'MINE' && decision.targetResource) {
+      if (IRON_PLUS_ORES.includes(decision.targetResource) && !hasIronPickOrBetter()) {
         logger.warn('AgentLoop', `[PRE-FLIGHT] MINE ${decision.targetResource} rejected — requires iron pickaxe+. Falling back to local target chain.`);
+        delete decision.targetResource;
+      } else if (STONE_PLUS_ORES.includes(decision.targetResource) && !hasStonePickOrBetter()) {
+        logger.warn('AgentLoop', `[PRE-FLIGHT] MINE ${decision.targetResource} rejected — requires stone pickaxe+. Falling back to local target chain.`);
         delete decision.targetResource;
       }
     }
+    if (!decision || decision.escalated !== true) return decision;
     if (decision.action === 'SLEEP' && !decision.meta?.bed && !senses.isNight()) {
       logger.warn('AgentLoop', '[PRE-FLIGHT] SLEEP rejected — not night. Overriding to WANDER.');
       decision.action = 'WANDER';
@@ -931,10 +936,14 @@ function createAgent() {
             block = senses.getNearbyBlock(targetResource, 32);
           }
           if (!block) {
-            block = senses.getNearbyBlock('iron_ore', 16) ||
+            // Tier-aware fallback chain: without a stone pickaxe iron/copper
+            // drop nothing, so prefer wood/stone first (Golf silent-fail loop).
+            const stonePlus = senses.hasItem('stone_pickaxe') || senses.hasItem('iron_pickaxe') || senses.hasItem('diamond_pickaxe') || senses.hasItem('netherite_pickaxe');
+            block = senses.getNearbyBlock('log', 24) ||
+                    senses.getNearbyBlock('stone', 8) ||
                     senses.getNearbyBlock('coal_ore', 16) ||
-                    senses.getNearbyBlock('log', 24) ||
-                    senses.getNearbyBlock('stone', 8);
+                    (stonePlus ? (senses.getNearbyBlock('iron_ore', 16) ||
+                      senses.getNearbyBlock('copper_ore', 16)) : null);
           }
           if (block) {
             logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
@@ -974,6 +983,9 @@ function createAgent() {
           require('./decision/rules/talk').markTalkExecuted();
           const isCitizen = n => n && n !== bot.username && !/spectate/i.test(n);
           let talkPartner = decision.meta?.partner;
+          if (talkPartner && typeof talkPartner === 'object') {
+            talkPartner = talkPartner.username || talkPartner.name || null;
+          }
           if (!isCitizen(talkPartner)) {
             talkPartner = (senses.getNearbyPlayers(32) || []).map(p => p.username).find(isCitizen) ||
               (bot.players ? Object.keys(bot.players).filter(isCitizen)[0] : null);
@@ -1070,17 +1082,27 @@ function createAgent() {
 
         case ACTIONS.TRADE:
         case 'TRADE': {
-          // Parse LLM's freeform trade offer: e.g. '4x oak_planks for 2x iron_ingot from Agent_Alpha'
+          // Parse LLM's freeform trade offer: e.g. '2x dirt for 1x bread from Agent_X'
           const offer = decision.tradeOffer || '';
+          const giveMatch = offer.match(/(\d+)x ([\w_]+) for/i);
+          const wantMatch = offer.match(/for (\d+)x ([\w_]+)/i);
+          if (!offer || (!giveMatch && !wantMatch)) {
+            // No real offer from LLM — voice intent socially instead of
+            // fake-executing a hardcoded default trade that always fails.
+            if (Date.now() - lastOutgoingChat > 3000) {
+              lastOutgoingChat = Date.now();
+              chat.say(`anyone want to trade? I have stuff to offer`);
+            }
+            actionSuccess = true;
+            break;
+          }
           const partnerMatch = offer.match(/from (\S+)/i);
           const tradePartnerRaw = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
           const tradePartner = typeof tradePartnerRaw === 'object' ? (tradePartnerRaw.username || tradePartnerRaw.name || String(tradePartnerRaw)) : tradePartnerRaw;
-          const giveMatch = offer.match(/(\d+)x ([\w_]+) for/i);
-          const wantMatch = offer.match(/for (\d+)x ([\w_]+)/i);
           const giveItem = giveMatch?.[2] || 'oak_planks';
           const giveCount = parseInt(giveMatch?.[1] || '4');
           const wantItem = wantMatch?.[2] || 'cobblestone';
-          const wantCount = parseInt(wantMatch?.[1] || '4');
+          const wantCount = parseInt(wantMatch?.[1] || '6');
           if (tradePartner) {
             logger.info('AgentLoop', `Executing TRADE with ${tradePartner}: ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
             // Approach phase: tosses need proximity. Walk toward the partner

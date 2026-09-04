@@ -326,7 +326,7 @@ class DynamicRuleEngine {
       } else if (rule.action === 'TALK') {
         if (targets24.length === 0) conf = 0.10;
       } else if (rule.action === 'TRADE') {
-        if (!hasTradable) conf = 0.10;
+        if (!hasTradable || targets24.length === 0) conf = 0.10;
       }
 
       candidateActions.push({

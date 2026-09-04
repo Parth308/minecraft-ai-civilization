@@ -186,6 +186,27 @@ class DecisionTree {
       }
     }
 
+    // FLEE streak pivot: running forever never builds shelter. After 4+ FLEE
+    // in last 6, offer BUILD/CRAFT as escape (capability, LLM still decides).
+    const lastSixFlee = (this._actionHistory || []).slice(-6);
+    const fleeCount = lastSixFlee.filter(a => a === 'FLEE').length;
+    if (fleeCount >= 4) {
+      for (const c of candidates) {
+        if (c.name === 'FLEE') {
+          c.confidence -= 0.20;
+          c.reason += ` [flee streak: ${fleeCount}/6, pivoting to shelter]`;
+        }
+        if (c.name === 'BUILD') {
+          c.confidence += 0.25;
+          c.reason += ` [flee pivot: ${fleeCount}/6 FLEE, shelter breaks chase]`;
+        }
+        if (c.name === 'CRAFT') {
+          c.confidence += 0.15;
+          c.reason += ` [flee pivot: torch/weapon breaks night danger]`;
+        }
+      }
+    }
+
     // Time-of-day weighting: actions appropriate for current time get boost
     const timeOfDay = agentState.timeOfDay || 'day';
     const isNight = agentState.isNight || false;
@@ -625,6 +646,15 @@ class DecisionTree {
       c.confidence = Math.min(0.99, Math.max(0.01, c.confidence));
     }
 
+    // Hysteresis: running action holds +0.08 so near-ties commit instead
+    // of jittering. Small enough that real winners still overtake.
+    const lastExec = (this._actionHistory || [])[(this._actionHistory || []).length - 1];
+    if (lastExec) {
+      for (const c of candidates) {
+        if (c.name === lastExec) c.confidence = Math.min(0.99, c.confidence + 0.08);
+      }
+    }
+
     // Sort by highest confidence
     candidates.sort((a, b) => b.confidence - a.confidence);
     let topCandidate = candidates[0];
@@ -640,7 +670,7 @@ class DecisionTree {
     for (const [action, expiry] of this._loopPenalties) {
       if (now < expiry) {
         for (const c of candidates) {
-          if (c.name === action) c.confidence -= 0.35;
+          if (c.name === action) c.confidence -= 0.60;
         }
       } else {
         this._loopPenalties.delete(action);
@@ -651,7 +681,8 @@ class DecisionTree {
 
     const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK']);
     const historyLen = this._actionHistory.length;
-    const uniqueRecent = [...new Set(this._actionHistory.slice(-6))];
+    const lastSix = this._actionHistory.slice(-6);
+    const uniqueRecent = [...new Set(lastSix)];
     const isSingleLoop = (
       historyLen >= 6 &&
       uniqueRecent.length === 1 &&
@@ -662,15 +693,15 @@ class DecisionTree {
       uniqueRecent.length === 2 &&
       LOOPABLE_ACTIONS.has(uniqueRecent[0]) &&
       LOOPABLE_ACTIONS.has(uniqueRecent[1]) &&
-      this._actionHistory.slice(-6).every((a, i) => a === this._actionHistory[i % 2])
+      lastSix.every((a, i) => a === lastSix[i % 2])
     );
     const isStuckInLoop = isSingleLoop || isDualLoop;
 
     if (isStuckInLoop) {
       const loopType = isSingleLoop ? `repeated '${uniqueRecent[0]}' 6 consecutive` : `alternating ${uniqueRecent.join('/')} (2-action cycle)`;
-      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent ${loopType} cycles. Penalizing actions for 30s and escalating.`);
-      this._loopPenalties.set(topCandidate.name, Date.now() + 30000);
-      for (const u of uniqueRecent) this._loopPenalties.set(u, Date.now() + 30000);
+      logger.warn('DecisionTree', `[STUCK LOOP DETECTED] Agent ${loopType} cycles. Penalizing actions for 60s and escalating.`);
+      this._loopPenalties.set(topCandidate.name, Date.now() + 60000);
+      for (const u of uniqueRecent) this._loopPenalties.set(u, Date.now() + 60000);
       this._actionHistory = [];
       if (penalizedTop.name !== topCandidate.name) {
         topCandidate = penalizedTop;

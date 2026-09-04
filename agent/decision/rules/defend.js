@@ -9,6 +9,18 @@ function evaluateDefend(senses, stats, persona = null, agentState = {}) {
     return { name: ACTIONS.DEFEND, confidence: 0.0, reason: 'No hostiles nearby' };
   }
 
+  const nearestHostile = hostiles.reduce((closest, mob) => {
+    const dist = mob.position?.distanceTo(senses.bot?.entity?.position) || Infinity;
+    return dist < (closest.dist || Infinity) ? { mob, dist } : closest;
+  }, {}).mob;
+  const nearestDist = nearestHostile?.position?.distanceTo
+    ? nearestHostile.position.distanceTo(senses.bot?.entity?.position)
+    : Infinity;
+
+  if (hostiles.length === 1 && nearestDist > 10) {
+    return { name: ACTIONS.DEFEND, confidence: 0.20, target: nearestHostile, reason: `Single distant hostile (${Math.round(nearestDist)}m) — flee or ignore over defend` };
+  }
+
   const hasWeapon = senses.hasItem('iron_sword') || senses.hasItem('diamond_sword') ||
                     senses.hasItem('iron_axe') || senses.hasItem('diamond_axe') ||
                     senses.hasItem('stone_sword') || senses.hasItem('stone_axe');
@@ -23,11 +35,6 @@ function evaluateDefend(senses, stats, persona = null, agentState = {}) {
   if (hasWeapon) confidence += 0.10;
   if (hasShield) confidence += 0.05;
   if (alliedAgents.length > 0) confidence += 0.08;
-
-  const nearestHostile = hostiles.reduce((closest, mob) => {
-    const dist = mob.position?.distanceTo(senses.bot?.entity?.position) || Infinity;
-    return dist < (closest.dist || Infinity) ? { mob, dist } : closest;
-  }, {}).mob;
 
   return {
     name: ACTIONS.DEFEND,

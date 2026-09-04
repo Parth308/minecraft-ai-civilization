@@ -19,7 +19,12 @@ module.exports = {
     qwen: process.env.DASHSCOPE_API_KEY,
     freellm: process.env.FREELLMAPI_KEY,
     kiraai: process.env.KIRA_API_KEY,
-    omniroute: process.env.OMNIROUTE_API_KEY
+    omniroute: process.env.OMNIROUTE_API_KEY,
+    cerebras: process.env.CEREBRAS_API_KEY,
+    literouter: process.env.LITEROUTER_API_KEY,
+    ollamacloud: process.env.OLLAMACLOUD_API_KEY,
+    chutes: process.env.CHUTES_API_KEY,
+    qwenlocal: process.env.QWENLOCAL_BASE_URL || 'http://10.10.2.10:8080/v1'
   },
   cacheTTLSeconds: parseInt(process.env.CACHE_TTL_SECONDS, 10) || 300
 };

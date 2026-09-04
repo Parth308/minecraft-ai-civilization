@@ -263,7 +263,10 @@ class InventoryActuator {
         return false;
       }
 
-      await this.equipOptimalTool(target);
+      const equipped = await this.equipOptimalTool(target);
+      if (!equipped && this._minPickaxeTierFor(target.name.toLowerCase()) !== 'wooden') {
+        return false;
+      }
       // Look at the block center before swinging
       await this.bot.lookAt(target.position.offset(0.5, 0.5, 0.5), true);
       await this.bot.dig(target);

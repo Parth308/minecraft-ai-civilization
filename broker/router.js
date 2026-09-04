@@ -16,6 +16,12 @@ const queryFreellm = require('./providers/freellm');
 const queryKiraAI = require('./providers/kiraai');
 const queryOllamaLocal = require('./providers/ollamalocal');
 const queryOmniRoute = require('./providers/omniroute');
+const queryCerebras = require('./providers/cerebras');
+const queryLiteRouter = require('./providers/literouter');
+const queryOllamaCloud = require('./providers/ollamacloud');
+const queryChutes = require('./providers/chutes');
+const querySambaNova = require('./providers/sambanova');
+const queryQwenLocal = require('./providers/qwenlocal');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -43,7 +49,13 @@ const BENCHMARK_RATES_PER_MTOK = {
   LLM7:        { input: 0.00, output: 0.00, name: 'LLM7.io Free Tier (Universal No-Cost Access)' },
   FreellmAPI:  { input: 0.00, output: 0.00, name: 'FreeLLMAPI self-hosted pooled router (~30 provider tiers)' },
   KiraAI:       { input: 0.00, output: 0.00, name: 'KiraAI (150M free tokens/day, 57+ models)' },
-  OmniRoute:    { input: 0.00, output: 0.00, name: 'OmniRoute (self-hosted local router, 390 models, $0)' }
+  OmniRoute:    { input: 0.00, output: 0.00, name: 'OmniRoute (self-hosted local router, 390 models, $0)' },
+  Cerebras:     { input: 0.00, output: 0.00, name: 'Cerebras LPU (Free Tier: ~1M tokens/day)' },
+  LiteRouter:   { input: 0.00, output: 0.00, name: 'LiteRouter (unlimited :free models, ~7s cooldown)' },
+  OllamaCloud:  { input: 0.00, output: 0.00, name: 'Ollama Cloud (free starter usage, light models)' },
+  Chutes:       { input: 0.00, output: 0.00, name: 'Chutes (free ~100 req/day open models)' },
+  QwenLocal:    { input: 0.00, output: 0.00, name: 'QwenLocal Qwen3.6-35B (self-hosted, free unlimited)' },
+  SambaNova:    { input: 0.00, output: 0.00, name: 'SambaNova RDU (free tier: 20 req/day/model, no card)' }
 };
 
 const MAX_ESCALATION_LOG = 200;
@@ -51,7 +63,7 @@ const MAX_ESCALATION_LOG = 200;
 class ProviderRouter {
   constructor() {
     this.cache = new ExactCache(config.cacheTTLSeconds);
-    this.semanticCache = new SemanticCache(0.88, config.cacheTTLSeconds * 2);
+    this.semanticCache = new SemanticCache(0.88, config.cacheTTLSeconds * 4);
     this.rateLimiter = new RateLimiter();
     this.webKnowledge = new WebKnowledgeClient();
     this.rrIndex = 0;
@@ -77,7 +89,12 @@ class ProviderRouter {
       FreellmAPI: { name: 'FreellmAPI', key: config.keys.freellm, fn: queryFreellm },
       KiraAI: { name: 'KiraAI', key: config.keys.kiraai, fn: queryKiraAI },
       OllamaLocal: { name: 'OllamaLocal', key: 'local', fn: queryOllamaLocal },
-      OmniRoute: { name: 'OmniRoute', key: config.keys.omniroute, fn: queryOmniRoute }
+      OmniRoute: { name: 'OmniRoute', key: config.keys.omniroute, fn: queryOmniRoute },
+      Cerebras: { name: 'Cerebras', key: config.keys.cerebras, fn: queryCerebras },
+      LiteRouter: { name: 'LiteRouter', key: config.keys.literouter, fn: queryLiteRouter },
+      OllamaCloud: { name: 'OllamaCloud', key: config.keys.ollamacloud, fn: queryOllamaCloud },
+      Chutes: { name: 'Chutes', key: config.keys.chutes, fn: queryChutes },
+      QwenLocal: { name: 'QwenLocal', key: config.keys.qwenlocal, fn: queryQwenLocal }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -215,19 +232,21 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'QwenLocal', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      baseOrder = ['KiraAI', 'OmniRoute', 'SiliconFlow', 'Groq', 'Nvidia', 'Mistral', 'Zhipu', 'OpenRouter', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
+      // QwenLocal sits mid-order: free giant but single-slot, queue-bound
+      // under load — fast lanes first, Qwen as backup not blocker.
+      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'QwenLocal', 'Nvidia', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['KiraAI', 'OmniRoute', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['QwenLocal', 'KiraAI', 'OmniRoute', 'LiteRouter', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'Chutes', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models.
       // OllamaLocal appended as last-resort — ~50s latency is painful but
       // a real reply strictly beats the blind-WANDER fallbackHeuristic
       // during total provider exhaustion.
-      baseOrder = ['Groq', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'QwenLocal', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
     }
 
     // Filter to configured, non-rate-limited providers
@@ -358,7 +377,9 @@ class ProviderRouter {
         return { ...exactMatch, cached: true, cacheType: 'exact' };
       }
 
-      const semanticMatch = await this.semanticCache.findSimilar(situationPayload);
+      const actionName = situationPayload.topCandidate?.name;
+      const semanticThreshold = (actionName === 'TRADE' || actionName === 'TALK') ? 0.95 : 0.88;
+      const semanticMatch = await this.semanticCache.findSimilar(situationPayload, semanticThreshold);
       if (semanticMatch) {
         this.cacheStats.semanticHits += 1;
         this._logEscalation({
@@ -715,7 +736,7 @@ Reply ONLY as raw JSON:
   "itemToCraft": "if CRAFT: item name e.g. torch",
   "smeltInput": "if SMELT: raw item e.g. raw_iron",
   "buildType": "if BUILD: shelter|wall|tower|farm|house",
-  "tradeOffer": "if TRADE: e.g. 4x oak_planks for 2x iron_ingot from Agent_Beta",
+  "tradeOffer": "if TRADE: YOUR OWN offer from YOUR inventory, e.g. 2x dirt for 1x bread from Agent_X (never copy this example, use items you hold and fair value)",
   "newGoal": "if PLAN: goal description else null",
   "steps": ["if action==PLAN: 2-6 short concrete executable steps, e.g. 'mine 8 iron_ore', 'smelt iron_ingot', 'craft iron_pickaxe', 'explore toward village'"],
   "emotionDelta": { "anger": 0, "happiness": 0, "fatigue": 0 }
