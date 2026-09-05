@@ -529,7 +529,15 @@ function createAgent() {
           const now = Date.now();
           if (now - _lastHeapLog > 30000) {
             _lastHeapLog = now;
-            logger.info('AgentLoop', `[HEAP] rss=${mb(mu.rss)}MB heapUsed=${mb(mu.heapUsed)}MB external=${mb(mu.external)}MB arrayBuffers=${mb(mu.arrayBuffers)}MB`);
+            let spaces = '';
+            try {
+              // Space breakdown only when heap is elevated — pinpoints leak vs churn.
+              if (mu.heapUsed > 200 * 1048576) {
+                const v8 = require('v8');
+                spaces = ' spaces={' + v8.getHeapSpaceStatistics().map(s => `${s.space_name}:${mb(s.space_used_size)}`).join(' ') + '}';
+              }
+            } catch { /* diagnostics best-effort */ }
+            logger.info('AgentLoop', `[HEAP] rss=${mb(mu.rss)}MB heapUsed=${mb(mu.heapUsed)}MB external=${mb(mu.external)}MB arrayBuffers=${mb(mu.arrayBuffers)}MB${spaces}`);
           }
           if (mu.heapUsed > 420 * 1048576 || mu.rss > 750 * 1048576) {
             logger.error('AgentLoop', `[HEAP WATCHDOG] heapUsed=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB — clean restart`);
@@ -950,21 +958,14 @@ function createAgent() {
           }
           if (block) {
             logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
+            // digBlock-only: collectBlock plugin task queue leaked heap to OOM
+            // (proven by Golf bisect — 0 FATALs vs 5-8 fleet-wide). Manual
+            // navigate + equip + dig covers all mining needs.
             let success = false;
-            if (bot.collectBlock && typeof bot.collectBlock.collect === 'function') {
-              try {
-                await withTimeout(bot.collectBlock.collect([block]), `collectBlock(${block.name})`);
-                success = true;
-              } catch (cbErr) {
-                logger.debug('AgentLoop', `collectBlock failed (${cbErr.message}) — falling back to digBlock`);
-              }
-            }
-            if (!success) {
-              try {
-                success = await withTimeout(inventory.digBlock(block), `digBlock(${block.name})`);
-              } catch (digErr) {
-                logger.debug('AgentLoop', `digBlock failed (${digErr.message})`);
-              }
+            try {
+              success = await withTimeout(inventory.digBlock(block), `digBlock(${block.name})`);
+            } catch (digErr) {
+              logger.debug('AgentLoop', `digBlock failed (${digErr.message})`);
             }
             if (success) {
               eventBuffer.addEvent('mineBlock', { block: block.name, position: block.position });
