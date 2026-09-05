@@ -13,10 +13,11 @@ function evaluateSteal(senses, stats, persona, agentState = {}) {
   const target = targets[0];
   const targetName = target.username;
 
-  // Check if target has hotbar items (we can't see inventory, but assume players have items)
-  // In Minecraft, we can see what players are holding (equipped item)
-  const heldItem = target.heldItem;
-  if (!heldItem) return { name: 'STEAL', confidence: 0, reason: 'Target has no held item' };
+  // Mineflayer player entities don't expose heldItem — scan visible
+  // equipment slots instead (hand + armor). No visible gear = nothing to steal.
+  const equipment = Array.isArray(target.equipment) ? target.equipment : [];
+  const heldItem = equipment.find(s => s && (s.name || s.itemType)) || null;
+  if (!heldItem) return { name: 'STEAL', confidence: 0, reason: 'Target has no visible gear' };
 
   // Personality check: greedy agents consider stealing more
   const personaTraits = persona?.traits || {};
@@ -46,7 +47,8 @@ function evaluateSteal(senses, stats, persona, agentState = {}) {
   // Clamp
   confidence = Math.min(0.99, Math.max(0.01, Number(confidence.toFixed(2))));
 
-  const reason = `Agent ${targetName} nearby (${Math.round(senses.bot.entity.position.distanceTo(target.position))}m) with ${heldItem.name} — trust: ${victimTrust.toFixed(2)}, greed: ${greed.toFixed(2)}, witnesses: ${witnessCount}`;
+  const itemName = heldItem.name || 'gear';
+  const reason = `Agent ${targetName} nearby (${Math.round(senses.bot.entity.position.distanceTo(target.position))}m) with ${itemName} — trust: ${victimTrust.toFixed(2)}, greed: ${greed.toFixed(2)}, witnesses: ${witnessCount}`;
 
   return {
     name: 'STEAL',
@@ -55,7 +57,7 @@ function evaluateSteal(senses, stats, persona, agentState = {}) {
     meta: {
       target: targetName,
       targetEntity: target,
-      item: heldItem.name,
+      item: itemName,
       witnessCount,
       sameFaction,
       heldItem
