@@ -27,6 +27,7 @@ logs_dump_v1/
 logs_dump_v2/
 logs_dump_v3/
 logs_dump_v*/
+logs_dump_new/
 *.gz
 *.tar.gz
 *.dump
@@ -50,4 +51,8 @@ memory-service/civilization/*.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Scratch ops scripts (kept locally, never committed)
+tmp_*.sh
+tmp_*.py
 .omo/
