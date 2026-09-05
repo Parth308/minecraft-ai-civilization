@@ -858,15 +858,11 @@ class SocietyStore {
     return { success: true, faith: f };
   }
 
-  // Terror-management signal: how death-soaked is the world right now?
-  // High salience historically precedes meaning-seeking — we surface it as
-  // context only. What (if anything) an agent does with it is entirely its own.
   mortalitySalience() {
-    const ledgerPath = path.join(__dirname, 'civilization', 'ledger.json');
     let deaths = [];
     try {
-      const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf-8'));
-      deaths = ledger.deaths || [];
+      const { getInstance } = require('./store/civilization/ledger');
+      deaths = getInstance().getLedger().deaths || [];
     } catch { /* no ledger yet */ }
     const cutoff = Date.now() - 2 * 60 * 60 * 1000;
     const recent = deaths.filter(d => new Date(d.timestamp).getTime() > cutoff);
@@ -1199,9 +1195,10 @@ function societyRoutes(app) {
   app.get('/api/society/history', (req, res) => {
     let chronicle = [], deaths = [];
     try {
-      const ledger = JSON.parse(fs.readFileSync(path.join(__dirname, 'civilization', 'ledger.json'), 'utf-8'));
-      chronicle = ledger.chronicleEntries || [];
-      deaths = ledger.deaths || [];
+      const { getInstance } = require('./store/civilization/ledger');
+      const data = getInstance().getLedger();
+      chronicle = data.chronicleEntries || [];
+      deaths = data.deaths || [];
     } catch { /* fresh world */ }
     const data = store.load();
     res.json({

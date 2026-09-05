@@ -4,13 +4,18 @@ const logger = require('../../../shared/logger');
 const detailedLogger = require('../../../shared/detailedLogger');
 
 const LEDGER_PATH = path.join(__dirname, 'ledger.json');
+const FLUSH_INTERVAL_MS = 30_000;
 
 class CivilizationLedger {
   constructor() {
-    this.ensureFileExists();
+    this._cache = null;
+    this._dirty = false;
+    this._ensureFileExists();
+    this._loadFromDisk();
+    this._startFlushTimer();
   }
 
-  ensureFileExists() {
+  _ensureFileExists() {
     const dir = path.dirname(LEDGER_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (!fs.existsSync(LEDGER_PATH)) {
@@ -20,6 +25,8 @@ class CivilizationLedger {
         factions: [],
         laws: [],
         sharedLessons: [],
+        unsharedLessons: [],
+        deaths: [],
         trades: [],
         debts: [],
         territoryClaims: [],
@@ -31,32 +38,51 @@ class CivilizationLedger {
     }
   }
 
-  getLedger() {
-    this.ensureFileExists();
+  _loadFromDisk() {
     try {
-      const data = JSON.parse(fs.readFileSync(LEDGER_PATH, 'utf-8'));
-      if (!Array.isArray(data.sharedLessons)) data.sharedLessons = [];
-      if (!Array.isArray(data.unsharedLessons)) data.unsharedLessons = [];
-      if (!Array.isArray(data.deaths)) data.deaths = [];
-      if (!Array.isArray(data.trades)) data.trades = [];
-      if (!Array.isArray(data.debts)) data.debts = [];
-      if (!Array.isArray(data.territoryClaims)) data.territoryClaims = [];
-      if (!Array.isArray(data.sharedGoals)) data.sharedGoals = [];
-      if (!Array.isArray(data.chronicleEntries)) data.chronicleEntries = [];
-      return data;
+      this._cache = JSON.parse(fs.readFileSync(LEDGER_PATH, 'utf-8'));
     } catch (err) {
-      logger.error('CivLedger', 'Failed to read ledger file', err);
-      return { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], unsharedLessons: [], deaths: [], trades: [], debts: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [] };
+      logger.error('CivLedger', 'Failed to load ledger into memory', err);
+      this._cache = { currencies: [], settlements: [], factions: [], laws: [], sharedLessons: [], unsharedLessons: [], deaths: [], trades: [], debts: [], territoryClaims: [], sharedGoals: [], chronicleEntries: [], updatedAt: new Date().toISOString() };
     }
+    if (!Array.isArray(this._cache.sharedLessons)) this._cache.sharedLessons = [];
+    if (!Array.isArray(this._cache.unsharedLessons)) this._cache.unsharedLessons = [];
+    if (!Array.isArray(this._cache.deaths)) this._cache.deaths = [];
+    if (!Array.isArray(this._cache.trades)) this._cache.trades = [];
+    if (!Array.isArray(this._cache.debts)) this._cache.debts = [];
+    if (!Array.isArray(this._cache.territoryClaims)) this._cache.territoryClaims = [];
+    if (!Array.isArray(this._cache.sharedGoals)) this._cache.sharedGoals = [];
+    if (!Array.isArray(this._cache.chronicleEntries)) this._cache.chronicleEntries = [];
+    logger.info('CivLedger', `Loaded ledger into memory (${this._cache.sharedLessons.length} lessons, ${this._cache.trades.length} trades, ${this._cache.chronicleEntries.length} chronicles)`);
+  }
+
+  _startFlushTimer() {
+    this._flushInterval = setInterval(() => this.flush(), FLUSH_INTERVAL_MS);
+    // Allow process to exit even if timer is running
+    if (this._flushInterval.unref) this._flushInterval.unref();
+  }
+
+  flush() {
+    if (!this._dirty) return;
+    this._cache.updatedAt = new Date().toISOString();
+    const tmpPath = `${LEDGER_PATH}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(this._cache, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, LEDGER_PATH);
+      this._dirty = false;
+      logger.debug('CivLedger', `Flushed ledger to disk (${Math.round(fs.statSync(LEDGER_PATH).size / 1024)}KB)`);
+    } catch (err) {
+      logger.error('CivLedger', 'Failed to flush ledger to disk', err);
+    }
+  }
+
+  getLedger() {
+    return this._cache;
   }
 
   saveLedger(data) {
     data.updatedAt = new Date().toISOString();
-    // Atomic replace — this file IS the civilization's history; a torn write
-    // would erase every faction, debt, and lesson at once.
-    const tmpPath = `${LEDGER_PATH}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-    fs.renameSync(tmpPath, LEDGER_PATH);
+    this._dirty = true;
   }
 
   addChronicleEntry(headline, detail, relatedAgents = [], eventType = 'milestone') {
@@ -553,3 +579,8 @@ class CivilizationLedger {
 }
 
 module.exports = CivilizationLedger;
+module.exports.instance = null;
+module.exports.getInstance = function() {
+  if (!module.exports.instance) module.exports.instance = new CivilizationLedger();
+  return module.exports.instance;
+};

@@ -248,8 +248,8 @@ app.get('/api/memory/sections/:agentId/:section', (req, res) => {
   res.json({ agentId, section, content });
 });
 
-const CivilizationLedger = require('./store/civilization/ledger');
-const ledger = new CivilizationLedger();
+const { getInstance } = require('./store/civilization/ledger');
+const ledger = getInstance();
 
 // Civilization ledger (for dashboard ledger panel)
 app.get('/api/ledger', (req, res) => {
@@ -507,3 +507,11 @@ app.get('/api/rules/adjust/:agentId', (req, res) => {
 app.listen(config.port, () => {
   logger.info('MemoryService', `Central Memory Service running on http://localhost:${config.port}`);
 });
+
+const shutdown = () => {
+  logger.info('MemoryService', 'Flushing ledger before shutdown...');
+  ledger.flush();
+  process.exit(0);
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
