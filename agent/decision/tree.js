@@ -679,7 +679,7 @@ class DecisionTree {
     candidates.sort((a, b) => b.confidence - a.confidence);
     const penalizedTop = candidates[0];
 
-    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK']);
+    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK', 'GUARD']);
     const historyLen = this._actionHistory.length;
     const lastSix = this._actionHistory.slice(-6);
     const uniqueRecent = [...new Set(lastSix)];
@@ -859,11 +859,13 @@ class DecisionTree {
         researchQuery: hazardResearchQuery || null,
         isStuckInLoop,
         stuckWarning: isStuckInLoop ? `You have been looping on '${topCandidate.name}' for multiple cycles without finding trees/progress. Think like a real human player: break this loop. Formulate a multi-step objective, head towards high elevation/vantage point, punch tall grass for seeds, search near rivers, or find companions.` : null,
-        topCandidate,
+        topCandidate: { ...topCandidate, reason: (topCandidate.reason || '').slice(0, 300) },
         allCandidates: candidates.slice(0, 15).map(c => ({
           name: c.name,
           confidence: c.confidence,
-          reason: c.reason || '',
+          // Dynamic-rule reasons run 300+ chars; cap keeps escalation
+          // prompts lean for slow lanes (Qwen prefill) without losing signal.
+          reason: (c.reason || '').slice(0, 150),
           isDynamic: !!c.isDynamic
         })),
         stats,

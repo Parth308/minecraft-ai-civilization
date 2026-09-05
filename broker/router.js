@@ -338,6 +338,11 @@ class ProviderRouter {
         if (!vec) {
           vec = await embedder.getEmbedding(l.text);
           this._lessonVectors.set(l.text, vec);
+          // Unbounded Map = slow leak in long-lived broker — LRU-cap it.
+          if (this._lessonVectors.size > 200) {
+            const oldestKey = this._lessonVectors.keys().next().value;
+            this._lessonVectors.delete(oldestKey);
+          }
         }
         scored.push({ l, sim: this._cosine(queryVec, vec) });
       }
