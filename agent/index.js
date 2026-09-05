@@ -972,6 +972,20 @@ function createAgent() {
             } else {
               actionSuccess = false;
             }
+            // Release detached navigation: timed-out collect/dig tasks keep
+            // pathfinder goals + subscribers alive, piling heap until OOM
+            // (every FATAL traced to MINE-on-stone). Fire-and-forget cleanup.
+            try {
+              if (bot.collectBlock && typeof bot.collectBlock.cancelTask === 'function') {
+                bot.collectBlock.cancelTask(() => {});
+              }
+            } catch { /* plugin cleanup best-effort */ }
+            try {
+              if (bot.pathfinder) {
+                bot.pathfinder.stop();
+                bot.pathfinder.setGoal(null);
+              }
+            } catch { /* pathfinder cleanup best-effort */ }
           } else {
             logger.info('AgentLoop', 'No mining block in direct vicinity — wandering to scout new terrain');
             movement.wander(16);

@@ -288,6 +288,12 @@ class InventoryActuator {
       return true;
     } catch (err) {
       logger.error('Actuation:Inventory', `Mining block failed: ${err.message}`);
+      try {
+        if (this.bot.pathfinder) {
+          this.bot.pathfinder.stop();
+          this.bot.pathfinder.setGoal(null);
+        }
+      } catch { /* best-effort nav release */ }
       return false;
     }
   }
