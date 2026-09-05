@@ -501,6 +501,13 @@ class ProviderRouter {
         };
       } catch (err) {
         logger.error('Router', `Provider ${provider.name} failed for task '${taskType}': ${err.message}`);
+        // Central status recovery: most providers throw bare Errors with the
+        // HTTP code only in text — without this the breaker never trips on
+        // permanent 401/402/403/404/410 and dead lanes retry every call.
+        if (!err.status) {
+          const m = String(err.message || '').match(/HTTP (\d{3})/);
+          if (m) err.status = parseInt(m[1], 10);
+        }
         this._recordProviderFailure(provider.name, err);
         if (err.status === 429) {
           this.rateLimiter.markRateLimited(provider.name, 60000);

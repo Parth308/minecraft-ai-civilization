@@ -13,9 +13,12 @@ function evaluateTrade(senses, stats, persona = null, agentState = {}) {
   let bestScore = -Infinity;
   for (const p of players) {
     let score = 0;
+    // Mineflayer Player has no .position — entity does. Without this every
+    // partner scored 0 and players[0] always won.
+    const pPos = p.entity?.position || p.position;
     try {
-      if (myPos && p.position && typeof myPos.distanceTo === 'function') {
-        score += Math.max(0, 12 - myPos.distanceTo(p.position)) / 12;
+      if (myPos && pPos && typeof myPos.distanceTo === 'function') {
+        score += Math.max(0, 12 - myPos.distanceTo(pPos)) / 12;
       }
     } catch { /* distance optional */ }
     const spoke = recentChat.slice(-10).some(c =>

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const TARGET_PID = parseInt(process.argv[2], 10);
 const CHECK_INTERVAL = 3000;
-const RSS_LIMIT_KB = 500 * 1024;
+const RSS_LIMIT_KB = 850 * 1024;
 
 if (!TARGET_PID || isNaN(TARGET_PID)) {
   process.stderr.write('[MEM-MON] No target PID provided\n');

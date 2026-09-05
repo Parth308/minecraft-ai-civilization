@@ -177,9 +177,9 @@ statusServer.listen(config.statusPort, () => {
         await fetch(`${serviceUrl}/api/rules/adjust`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentId: bot.username, ...adj })
+          body: JSON.stringify({ agentId: config.username, ...adj })
         });
-        logger.warn('AgentLoop', `[SELF-REVIEW] ${bot.username} self-corrected ${adj.ruleType}: ${adj.reason}`);
+        logger.warn('AgentLoop', `[SELF-REVIEW] ${config.username} self-corrected ${adj.ruleType}: ${adj.reason}`);
       }
     } catch (err) {
       logger.debug('AgentLoop', `Self-review skipped: ${err.message}`);
@@ -348,6 +348,10 @@ function createAgent() {
 
   const IRON_PLUS_ORES = ['diamond_ore', 'deepslate_diamond_ore', 'gold_ore', 'emerald_ore', 'redstone_ore'];
   const STONE_PLUS_ORES = ['iron_ore', 'deepslate_iron_ore', 'copper_ore', 'deepslate_copper_ore'];
+
+  function hasIronPickOrBetter() {
+    return senses.hasItem('iron_pickaxe') || senses.hasItem('diamond_pickaxe') || senses.hasItem('netherite_pickaxe');
+  }
 
   function hasStonePickOrBetter() {
     return senses.hasItem('stone_pickaxe') || hasIronPickOrBetter();
@@ -775,12 +779,11 @@ function createAgent() {
   // the promise so the tick loop can recover on the next cycle.
   const ACTION_TIMEOUT_MS = 15000;
   function withTimeout(promise, label) {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`ActionTimeout: ${label} exceeded ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS)
-      ),
-    ]);
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`ActionTimeout: ${label} exceeded ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   async function executeDecision(decision) {
@@ -1392,6 +1395,46 @@ function createAgent() {
           break;
         }
 
+        case ACTIONS.IDLE:
+        case 'DEFEND':
+        case 'GUARD': {
+          // Hold ground: face threat/partner, sneak to brace. Previously fell
+          // through to default (stood still, marked failure 699×).
+          const focus = decision.meta?.target || decision.meta?.partner || null;
+          const focusEnt = focus?.entity || focus;
+          try {
+            if (focusEnt?.position) movement.lookAtEntity(focusEnt);
+            movement.sneak(true);
+            setTimeout(() => movement.sneak(false), 3000);
+            eventBuffer.addEvent(decision.action === 'GUARD' ? 'guard' : 'defend', {});
+            actionSuccess = true;
+          } catch (guardErr) {
+            logger.debug('AgentLoop', `${decision.action} failed (${guardErr.message})`);
+            actionSuccess = false;
+          }
+          break;
+        }
+        case 'HUNT': {
+          // Take nearest passive mob down with the combat entry (was default/no-op).
+          const prey = (senses.getNearbyPassiveMobs ? senses.getNearbyPassiveMobs(12) : [])[0] || null;
+          if (prey) {
+            logger.info('AgentLoop', `Executing HUNT vs ${prey.name || 'animal'}`);
+            combat.attack(prey);
+            eventBuffer.addEvent('hunt', { target: prey.name || 'animal' });
+            actionSuccess = true;
+          } else {
+            logger.debug('AgentLoop', 'HUNT requested but no passive mob in range');
+            actionSuccess = false;
+          }
+          break;
+        }
+        case 'SCOUT': {
+          // Short recon sweep (was default/no-op).
+          movement.wander(16);
+          eventBuffer.addEvent('scout', {});
+          actionSuccess = true;
+          break;
+        }
         case ACTIONS.IDLE:
         default:
           // Do nothing
