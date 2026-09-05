@@ -33,6 +33,9 @@ class ExactCache {
     const key = this.hashSituation(situation);
     const expiresAt = Date.now() + this.ttlMs;
     this.memoryCache.set(key, { data: resultData, expiresAt });
+    // Amortized sweep: clearExpired() has no caller, so purge here —
+    // otherwise unique payload hashes accumulate forever (0 exact hits ever).
+    if (this.memoryCache.size > 1000) this.clearExpired();
     logger.info('ExactCache', `Cached decision for key ${key.substring(0, 8)} (TTL: ${this.ttlMs / 1000}s)`);
   }
 

@@ -7,16 +7,23 @@ class SemanticCache {
     this.similarityThreshold = similarityThreshold;
     this.ttlMs = ttlSeconds * 1000;
     this.entries = []; // Array of { text, embedding, decision, expiresAt }
+    this.maxEntries = 2000; // 7 agents × repeating situations — dedup keeps it far below this
     this.embeddingClient = new EmbeddingClient();
   }
 
   summarizeSituation(situationPayload) {
     const topCandidate = situationPayload.topCandidate || {};
     const stats = situationPayload.stats || {};
-    return `Situation: ${topCandidate.name || 'UNKNOWN'} reason: ${topCandidate.reason || ''}. HP: ${stats.health || 20}, Hunger: ${stats.hunger || 100}, Anger: ${stats.anger || 0}, Fatigue: ${stats.fatigue || 0}`;
+    const offer = topCandidate.tradeOffer ?? topCandidate.dealAccepted ?? topCandidate.targetResource ?? '';
+    const offerStr = typeof offer === 'object' ? JSON.stringify(offer) : String(offer || '');
+    const pos = situationPayload.position || {};
+    const posStr = (typeof pos.x === 'number' && typeof pos.z === 'number') ? ` pos:${Math.round(pos.x)},${Math.round(pos.z)}` : '';
+    const goal = situationPayload.activeGoal ? ` goal:${String(situationPayload.activeGoal).slice(0, 60)}` : '';
+    return `Situation: ${topCandidate.name || 'UNKNOWN'} reason: ${topCandidate.reason || ''}. HP: ${stats.health || 20}, Hunger: ${stats.hunger || 100}, Anger: ${stats.anger || 0}, Fatigue: ${stats.fatigue || 0}${offerStr ? ` offer:${offerStr.slice(0, 80)}` : ''}${posStr}${goal}`.slice(0, 400);
   }
 
-  async findSimilar(situationPayload) {
+  async findSimilar(situationPayload, minSimilarity = null) {
+    const threshold = minSimilarity ?? this.similarityThreshold;
     const text = this.summarizeSituation(situationPayload);
     const queryEmbedding = await this.embeddingClient.getEmbedding(text);
     const now = Date.now();
@@ -38,8 +45,8 @@ class SemanticCache {
       }
     }
 
-    if (bestMatch && highestSimilarity >= this.similarityThreshold) {
-      logger.info('SemanticCache', `SEMANTIC CACHE HIT! Similarity: ${(highestSimilarity * 100).toFixed(1)}% (Threshold: ${this.similarityThreshold * 100}%)`);
+    if (bestMatch && highestSimilarity >= threshold) {
+      logger.info('SemanticCache', `SEMANTIC CACHE HIT! Similarity: ${(highestSimilarity * 100).toFixed(1)}% (Threshold: ${(threshold * 100)}%)`);
       return {
         ...bestMatch.decision,
         cached: true,
@@ -53,8 +60,19 @@ class SemanticCache {
 
   async store(situationPayload, decisionData) {
     const text = this.summarizeSituation(situationPayload);
+    const now = Date.now();
+
+    // Dedup: same situation repeats constantly across 7 agents — refresh
+    // expiry instead of stacking identical vectors (scan stays cheap).
+    const existing = this.entries.find(e => e.text === text);
+    if (existing) {
+      existing.decision = decisionData;
+      existing.expiresAt = now + this.ttlMs;
+      return;
+    }
+
     const embedding = await this.embeddingClient.getEmbedding(text);
-    const expiresAt = Date.now() + this.ttlMs;
+    const expiresAt = now + this.ttlMs;
 
     this.entries.push({
       text,
@@ -62,6 +80,12 @@ class SemanticCache {
       decision: decisionData,
       expiresAt
     });
+
+    // Cap: purge expired first, then oldest — bounds memory and scan cost.
+    if (this.entries.length > this.maxEntries) {
+      this.entries = this.entries.filter(e => e.expiresAt > now);
+      while (this.entries.length > this.maxEntries) this.entries.shift();
+    }
 
     logger.info('SemanticCache', `Stored situation embedding in semantic cache (Total: ${this.entries.length} vectors, TTL: ${this.ttlMs / 1000}s)`);
   }
