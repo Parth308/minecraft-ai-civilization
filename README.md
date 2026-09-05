@@ -30,7 +30,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
                  ┌─────────────────────────────────┴─────────────────────────────────┐
                  ▼                                                                   ▼
       ┌───────────────────────┐                                           ┌───────────────────────┐
-      │     Agent: Alpha      │ (256MB RAM cap)                           │      Agent: Beta      │ (256MB RAM cap)
+      │     Agent: Alpha      │ (1024MB RAM cap)                          │      Agent: Beta      │ (1024MB RAM cap)
       │  - Mineflayer 4.x     │                                           │  - Mineflayer 4.x     │
       │  - Perception Engine  │                                           │  - Perception Engine  │
       │  - Local Stats Engine │                                           │  - Local Stats Engine │
@@ -50,8 +50,8 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 │  - Exact-Match Cache: SHA-256 state hashing with 300s TTL                                       │
 │  - Semantic Vector Cache: Cosine similarity >= 0.88 over 768-dim embeddings (0 extra LLM calls) │
 │  - Provider Pool Router (Round-robin + 429 automatic failover):                                 │
-│    * Fast Reflex & Chat: Groq (Llama 3.1 8B Instant)                                            │
-│    * Complex Reasoning & Strategic Wars: Gemini Flash & NVIDIA NIM (Llama 3.3 70B)             │
+  │    * Fast Reflex & Chat: Agnes / Groq (when under quota)                              │
+  │    * Complex Reasoning: NVIDIA NIM (gpt-oss-20b) + self-hosted QwenLocal (Qwen3.6-35B, reflection lane) │
 │    * Backups: Cerebras (Llama 3.1 8B) & OpenRouter Free                                         │
 └────────────────────────────────────────────────┬────────────────────────────────────────────────┘
                                                  │
@@ -59,7 +59,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                    Central Memory & Reflection Service (Port 3002, Healthchecked)               │
 │  - Sectioned Markdown Stores (store/agents/<agentId>/): profile, relationships, events, skills  │
-│  - Two-Tier Compaction: Tier 1 via Groq / Tier 2 Periodic Consolidation via Gemini Flash       │
+  │  - Two-Tier Compaction: Tier 1 local append / Tier 2 Periodic Consolidation via NVIDIA NIM → Mistral │
 │  - Detachable Embeddings Subsystem (768 Dimensions):                                            │
 │    * Ollama: nomic-embed-text (Self-provisioning container, capped at 1.5GB RAM)                │
 │    * Gemini: text-embedding-004 (Hosted Google AI API)                                         │
@@ -96,7 +96,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 2. **Brain Broker & Dual-Layer Cache**:
    - **Exact SHA-256 Cache**: Instant 0ms responses for repeated physical states.
    - **Semantic Vector Cache**: Situations matching past solutions with $\ge 88\%$ cosine similarity reuse tactical decisions with **0 LLM calls and zero token cost**.
-   - **Task-Based Priority Routing**: Sub-second chat routed to Groq; deep societal reflection routed to Gemini Flash & NVIDIA NIM (Llama 3.3 70B).
+   - **Task-Based Priority Routing**: Sub-second chat round-robins fast free lanes (Agnes/Groq/LiteRouter); deep reasoning prefers NVIDIA NIM (gpt-oss-20b) with automatic failover; slow reflection runs on self-hosted QwenLocal.
 3. **Structured Sectioned Memory**: Tagged markdown logs (`[met]`, `[coop]`, `[conflict]`, `[location]`, `[skill]`) with automated two-tier compaction.
 
 ### 🛡️ B. Zero-Loss Memory Queue & Offline Decision Fallback
@@ -105,7 +105,7 @@ Unlike traditional game bots governed by hardcoded behavior trees or scripted NP
 - **Docker Health Checks**: Automatic `healthcheck` endpoints on `/health` ensure dependents only start when microservices are fully healthy.
 
 ### 🧩 C. Self-Provisioning Local `nomic-embed-text` via Ollama
-- Dedicated Ollama container with an explicit **1.5GB RAM cap**.
+- Dedicated Ollama container (see `docker-compose.yml` for current RAM cap).
 - **Automated Self-Provisioning**: On first boot, the container entrypoint automatically pulls `nomic-embed-text` and marks itself healthy — **zero manual commands required!**
 
 ### 🎭 D. Dynamic Personas, Free Will & Social Agency
@@ -323,8 +323,8 @@ minecraft-community/
 | **Central Brain Broker** | `256 MB` | 0.5 Core | Express Gateway + Dual-Layer Cache + Provider Failover |
 | **Central Memory Service** | `256 MB` | 0.5 Core | Sectioned Markdown + Vector Store + Reflection Engine |
 | **Civilization Dashboard** | `512 MB` | 0.5 Core | Telemetry Aggregator + WebSocket + prismarine-viewer 3D World View |
-| **AI Agents (per bot)** | `256 MB` | 0.5 Core | ~80-120MB live RAM footprint per active bot |
-| **Baseline Stack Total** | **~6.0 GB** | — | Alpha + Beta + Gamma + full service mesh; leaves **~10 GB free for 35+ additional agents!** |
+| **AI Agents (per bot)** | `1024 MB` | 0.6 Core | ~60-180MB live heap+RSS per active bot (see `logs_dump_v*/` analyses) |
+| **Baseline Stack Total** | **~12 GB** | — | 7 live agents + full service mesh on the 16GB box |
 
 ---
 
