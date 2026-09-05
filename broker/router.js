@@ -232,12 +232,12 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'QwenLocal', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
-      // QwenLocal sits mid-order: free giant but single-slot, queue-bound
-      // under load — fast lanes first, Qwen as backup not blocker.
-      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'QwenLocal', 'Nvidia', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
+      // QwenLocal leads REFLECTION only: slow background jobs suit the
+      // single-slot giant; live lanes use fast providers (no 90s stalls).
+      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'Nvidia', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
       baseOrder = ['QwenLocal', 'KiraAI', 'OmniRoute', 'LiteRouter', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'Chutes', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
@@ -246,7 +246,7 @@ class ProviderRouter {
       // OllamaLocal appended as last-resort — ~50s latency is painful but
       // a real reply strictly beats the blind-WANDER fallbackHeuristic
       // during total provider exhaustion.
-      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'QwenLocal', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
     }
 
     // Filter to configured, non-rate-limited providers

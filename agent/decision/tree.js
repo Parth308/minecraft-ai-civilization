@@ -860,7 +860,7 @@ class DecisionTree {
         isStuckInLoop,
         stuckWarning: isStuckInLoop ? `You have been looping on '${topCandidate.name}' for multiple cycles without finding trees/progress. Think like a real human player: break this loop. Formulate a multi-step objective, head towards high elevation/vantage point, punch tall grass for seeds, search near rivers, or find companions.` : null,
         topCandidate: { ...topCandidate, reason: (topCandidate.reason || '').slice(0, 300) },
-        allCandidates: candidates.slice(0, 15).map(c => ({
+        allCandidates: candidates.slice(0, 8).map(c => ({
           name: c.name,
           confidence: c.confidence,
           // Dynamic-rule reasons run 300+ chars; cap keeps escalation
