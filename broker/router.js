@@ -316,7 +316,9 @@ class ProviderRouter {
     const TTL_MS = 120000;
     try {
       if (Date.now() - this.lessonCache.fetchedAt > TTL_MS) {
-        const res = await fetch(`${this.memoryServiceUrl}/api/ledger/lessons`);
+        // Bounded: only the top-3 score, so 200 recent lessons is plenty.
+        // Unbounded fetch pulled 34k docs (~20MB JSON) per refresh.
+        const res = await fetch(`${this.memoryServiceUrl}/api/ledger/lessons?limit=200`);
         if (res.ok) {
           const data = await res.json();
           this.lessonCache.lessons = (data.sharedLessons || [])
