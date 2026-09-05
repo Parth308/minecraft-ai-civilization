@@ -48,6 +48,11 @@ class SocialDialogueEngine {
   }
 
   async processIncomingChat(sender, message, civContext = {}) {
+    // Callers sometimes pass a player entity instead of a name — normalize
+    // first so logs/keys never become [object Object].
+    if (sender && typeof sender === 'object') {
+      sender = sender.username || sender.name || String(sender);
+    }
     if (!message || sender === this.persona.agentId) return null;
 
     const relationship = this.relationships.get(sender);

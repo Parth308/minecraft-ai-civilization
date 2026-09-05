@@ -102,8 +102,9 @@ class BarterSkill {
       this.relationships.updateTrust(partnerName, 10);
       this.relationships.updateAffinity(partnerName, 5);
 
-      // Record trade into civilization ledger; any IOU this delivery covers
-      // is settled server-side and echoed back so the agent can acknowledge it socially
+      // Record only what left our hands. The want side is a pending
+      // expectation, not a receipt — the ledger must not claim we hold it.
+      this.chat.say(`owe me ${wantCount}x ${wantItem} when you can, ${partnerName}!`);
       fetch(`${this.memoryServiceUrl}/api/ledger/trades`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,7 +112,8 @@ class BarterSkill {
           agentA: this.agentId,
           agentB: partnerName,
           itemsGiven: [{ item: giveItem, count: giveCount, value: valueGive }],
-          itemsReceived: [{ item: wantItem, count: wantCount, value: valueWant }],
+          itemsReceived: [],
+          wantedButUnreceived: [{ item: wantItem, count: wantCount, value: valueWant }],
           fairnessScore: fairness
         })
       }).then(r => r.json()).then(result => {

@@ -1,12 +1,30 @@
 const { ACTIONS, SCARCE_RESOURCES } = require('../../../shared/constants');
 
 function evaluateTrade(senses, stats, persona = null, agentState = {}) {
-  const players = senses.getNearbyPlayers(12);
+  const players = (senses.getNearbyPlayers(12) || []).filter(p => p && p.username && !/spectate/i.test(p.username));
   if (!players || players.length === 0) {
     return { name: ACTIONS.TRADE || 'TRADE', confidence: 0.0, reason: 'No trading partner nearby' };
   }
 
-  const partner = players[0];
+  // Score partners: closer is better, recent chat requests win. Never blind players[0].
+  const recentChat = agentState?.recentChat || [];
+  const myPos = senses.bot?.entity?.position;
+  let partner = players[0];
+  let bestScore = -Infinity;
+  for (const p of players) {
+    let score = 0;
+    try {
+      if (myPos && p.position && typeof myPos.distanceTo === 'function') {
+        score += Math.max(0, 12 - myPos.distanceTo(p.position)) / 12;
+      }
+    } catch { /* distance optional */ }
+    const spoke = recentChat.slice(-10).some(c =>
+      (c.username === p.username) &&
+      /trade|swap|need|want|give|offer|buy|sell/i.test(c.message || '')
+    );
+    if (spoke) score += 1.0;
+    if (score > bestScore) { bestScore = score; partner = p; }
+  }
   // Base must stay competitive with MINE/CRAFT (0.90+ base): a partner in range
   // IS an opportunity cost — historically this rule capped at 0.85 and never
   // once won, leaving the entire ledger economy unwritten.
@@ -20,9 +38,6 @@ function evaluateTrade(senses, stats, persona = null, agentState = {}) {
       scarceItemsHeld.push({ name: scarceName, count: senses.countItem(scarceName) });
     }
   }
-
-  // Check if nearby partner or recent chat explicitly mentioned/requested any item
-  const recentChat = agentState?.recentChat || [];
   const requestedItems = [];
   for (const chatMsg of recentChat.slice(-10)) {
     const text = (chatMsg.message || '').toLowerCase();
@@ -39,6 +54,11 @@ function evaluateTrade(senses, stats, persona = null, agentState = {}) {
   } else if (scarceItemsHeld.length > 0) {
     confidence = 0.80; // Holding valuable scarce trading commodities near a partner
     reason = `Holding valuable scarce resources (${scarceItemsHeld.map(s => `${s.count}x ${s.name}`).join(', ')}) to barter with ${partner.username}`;
+  } else {
+    // Empty pockets: stay a weak candidate so escrowed/promise trades still
+    // surface, but never outbid real work (fixes no-inventory TRADE spam).
+    confidence = Math.min(confidence, 0.40);
+    reason = `Near ${partner.username} but holding nothing tradable — weak trade interest`;
   }
 
   return {
