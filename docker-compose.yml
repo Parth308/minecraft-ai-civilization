@@ -163,6 +163,10 @@ services:
       LITEROUTER_MODEL: "${LITEROUTER_MODEL:-deepseek/deepseek-v3:free}"
       TOKENREPLY_API_KEY: "${TOKENREPLY_API_KEY:-}"
       TOKENREPLY_MODEL: "${TOKENREPLY_MODEL:-qwen/qwen-2.5-72b-instruct}"
+      OLLAMACLOUD_API_KEY: "${OLLAMACLOUD_API_KEY:-}"
+      OLLAMACLOUD_MODEL: "${OLLAMACLOUD_MODEL:-gpt-oss:20b}"
+      CHUTES_API_KEY: "${CHUTES_API_KEY:-}"
+      CHUTES_MODEL: "${CHUTES_MODEL:-unsloth/Mistral-Nemo-Instruct-2407-TEE}"
       KIRA_API_KEY: "${KIRA_API_KEY:-}"
       KIRA_MODEL: "${KIRA_MODEL:-kira-3.5-flash}"
       # OmniRoute: standalone Node.js router on the VPS host (port 20128)
