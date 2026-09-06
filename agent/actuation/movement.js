@@ -175,6 +175,41 @@ class MovementActuator {
     }
   }
 
+  // Drowning escape: pathfinder alone never ascends — bot must hold jump
+  // while moving straight up to first air above. Called from FLEE execution.
+  swimToSurface() {
+    if (!this.bot.entity) return false;
+    const pos = this.bot.entity.position;
+    let surfaceY = null;
+    try {
+      for (let y = Math.floor(pos.y); y < Math.floor(pos.y) + 30; y++) {
+        const b = this.bot.blockAt(new Vec3(Math.floor(pos.x), y, Math.floor(pos.z)));
+        if (b && b.name !== 'water' && b.name !== 'flowing_water' && b.name !== 'bubble_column') {
+          surfaceY = y;
+          break;
+        }
+      }
+    } catch {
+    }
+    this._swimEscape = true;
+    this.bot.setControlState('jump', true);
+    this.bot.setControlState('sprint', true);
+    if (surfaceY != null) this.goto(pos.x, surfaceY + 1, pos.z, 1);
+    logger.info('Actuation:Movement', `Swim-to-surface: holding jump toward Y:${surfaceY}`);
+    return true;
+  }
+
+  // Release escape controls once dry — pathfinder re-asserts what it needs.
+  releaseSwim() {
+    if (!this._swimEscape) return;
+    this._swimEscape = false;
+    try {
+      this.bot.setControlState('jump', false);
+      this.bot.setControlState('sprint', false);
+    } catch {
+    }
+  }
+
   stopSwimming() {
     this.bot.setControlState('jump', false);
   }

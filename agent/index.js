@@ -812,6 +812,17 @@ function createAgent() {
 
         case ACTIONS.FLEE:
         case 'FLEE': {
+          // Submerged: oxygen outranks mobs — surface before anything else.
+          // Pathfinder never ascends on its own, so fleeFrom/goToShelter
+          // drown the bot while fleeing horizontally.
+          if (senses.isInWater?.()) {
+            logger.info('AgentLoop', `Executing FLEE swim-to-surface (oxygen=${bot.oxygenLevel ?? 20})`);
+            movement.swimToSurface();
+            eventBuffer.addEvent('flee', { mode: 'swim_surface', oxygen: bot.oxygenLevel ?? 20 });
+            actionSuccess = true;
+            break;
+          }
+          movement.releaseSwim();
           // Resolve threat: prefer rule meta, else auto-pick nearest hostile from senses
           let fleeThreat = decision.meta?.threat;
           if (!fleeThreat) {
