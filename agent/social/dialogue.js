@@ -315,6 +315,33 @@ class SocialDialogueEngine {
         logger.info('SocialDialogue', `[IOU SPOKEN] ${this.persona.agentId} owes ${sender}: ${da.count}x ${da.item}`);
       }
 
+      // Civic actions: intel market, clans, conventions, pledges, notices.
+      if (response.intelAction && response.intelAction.type === 'list' && response.intelAction.fact) {
+        const ia = response.intelAction;
+        this.societyClient.listIntel(String(ia.title || 'Field intel').slice(0, 80), String(ia.fact).slice(0, 200));
+        logger.info('SocialDialogue', `[INTEL LISTED] ${this.persona.agentId}: "${ia.title || 'Field intel'}"`);
+      } else if (response.intelAction && response.intelAction.type === 'buy') {
+        this.societyClient.purchaseIntelFromMarket(this.persona.agentId);
+      }
+      if (response.clanAction && response.clanAction.name) {
+        const ca = response.clanAction;
+        if (ca.type === 'join') {
+          this.societyClient.joinClan(String(ca.name).slice(0, 60));
+        } else {
+          this.societyClient.foundClan(String(ca.name).slice(0, 60), String(ca.motto || '').slice(0, 120));
+        }
+        logger.info('SocialDialogue', `[CLAN] ${this.persona.agentId} ${ca.type === 'join' ? 'joined' : 'founded'} "${ca.name}"`);
+      }
+      if (response.conventionAction && response.conventionAction.key && response.conventionAction.value) {
+        this.societyClient.proposeConvention(String(response.conventionAction.key).slice(0, 60), String(response.conventionAction.value).slice(0, 200));
+      }
+      if (response.pledgeAction && response.pledgeAction.description) {
+        this.societyClient.makePledge(String(response.pledgeAction.description).slice(0, 200));
+      }
+      if (response.noticeAction && response.noticeAction.title && response.noticeAction.body) {
+        this.societyClient.postNotice(String(response.noticeAction.type || 'news').slice(0, 20), String(response.noticeAction.title).slice(0, 80), String(response.noticeAction.body).slice(0, 300));
+      }
+
       // Joint venture: agent rallies help on a shared goal.
       if (response.sharedGoalProposal && response.sharedGoalProposal.description) {
         const sg = response.sharedGoalProposal;

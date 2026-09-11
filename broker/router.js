@@ -631,6 +631,8 @@ IOUs (only when YOU genuinely promise to pay them back later — never for insta
 
 JOINT VENTURES (only when you truly want help on something bigger than yourself, like a wall, farm, or mine): set "sharedGoalProposal" with a short description and how many agents it needs (2-4). Others can join and contribute.
 
+CIVIC LIFE (only when you genuinely mean it — these go on the public record): "intelAction" to sell a fact you know ("list" with title/fact) or buy someone's tip ("buy"); "clanAction" to found a named crew ("found" with name/motto) or join one ("join" with name); "conventionAction" to propose a rule everyone should follow (key/value); "pledgeAction" to swear a public oath (description); "noticeAction" to pin a public bulletin (type/title/body).
+
 REPLY as raw JSON only (no markdown):
 {
   "chatMessage": "your casual 1-2 sentence reply, or null if ignoring/busy",
@@ -643,6 +645,11 @@ REPLY as raw JSON only (no markdown):
    "dealAccepted": { "giveItem": null, "giveCount": 0, "wantItem": null, "wantCount": 0 },
    "debtAction": { "item": null, "count": 0, "reason": null },
    "sharedGoalProposal": { "description": null, "requiredAgents": 2 },
+   "intelAction": { "type": null, "title": null, "fact": null },
+   "clanAction": { "type": null, "name": null, "motto": null },
+   "conventionAction": { "key": null, "value": null },
+   "pledgeAction": { "description": null },
+   "noticeAction": { "type": null, "title": null, "body": null },
    "newGoal": null,
   "faithAction": { "type": null, "tradition": null, "tenet": null, "riteType": null },
   "jobAction": { "type": null, "jobId": null, "title": null, "description": null, "currency": null, "amount": null }
@@ -728,6 +735,13 @@ HARVEST - harvest mature crops (wheat, carrot, potato, beetroot) and replant
 CHEST   - deposit overflow items into nearby chest or withdraw needed items
 FIGHT   - attack nearest hostile mob
 FLEE    - run from danger
+DEFEND  - brace and block against an incoming threat (shield up, hold ground)
+GUARD   - stand watch over a partner or place, facing outward
+HUNT    - kill nearest passive animal for food
+SCOUT   - short recon sweep of nearby terrain
+COOPERATE - move to a nearby player and help with what they are doing
+STEAL   - take an item from another player (they will remember — scams have consequences)
+FARM    - till soil, plant seeds, tend crops
 SLEEP   - sleep in a bed at night
 EXPLORE - walk toward new terrain / biomes
 WANDER  - short random walk
@@ -748,7 +762,7 @@ DECISION RULES:
 
 Reply ONLY as raw JSON:
 {
-  "action": "MINE|CRAFT|SMELT|EQUIP|EAT|HARVEST|CHEST|FIGHT|FLEE|SLEEP|EXPLORE|WANDER|BUILD|TRADE|TALK|PLAN|IDLE",
+   "action": "MINE|CRAFT|SMELT|EQUIP|EAT|HARVEST|CHEST|FIGHT|FLEE|DEFEND|GUARD|HUNT|SCOUT|COOPERATE|STEAL|FARM|SLEEP|EXPLORE|WANDER|BUILD|TRADE|TALK|PLAN|IDLE",
   "reason": "1-2 sentence reasoning",
   "chatMessage": "optional chat or null",
   "tacticLearned": "optional memory tactic or null",
@@ -786,7 +800,7 @@ Reply ONLY as raw JSON:
 
       // Normalize action to standard Minecraft agent action verbs
       let action = String(parsed.action || '').toUpperCase().trim();
-      const validActions = ['MINE', 'CRAFT', 'SMELT', 'EQUIP', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'CHAT', 'TRADE', 'FLEE', 'WANDER', 'BUILD', 'HARVEST', 'CHEST', 'IDLE', 'PLAN'];
+      const validActions = ['MINE', 'CRAFT', 'SMELT', 'EQUIP', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'CHAT', 'TRADE', 'FLEE', 'DEFEND', 'GUARD', 'HUNT', 'SCOUT', 'COOPERATE', 'STEAL', 'FARM', 'WANDER', 'BUILD', 'HARVEST', 'CHEST', 'IDLE', 'PLAN'];
       if (!validActions.includes(action)) {
         const found = validActions.find(v => action.includes(v));
         action = found || 'EXPLORE';
@@ -824,7 +838,7 @@ Reply ONLY as raw JSON:
       logger.warn('Router', `Failed to parse JSON response from LLM (${err.message}), extracting fallback structure`);
 
       // Attempt to extract action word directly from raw text
-      const validActions = ['MINE', 'CRAFT', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'TRADE', 'FLEE', 'WANDER', 'BUILD'];
+      const validActions = ['MINE', 'CRAFT', 'FIGHT', 'EAT', 'SLEEP', 'EXPLORE', 'TALK', 'TRADE', 'FLEE', 'DEFEND', 'GUARD', 'HUNT', 'SCOUT', 'COOPERATE', 'STEAL', 'FARM', 'WANDER', 'BUILD'];
       const upper = String(rawText || '').toUpperCase();
       const extractedAction = validActions.find(v => upper.includes(v)) || 'EXPLORE';
 

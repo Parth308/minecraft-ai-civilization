@@ -5,6 +5,7 @@ const detailedLogger = require('../../shared/detailedLogger');
 class InventoryActuator {
   constructor(bot) {
     this.bot = bot;
+    this.claimedChests = [];
   }
 
   get _society() {
@@ -330,6 +331,8 @@ class InventoryActuator {
       if (blockName.includes('chest')) {
         const p = referenceBlock.position.offset(faceVector.x, faceVector.y, faceVector.z);
         this._society.claimChest(p.x, p.y, p.z, blockName);
+        this.claimedChests.push({ x: Math.round(p.x), y: Math.round(p.y), z: Math.round(p.z) });
+        if (this.claimedChests.length > 5) this.claimedChests.shift();
       }
       return true;
     } catch (err) {

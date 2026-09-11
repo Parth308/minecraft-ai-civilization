@@ -20,6 +20,7 @@ const BrainClient = require('./brain-client/client');
 const DynamicPersona = require('./cognition/persona');
 const GoalManager = require('./cognition/goals');
 const Gossip = require('./social/gossip');
+const SocietyClient = require('./memory/societyClient');
 
 // Goals survive container restarts: every mutation re-POSTs a snapshot to the
 // memory service, and the snapshot is restored into a freshly booted agent.
@@ -1169,6 +1170,21 @@ function createAgent() {
                 valueGive: tradeResult.valueGive, valueWant: tradeResult.valueWant,
                 fairnessScore: tradeResult.fairnessScore, success: true, totalValue
               });
+              const sc = SocietyClient.forAgent(bot.username);
+              // Currency trades move through wallets so balances mean something.
+              if (factionManager?.recognizedCurrencies?.includes(giveItem)) {
+                sc.transfer(tradePartner, giveItem, giveCount, `Trade ${giveCount}x ${giveItem} for ${wantCount}x ${wantItem}`);
+              }
+              // Paying back in goods clears a matching open IOU automatically.
+              sc.getOpenDebts().then(debts => {
+                for (const d of debts) {
+                  if (d.debtor === bot.username && d.creditor === tradePartner && d.item === giveItem && d.status === 'open' && giveCount >= (d.amount || 1)) {
+                    sc.payDebt(d.id);
+                    logger.info('AgentLoop', `[DEBT REPAID] ${giveCount}x ${giveItem} to ${tradePartner} cleared IOU ${d.id}`);
+                    break;
+                  }
+                }
+              }).catch(() => {});
               if (!milestoneLessonsRecorded.has('trade_deal')) {
                 milestoneLessonsRecorded.add('trade_deal');
                 recordCivLesson({
@@ -1183,6 +1199,11 @@ function createAgent() {
               if (announcement && Date.now() - lastOutgoingChat > 3000) {
                 lastOutgoingChat = Date.now();
                 chat.say(announcement);
+                const chest = (inventory?.claimedChests || [])[inventory.claimedChests.length - 1];
+                if (chest) {
+                  SocietyClient.forAgent(bot.username).shareChest(chest.x, chest.y, chest.z, tradePartner);
+                  logger.info('AgentLoop', `[CHEST SHARED] Opened storage @ ${chest.x},${chest.y},${chest.z} to ally ${tradePartner}`);
+                }
               }
             }).catch(() => {});
           } else {
@@ -1461,6 +1482,30 @@ function createAgent() {
           actionSuccess = true;
           break;
         }
+        case 'COOPERATE': {
+          const partner = (senses.getNearbyPlayers?.(16) || []).map(p => p.username).find(n => n && n !== bot.username) || null;
+          if (!partner) {
+            logger.debug('AgentLoop', 'COOPERATE requested but nobody nearby');
+            actionSuccess = false;
+            break;
+          }
+          try {
+            const ent = Object.values(bot.entities).find(e => e.username === partner);
+            if (ent?.position && bot.entity?.position && bot.entity.position.distanceTo(ent.position) > 3) {
+              await withTimeout(movement.goto(ent.position.x, ent.position.y, ent.position.z, 2.5), `cooperate(${partner})`);
+            }
+            if (Date.now() - lastOutgoingChat > 3000) {
+              lastOutgoingChat = Date.now();
+              chat.say(`got your back, ${partner}`);
+            }
+            eventBuffer.addEvent('cooperate', { partner });
+            actionSuccess = true;
+          } catch (coopErr) {
+            logger.debug('AgentLoop', `COOPERATE failed (${coopErr.message})`);
+            actionSuccess = false;
+          }
+          break;
+        }
         case ACTIONS.IDLE:
         default:
           // Do nothing
@@ -1691,6 +1736,15 @@ function createAgent() {
       // The victim's own feelings toward the killer crystallize into permanent grudge
       relationships.updateTrust(killerName, -50);
       relationships.updateAffinity(killerName, -40);
+
+      // Murder goes on the public record: accusation + grievance when the
+      // killer is a fellow settler. Memory and consequence, not guardrails.
+      if (killerName.startsWith('Agent_')) {
+        const sc = SocietyClient.forAgent(bot.username);
+        sc.fileAccusation(killerName, '', `Killed me (${cause || 'unknown cause'})`);
+        sc.addGrievance(killerName, `Murdered me (${cause || 'unknown cause'})`, 5);
+        logger.warn('AgentLoop', `[JUSTICE FILED] Accusation + grievance vs ${killerName} for murder`);
+      }
 
       // ── PvP Consequence: Faction Trust Impact ──────────────────────────
       // Same-faction kills are betrayals. Cross-faction kills are acts of war.

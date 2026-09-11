@@ -167,8 +167,26 @@ class SocietyClient {
     });
   }
 
-  resolveDebt(debtId, action) {
-    const byField = action === 'paid' ? 'byDebtor' : 'byCreditor';
+  async getOpenDebts() {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/debts/open?agentId=${encodeURIComponent(this.agentId)}`, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) return (await res.json()).debts || [];
+    } catch { /* fall through */ }
+    return [];
+  }
+
+  payDebt(debtId) {
+    return fetch(`${this.serviceUrl}/api/society/debts/${encodeURIComponent(debtId)}/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ byDebtor: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Debt pay failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  resolveDebt(debtId, action) {    const byField = action === 'paid' ? 'byDebtor' : 'byCreditor';
     return fetch(`${this.serviceUrl}/api/society/debts/${debtId}/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -192,7 +210,7 @@ class SocietyClient {
   }
 
   purchaseIntel(intelId) {
-    return fetch(`${this.serviceUrl}/api/society/intel/${intelId}/purchase`, {
+    return fetch(`${this.serviceUrl}/api/society/intel/${encodeURIComponent(intelId)}/purchase`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ buyer: this.agentId })
@@ -200,6 +218,18 @@ class SocietyClient {
       logger.debug('SocietyClient', `Intel purchase failed: ${err.message}`);
       return {};
     });
+  }
+
+  async purchaseIntelFromMarket() {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/intel`, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return {};
+      const listings = ((await res.json()).listings || []).filter(l => l.seller !== this.agentId && l.status === 'listed');
+      if (!listings.length) return {};
+      return this.purchaseIntel(listings[0].id);
+    } catch {
+      return {};
+    }
   }
 
   addGrievance(against, reason, weight = 1) {

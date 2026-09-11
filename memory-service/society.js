@@ -5,7 +5,10 @@ const logger = require('../shared/logger');
 // Society knowledge layer: gossip/reputation, public notices, conventions,
 // and social pledges. Stores KNOWLEDGE only — agents decide freely what to do
 // with it. No endpoint here ever forces behavior.
-const SOCIETY_PATH = process.env.SOCIETY_FILE_PATH || path.join(__dirname, 'civilization', 'society.json');
+// Diagnosed 2026-09-11: the old __dirname/civilization path lived inside the
+// container image, so every rebuild wiped all gossip/faith/jobs/wallets.
+// The store/ tree is bind-mounted — society data must live under it.
+const SOCIETY_PATH = process.env.SOCIETY_FILE_PATH || path.join(__dirname, 'store', 'civilization', 'society.json');
 
 class SocietyStore {
   constructor() {
@@ -16,6 +19,11 @@ class SocietyStore {
   ensureFileExists() {
     const dir = path.dirname(this.filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const legacyPath = path.join(__dirname, 'civilization', 'society.json');
+    if (!fs.existsSync(this.filePath) && fs.existsSync(legacyPath)) {
+      fs.renameSync(legacyPath, this.filePath);
+      logger.warn('SocietyStore', 'Migrated society.json from ephemeral container path into persisted store/');
+    }
     if (!fs.existsSync(this.filePath)) {
       fs.writeFileSync(this.filePath, JSON.stringify({
         worldStartAt: new Date().toISOString(),

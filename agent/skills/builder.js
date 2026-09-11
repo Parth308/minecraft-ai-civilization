@@ -77,6 +77,24 @@ class BuilderSkill {
     }
 
     let rawPos = origin || this.bot.entity.position.floored().offset(2, 0, 2);
+    // Surface-seek: cave walls are not building sites. Climb the column for
+    // the first open-air cell with solid ground before placing anything.
+    let surfaced = null;
+    for (let dy = 0; dy <= 30; dy++) {
+      const probe = rawPos.offset(0, dy, 0);
+      const cell = this.bot.blockAt(probe);
+      const floor = this.bot.blockAt(probe.offset(0, -1, 0));
+      if (cell && cell.name === 'air' && floor && floor.name !== 'air' && (cell.skyLight ?? 0) > 0) {
+        surfaced = probe;
+        break;
+      }
+    }
+    if (!surfaced) {
+      this.cooldownUntil = Date.now() + 60000;
+      logger.warn('Builder', `No surface site above ${rawPos} (30-block scan). Cooling down.`);
+      return false;
+    }
+    rawPos = surfaced;
     // Find unclaimed territory to prevent overlapping structures
     const startPos = await this.findUnclaimedBuildSite(rawPos);
     const siteKey = `${startPos.x},${startPos.y},${startPos.z}`;
