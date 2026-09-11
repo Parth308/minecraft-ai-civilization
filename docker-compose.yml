@@ -78,7 +78,10 @@ services:
     environment:
       MEMORY_PORT: 3002
       BROKER_URL: "http://brain-broker:3001"
-      NODE_OPTIONS: "--max-old-space-size=384"
+      # Raised 2026-09-11 after V8 heap OOM crash-loop (661 restarts): ledger
+      # hit 92MB and flush stringify spiked past the old 384MB heap. Heap
+      # stays below container cap per design law 3 (640 < 768).
+      NODE_OPTIONS: "--max-old-space-size=640"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
       NVIDIA_MODEL: "${NVIDIA_MODEL:-meta/llama-3.1-8b-instruct}"
@@ -103,7 +106,7 @@ services:
       resources:
         limits:
           cpus: '0.6'
-          memory: 400M
+          memory: 768M
     networks:
       - minecraft-network
     restart: unless-stopped

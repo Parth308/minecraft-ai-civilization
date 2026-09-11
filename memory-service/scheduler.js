@@ -1,8 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const v8 = require('v8');
 const config = require('./config');
 const { parseSectionFile, getSectionFilePath } = require('./sections/schema');
 const logger = require('../shared/logger');
+
+// Tier2 sweep builds full-section LLM prompts per agent; defer the whole
+// sweep when the heap is already hot so consolidation never triggers OOM.
+const SWEEP_HEAP_GUARD_RATIO = 0.8;
 
 class MemoryScheduler {
   constructor(compactor) {
@@ -20,6 +25,13 @@ class MemoryScheduler {
   }
 
   async runSweep() {
+    try {
+      const stats = v8.getHeapStatistics();
+      if (stats.used_heap_size / stats.heap_size_limit > SWEEP_HEAP_GUARD_RATIO) {
+        logger.warn('MemoryScheduler', 'Sweep deferred: heap over guard ratio');
+        return;
+      }
+    } catch { /* fall through to sweep */ }
     logger.info('MemoryScheduler', 'Running scheduled Tier 2 memory consolidation sweep across agents...');
     const agentsDir = config.baseStorePath;
     if (!fs.existsSync(agentsDir)) return;

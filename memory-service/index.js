@@ -10,8 +10,8 @@ const VectorMemoryStore = require('./store/vectorStore');
 const logger = require('../shared/logger');
 
 const app = express();
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const router = new EventRouter();
 const compactor = new MemoryCompactor();
@@ -377,6 +377,58 @@ app.post('/api/ledger/factions/join', (req, res) => {
   }
   const result = ledger.joinFaction(factionId, agentId);
   res.json(result);
+});
+
+// Treaty / Currency / Settlement / Shared-goal Endpoints — persisted when
+// agents declare them via dialogue; the LLM initiates, the ledger remembers.
+app.post('/api/ledger/treaty', (req, res) => {
+  const { proposer, target, treatyType, honorsStatus = true } = req.body;
+  if (!proposer || !target || !treatyType) {
+    return res.status(400).json({ error: 'proposer, target, and treatyType required' });
+  }
+  res.json(ledger.recordTreaty(proposer, target, treatyType, honorsStatus));
+});
+
+app.post('/api/ledger/currency', (req, res) => {
+  const { name, establishedBy, description } = req.body;
+  if (!name || !establishedBy) {
+    return res.status(400).json({ error: 'name and establishedBy required' });
+  }
+  ledger.recordCurrency(name, establishedBy, description);
+  res.json({ saved: true });
+});
+
+app.post('/api/ledger/settlement', (req, res) => {
+  const { name, claimedBy, center, radius } = req.body;
+  if (!name || !claimedBy) {
+    return res.status(400).json({ error: 'name and claimedBy required' });
+  }
+  ledger.recordSettlement(name, claimedBy, center, radius);
+  res.json({ saved: true });
+});
+
+app.post('/api/ledger/shared-goals/propose', (req, res) => {
+  const { creatorAgentId, description, requiredAgents, requiredContributions, location } = req.body;
+  if (!creatorAgentId || !description) {
+    return res.status(400).json({ error: 'creatorAgentId and description required' });
+  }
+  res.json(ledger.createSharedGoal(creatorAgentId, description, requiredAgents, requiredContributions, location));
+});
+
+app.post('/api/ledger/shared-goals/join', (req, res) => {
+  const { goalId, agentId } = req.body;
+  if (!goalId || !agentId) {
+    return res.status(400).json({ error: 'goalId and agentId required' });
+  }
+  res.json(ledger.joinSharedGoal(goalId, agentId));
+});
+
+app.post('/api/ledger/shared-goals/contribute', (req, res) => {
+  const { goalId, agentId, itemName, count } = req.body;
+  if (!goalId || !agentId || !itemName) {
+    return res.status(400).json({ error: 'goalId, agentId, and itemName required' });
+  }
+  res.json(ledger.contributeToSharedGoal(goalId, agentId, itemName, count));
 });
 
 // Territory Claims Endpoints

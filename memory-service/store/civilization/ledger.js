@@ -1,10 +1,35 @@
 const fs = require('fs');
 const path = require('path');
+const v8 = require('v8');
 const logger = require('../../../shared/logger');
 const detailedLogger = require('../../../shared/detailedLogger');
 
 const LEDGER_PATH = path.join(__dirname, 'ledger.json');
+const LEDGER_ARCHIVE_PATH = path.join(__dirname, 'ledger_archive.jsonl');
 const FLUSH_INTERVAL_MS = 30_000;
+
+// Diagnosed 2026-09-11: ledger.json hit 92MB (78k lessons + 85k chronicles,
+// 7k deaths) and every flush JSON.stringified the whole object with pretty
+// print inside a 384MB heap → V8 FATAL crash-loop (96 OOMs/17h, 661 restarts).
+// Hot arrays stay bounded; overflow appends to ledger_archive.jsonl so no
+// knowledge is ever destroyed, only paged out of the hot set.
+const LEDGER_CAPS = {
+  chronicleEntries: 5000,
+  sharedLessons: 5000,
+  deaths: 2000,
+  trades: 3000,
+  debts: 2000,
+  territoryClaims: 500,
+  sharedGoals: 200,
+  laws: 500,
+  factions: 200,
+  settlements: 200,
+  currencies: 200,
+  unsharedLessons: 100
+};
+// Skip the flush stringify when the heap is this full — the stringify itself
+// is the allocation spike that tips V8 over the limit.
+const FLUSH_HEAP_GUARD_RATIO = 0.88;
 
 class CivilizationLedger {
   constructor() {
@@ -54,6 +79,37 @@ class CivilizationLedger {
     if (!Array.isArray(this._cache.sharedGoals)) this._cache.sharedGoals = [];
     if (!Array.isArray(this._cache.chronicleEntries)) this._cache.chronicleEntries = [];
     logger.info('CivLedger', `Loaded ledger into memory (${this._cache.sharedLessons.length} lessons, ${this._cache.trades.length} trades, ${this._cache.chronicleEntries.length} chronicles)`);
+    this._enforceCaps('boot');
+  }
+
+  _archiveEntries(kind, entries) {
+    if (!entries.length) return;
+    try {
+      const lines = entries.map(e => JSON.stringify({ kind, archivedAt: new Date().toISOString(), entry: e })).join('\n') + '\n';
+      fs.appendFileSync(LEDGER_ARCHIVE_PATH, lines, 'utf-8');
+    } catch (err) {
+      logger.error('CivLedger', 'Failed to append ledger archive', err);
+    }
+  }
+
+  _enforceCaps(reason) {
+    for (const [key, max] of Object.entries(LEDGER_CAPS)) {
+      const arr = this._cache[key];
+      if (!Array.isArray(arr) || arr.length <= max) continue;
+      const overflow = arr.splice(0, arr.length - max);
+      this._archiveEntries(key, overflow);
+      this._dirty = true;
+      logger.warn('CivLedger', `Ledger cap ${key}: archived ${overflow.length} oldest entries (${reason}), hot=${arr.length}`);
+    }
+  }
+
+  _heapUsedRatio() {
+    try {
+      const stats = v8.getHeapStatistics();
+      return stats.used_heap_size / stats.heap_size_limit;
+    } catch {
+      return 0;
+    }
   }
 
   _startFlushTimer() {
@@ -64,10 +120,15 @@ class CivilizationLedger {
 
   flush() {
     if (!this._dirty) return;
+    if (this._heapUsedRatio() > FLUSH_HEAP_GUARD_RATIO) {
+      logger.warn('CivLedger', 'Flush deferred: heap over guard ratio, retry next tick');
+      return;
+    }
+    this._enforceCaps('flush');
     this._cache.updatedAt = new Date().toISOString();
     const tmpPath = `${LEDGER_PATH}.tmp`;
     try {
-      fs.writeFileSync(tmpPath, JSON.stringify(this._cache, null, 2), 'utf-8');
+      fs.writeFileSync(tmpPath, JSON.stringify(this._cache), 'utf-8');
       fs.renameSync(tmpPath, LEDGER_PATH);
       this._dirty = false;
       logger.debug('CivLedger', `Flushed ledger to disk (${Math.round(fs.statSync(LEDGER_PATH).size / 1024)}KB)`);
