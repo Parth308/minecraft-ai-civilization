@@ -155,6 +155,25 @@ class BuilderSkill {
           structureType: 'shelter'
         })
       });
+      // Three shelters by one settler starts reading as a hamlet — the
+      // ledger dedups by name, so repeat posts are harmless no-ops.
+      const claimsRes = await fetch(`${this.memoryServiceUrl}/api/ledger/territory/all`);
+      if (claimsRes.ok) {
+        const myClaims = ((await claimsRes.json()).claims || []).filter(c => c.agentId === this.agentId);
+        if (myClaims.length >= 3) {
+          const short = String(this.agentId).replace(/^Agent_/, '');
+          await fetch(`${this.memoryServiceUrl}/api/ledger/settlement`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: `${short}'s Hamlet`,
+              claimedBy: this.agentId,
+              center: { x: startPos.x, y: startPos.y, z: startPos.z },
+              radius: 50
+            })
+          });
+        }
+      }
     } catch (claimErr) {
       logger.debug('Builder', `Failed to register territory claim: ${claimErr.message}`);
     }

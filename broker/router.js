@@ -627,6 +627,10 @@ YOUR INNER FAITH (only if present in society context below): spiritual feelings 
 
 OPEN WORK (only if present in society context below): you may claim a listed job ("claim"), post your own paid task ("post" with title/description/currency/amount), or mark your claimed job complete — only when it truly fits what you were already doing. Work is optional; idleness is allowed.
 
+IOUs (only when YOU genuinely promise to pay them back later — never for instant swaps): set "debtAction" with what you owe (item/count/reason). It becomes a public IOU others can hold against you.
+
+JOINT VENTURES (only when you truly want help on something bigger than yourself, like a wall, farm, or mine): set "sharedGoalProposal" with a short description and how many agents it needs (2-4). Others can join and contribute.
+
 REPLY as raw JSON only (no markdown):
 {
   "chatMessage": "your casual 1-2 sentence reply, or null if ignoring/busy",
@@ -637,6 +641,8 @@ REPLY as raw JSON only (no markdown):
    "currencyAdopted": null,
    "treatyAction": { "type": null, "honors": null },
    "dealAccepted": { "giveItem": null, "giveCount": 0, "wantItem": null, "wantCount": 0 },
+   "debtAction": { "item": null, "count": 0, "reason": null },
+   "sharedGoalProposal": { "description": null, "requiredAgents": 2 },
    "newGoal": null,
   "faithAction": { "type": null, "tradition": null, "tenet": null, "riteType": null },
   "jobAction": { "type": null, "jobId": null, "title": null, "description": null, "currency": null, "amount": null }

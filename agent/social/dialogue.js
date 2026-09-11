@@ -300,10 +300,29 @@ class SocialDialogueEngine {
         }
         if (response.currencyAdopted) {
           this.factionManager.recognizeCurrency(response.currencyAdopted);
+          this.societyClient.registerCurrency(response.currencyAdopted, `Adopted by ${this.persona.agentId} via dialogue with ${sender}`);
         }
         if (response.treatyAction) {
           this.factionManager.recordTreaty(sender, response.treatyAction.type, response.treatyAction.honors);
+          this.societyClient.logTreaty(sender, response.treatyAction.type, response.treatyAction.honors !== false);
         }
+      }
+
+      // Spoken IOU: agent promises to pay the sender back later.
+      if (response.debtAction && response.debtAction.item && response.debtAction.count) {
+        const da = response.debtAction;
+        this.societyClient.oweDebt(sender, String(da.item).slice(0, 40), Math.max(1, parseInt(da.count, 10) || 1), String(da.reason || 'Promised in dialogue').slice(0, 200));
+        logger.info('SocialDialogue', `[IOU SPOKEN] ${this.persona.agentId} owes ${sender}: ${da.count}x ${da.item}`);
+      }
+
+      // Joint venture: agent rallies help on a shared goal.
+      if (response.sharedGoalProposal && response.sharedGoalProposal.description) {
+        const sg = response.sharedGoalProposal;
+        this.societyClient.proposeSharedGoal(
+          String(sg.description).slice(0, 200),
+          Math.min(4, Math.max(2, parseInt(sg.requiredAgents, 10) || 2))
+        );
+        logger.info('SocialDialogue', `[SHARED GOAL PROPOSED] ${this.persona.agentId}: "${sg.description}"`);
       }
 
       // Faith actions: conversion/devotion/rites are ALWAYS the agent's own

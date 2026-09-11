@@ -123,6 +123,50 @@ class SocietyClient {
     });
   }
 
+  oweDebt(creditor, item, amount, context = '') {
+    return fetch(`${this.serviceUrl}/api/society/debts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creditor, debtor: this.agentId, item, amount, context })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `IOU creation failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  logTreaty(target, treatyType, honorsStatus = true) {
+    return fetch(`${this.serviceUrl}/api/ledger/treaty`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposer: this.agentId, target, treatyType, honorsStatus })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Treaty log failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  registerCurrency(name, description = '') {
+    return fetch(`${this.serviceUrl}/api/ledger/currency`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, establishedBy: this.agentId, description })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Currency register failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  proposeSharedGoal(description, requiredAgents = 2, requiredContributions = [{ item: 'cobblestone', count: 16 }]) {
+    return fetch(`${this.serviceUrl}/api/ledger/shared-goals/propose`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creatorAgentId: this.agentId, description, requiredAgents, requiredContributions })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Shared goal propose failed: ${err.message}`);
+      return {};
+    });
+  }
+
   resolveDebt(debtId, action) {
     const byField = action === 'paid' ? 'byDebtor' : 'byCreditor';
     return fetch(`${this.serviceUrl}/api/society/debts/${debtId}/${action}`, {

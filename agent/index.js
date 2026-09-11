@@ -1179,7 +1179,7 @@ function createAgent() {
                 });
               }
             }
-            factionManager.considerAllianceWith(tradePartner).then(announcement => {
+            factionManager.considerAllianceWith(tradePartner, memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002').then(announcement => {
               if (announcement && Date.now() - lastOutgoingChat > 3000) {
                 lastOutgoingChat = Date.now();
                 chat.say(announcement);
