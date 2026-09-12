@@ -62,8 +62,7 @@ class BuilderSkill {
     return preferredPos.offset(40, 0, 40);
   }
 
-  async buildShelter(origin = null, width = 3, length = 3, height = 2) {
-    if (Date.now() < this.cooldownUntil) {
+  async buildShelter(origin = null, width = 3, length = 3, height = 2) {    if (Date.now() < this.cooldownUntil) {
       const remainingSec = Math.ceil((this.cooldownUntil - Date.now()) / 1000);
       logger.debug('Builder', `Shelter construction is on cooldown for another ${remainingSec}s.`);
       return false;
@@ -197,6 +196,129 @@ class BuilderSkill {
     }
 
     return true;
+  }
+
+  housePlan() {
+    const cells = [];
+    for (let y = 0; y < 3; y++) {
+      for (let x = 0; x < 7; x++) {
+        for (let z = 0; z < 5; z++) {
+          const perimeter = x === 0 || x === 6 || z === 0 || z === 4;
+          const divider = x === 3 && z !== 0;
+          const frontDoor = x === 3 && z === 0 && y < 2;
+          const roomDoor = x === 3 && z === 2 && y < 2;
+          if ((perimeter && !frontDoor) || (divider && !roomDoor)) cells.push({ dx: x, dy: y, dz: z });
+        }
+      }
+    }
+    return cells;
+  }
+
+  hallPlan() {
+    const cells = [];
+    for (let y = 0; y < 3; y++) {
+      for (let x = 0; x < 9; x++) {
+        for (let z = 0; z < 5; z++) {
+          const perimeter = x === 0 || x === 8 || z === 0 || z === 4;
+          const stall = (x === 2 || x === 4 || x === 6) && z !== 0;
+          const door = x === 4 && z === 0 && y < 2;
+          if ((perimeter && !door) || stall) cells.push({ dx: x, dy: y, dz: z });
+        }
+      }
+    }
+    return cells;
+  }
+
+  async buildBlueprint(origin = null, name = 'house') {
+    if (Date.now() < this.cooldownUntil) return false;
+    const cells = name === 'trading_hall' ? this.hallPlan() : this.housePlan();
+
+    const buildBlocks = this.getAvailableBuildingBlocks();
+    if (buildBlocks.length === 0) {
+      this.cooldownUntil = Date.now() + 30000;
+      return false;
+    }
+
+    let rawPos = origin || this.bot.entity.position.floored().offset(4, 0, 4);
+    let surfaced = null;
+    for (let dy = 0; dy <= 30; dy++) {
+      const probe = rawPos.offset(0, dy, 0);
+      const cell = this.bot.blockAt(probe);
+      const floor = this.bot.blockAt(probe.offset(0, -1, 0));
+      if (cell && cell.name === 'air' && floor && floor.name !== 'air' && (cell.skyLight ?? 0) > 0) {
+        surfaced = probe;
+        break;
+      }
+    }
+    if (!surfaced) {
+      this.cooldownUntil = Date.now() + 60000;
+      return false;
+    }
+    const startPos = await this.findUnclaimedBuildSite(surfaced);
+    const siteKey = `${startPos.x},${startPos.y},${startPos.z}`;
+    if (this.invalidSites.has(siteKey)) {
+      this.cooldownUntil = Date.now() + 60000;
+      return false;
+    }
+
+    logger.info('Builder', `Starting blueprint '${name}' at ${startPos} (${cells.length} cells)...`);
+    let placedCount = 0;
+    for (const cell of cells) {
+      const targetPos = startPos.offset(cell.dx, cell.dy, cell.dz);
+      const currentBlock = this.bot.blockAt(targetPos);
+      if (!currentBlock || currentBlock.name !== 'air') continue;
+      const groundBelow = this.bot.blockAt(targetPos.offset(0, -1, 0));
+      const primaryBlock = this.getAvailableBuildingBlocks()[0];
+      if (!primaryBlock || !groundBelow || groundBelow.name === 'air') continue;
+      try {
+        await this.movement.goto(targetPos.x, targetPos.y, targetPos.z, 2);
+        await this.inventory.placeBlock(primaryBlock.name, groundBelow, new Vec3(0, 1, 0));
+        placedCount++;
+      } catch (_) {}
+      if (placedCount >= 6) break;
+    }
+
+    if (placedCount > 0) {
+      const torches = (this.bot.inventory?.items() || []).find(i => i.name === 'torch');
+      if (torches) {
+        for (const spot of [{ dx: 1, dz: 2 }, { dx: 5, dz: 2 }]) {
+          try {
+            const p = startPos.offset(spot.dx, 1, spot.dz);
+            const ground = this.bot.blockAt(p.offset(0, -1, 0));
+            if (this.bot.blockAt(p)?.name === 'air' && ground && ground.name !== 'air') {
+              await this.inventory.placeBlock('torch', ground, new Vec3(0, 1, 0));
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    if (placedCount === 0) {
+      this.invalidSites.add(siteKey);
+      this.cooldownUntil = Date.now() + 60000;
+      return false;
+    }
+
+    logger.info('Builder', `Blueprint '${name}' complete. Placed ${placedCount} blocks.`);
+    try {
+      await fetch(`${this.memoryServiceUrl}/api/ledger/territory/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: this.agentId,
+          origin: { x: startPos.x, y: startPos.y, z: startPos.z },
+          radius: 25,
+          structureType: name
+        })
+      });
+    } catch (_) {}
+    let remaining = 0;
+    for (const cell of cells) {
+      const targetPos = startPos.offset(cell.dx, cell.dy, cell.dz);
+      const cur = this.bot.blockAt(targetPos);
+      if (cur && cur.name === 'air') remaining++;
+    }
+    return remaining === 0 ? true : 'partial';
   }
 }
 

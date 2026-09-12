@@ -109,6 +109,21 @@ class SkillTracker {
       'TALK': () => {
         this.awardXp('social', XP_PER_ACTION.social_chat);
       },
+      'DIAMOND_SEEK': () => {
+        this.awardXp('mining', XP_PER_ACTION.mine_ore);
+      },
+      'VILLAGE_SEEK': () => {
+        this.awardXp('exploring', XP_PER_ACTION.explore_new_chunk);
+      },
+      'LOOT_STRUCTURE': () => {
+        this.awardXp('exploring', XP_PER_ACTION.explore_cave);
+      },
+      'ENCHANT': () => {
+        this.awardXp('crafting', XP_PER_ACTION.craft_advanced);
+      },
+      'BREED': () => {
+        this.awardXp('farming', XP_PER_ACTION.farm_plant);
+      },
     };
 
     if (xpMap[actionType]) xpMap[actionType]();

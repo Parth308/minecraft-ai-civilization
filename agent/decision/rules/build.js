@@ -59,6 +59,28 @@ function evaluateBuild(senses, stats, persona = null, agentState = {}) {
     };
   }
 
+  const blockTotal = SHELTER_BLOCKS.reduce((sum, b) => sum + (invCounts[b] || 0), 0);
+  const allies = alliedAgentsNearby(senses);
+  if (!isNight && blockTotal >= 48 && (ambition > 0.55 || allies)) {
+    return {
+      name: ACTIONS.BUILD,
+      confidence: Number((allies ? 0.76 : 0.68).toFixed(2)),
+      buildType: 'house',
+      reason: `Raising a shared house — ${blockTotal} blocks stockpiled${allies ? ' with allies nearby' : ''}`
+    };
+  }
+
+  const tradeGoods = (invCounts['emerald'] || 0) > 0 || (invCounts['lectern'] || 0) > 0 ||
+                     (invCounts['composter'] || 0) > 0 || (invCounts['bookshelf'] || 0) > 0;
+  if (!isNight && ((tradeGoods && blockTotal >= 48) || (allies && blockTotal >= 64))) {
+    return {
+      name: ACTIONS.BUILD,
+      confidence: 0.70,
+      buildType: 'trading_hall',
+      reason: 'Founding a trading hall — commerce needs walls and stalls'
+    };
+  }
+
   return { name: ACTIONS.BUILD, confidence: 0.0, reason: 'No building need or materials' };
 }
 

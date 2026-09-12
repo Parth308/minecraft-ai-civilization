@@ -1271,15 +1271,29 @@ function createAgent() {
 
           let didBuild = false;
           try {
-            didBuild = await withTimeout(builder.buildShelter(), `buildShelter(${buildType})`);
+            if (buildType === 'house' || buildType === 'trading_hall') {
+              didBuild = await withTimeout(builder.buildBlueprint(null, buildType), `blueprint(${buildType})`);
+              const alliesHere = (senses.getNearbyPlayers?.(24) || []).some(p => p.username !== bot.username);
+              if (didBuild && buildType === 'house' && alliesHere && !goalManager.activeSharedGoalId) {
+                await goalManager.proposeSharedGoal(
+                  `Expand our house with walls, torches and beds`,
+                  2,
+                  [{ item: 'oak_planks', count: 32 }, { item: 'cobblestone', count: 32 }],
+                  bot.entity?.position || null,
+                  process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'
+                );
+              }
+            } else {
+              didBuild = await withTimeout(builder.buildShelter(), `buildShelter(${buildType})`);
+            }
           } catch (buildErr) {
             logger.debug('AgentLoop', `buildShelter failed (${buildErr.message})`);
           }
-          if (didBuild && Date.now() - lastOutgoingChat > 3000) {
+          if (didBuild === true && Date.now() - lastOutgoingChat > 3000) {
             lastOutgoingChat = Date.now();
             chat.say(`just finished building a ${buildType}!`);
           }
-          if (didBuild && !milestoneLessonsRecorded.has('build_shelter')) {
+          if (didBuild === true && !milestoneLessonsRecorded.has('build_shelter')) {
             milestoneLessonsRecorded.add('build_shelter');
             recordCivLesson({
               lesson: 'Constructed secure shelter with walls and light — blocks hostile mob spawns and guarantees night survival.',
@@ -1289,7 +1303,7 @@ function createAgent() {
             });
           }
           eventBuffer.addEvent('buildShelter', { buildType });
-          actionSuccess = !!didBuild;
+          actionSuccess = didBuild !== false;
           if (didBuild) persona.recoverTraits('completed_build');
           break;
         }

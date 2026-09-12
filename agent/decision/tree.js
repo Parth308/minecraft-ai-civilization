@@ -159,6 +159,21 @@ class DecisionTree {
       if (ruleCounts[c.name]) c.confidence += Math.min(0.04, ruleCounts[c.name] * 0.01);
     }
 
+    // Profession gravity: dominant skill nudges its own actions so practice
+    // compounds into identity — miners mine, builders build. Small by design.
+    const role = agentState.skills?.dominantSkill;
+    if (role) {
+      const ROLE_ACTIONS = {
+        mining: ['MINE', 'DIAMOND_SEEK'], crafting: ['CRAFT', 'SMELT', 'ENCHANT'],
+        farming: ['FARM'], trading: ['TRADE', 'TALK'], building: ['BUILD'],
+        fighting: ['FIGHT', 'GUARD', 'DEFEND'], exploring: ['EXPLORE', 'SCOUT', 'VILLAGE_SEEK'],
+        social: ['TALK', 'COOPERATE'], cooking: ['COOK', 'SMELT', 'FARM'], fishing: ['HUNT']
+      };
+      for (const c of candidates) {
+        if ((ROLE_ACTIONS[role] || []).includes(c.name)) c.confidence += 0.06;
+      }
+    }
+
     // Action chains: suggest next logical action after completion
     const ACTION_CHAINS = {
       'MINE': ['SMELT', 'CRAFT'],

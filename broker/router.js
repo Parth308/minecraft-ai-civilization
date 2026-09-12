@@ -798,6 +798,7 @@ DECISION RULES:
 - No armor in slots but armor in inventory? EQUIP now
 - Raw ore/food in inventory and furnace nearby? SMELT
 - Night with no bed? BUILD shelter
+- Day, 48+ blocks, allies near? BUILD house together
 - Iron pick and few diamonds? DIAMOND_SEEK to Y -59
 - Day, geared, curious? VILLAGE_SEEK for loot and trade
 - Hunger < 30 and have food? EAT
