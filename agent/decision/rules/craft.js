@@ -228,7 +228,7 @@ function evaluateCraft(senses, stats) {
     if (node.category === 'tool') return 0.93;
     return 0.90;
   };
-  const SWEEP_IDS = new Set(['furnace', 'torch', 'bow', 'arrow', 'chest', 'bucket']);
+  const SWEEP_IDS = new Set(['furnace', 'torch', 'bow', 'arrow', 'chest', 'bucket', 'enchanting_table']);
   const sweepEligible = (node) => {
     if (node.source === 'gather' || node.source === 'smelt') return false;
     if (node.category === 'armor' || node.category === 'tool') return true;

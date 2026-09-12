@@ -1052,6 +1052,144 @@ function createAgent() {
           break;
         }
 
+        case 'DIAMOND_SEEK': {
+          const pos = bot.entity.position;
+          const nearbyDiamond = (senses.getNearbyOres?.(12) || []).find(o => (o.name || '').includes('diamond'));
+          let success = false;
+          try {
+            if (nearbyDiamond) {
+              success = await withTimeout(inventory.digBlock(nearbyDiamond), 'diamondDig');
+            } else if (pos.y > -55) {
+              const below = bot.blockAt(pos.offset(0, -1, 0));
+              if (below && (below.name.includes('stone') || below.name.includes('deepslate'))) {
+                success = await withTimeout(inventory.digBlock(below), 'diamondDescend');
+              } else {
+                movement.wander(8);
+              }
+            } else {
+              const wall = senses.getNearbyBlock('deepslate', 5) || senses.getNearbyBlock('stone', 5);
+              if (wall) {
+                success = await withTimeout(inventory.digBlock(wall), 'diamondTunnel');
+              } else {
+                movement.wander(8);
+              }
+            }
+          } catch (seekErr) {
+            logger.debug('AgentLoop', `DIAMOND_SEEK failed (${seekErr.message})`);
+          }
+          eventBuffer.addEvent('diamondSeek', { success, y: Math.round(pos.y) });
+          actionSuccess = !!success;
+          break;
+        }
+
+        case 'VILLAGE_SEEK': {
+          let success = false;
+          try {
+            const villagers = (senses.getNearbyPassiveMobs?.(64) || [])
+              .filter(e => (e.name || '').toLowerCase().includes('villager') && e.position);
+            if (villagers.length > 0) {
+              const v = villagers[0].position;
+              await withTimeout(movement.goto(v.x, v.y, v.z, 2.5), 'villageApproach');
+              success = true;
+            } else {
+              const heading = agentState.villageHeading;
+              const pos = bot.entity.position;
+              const dest = heading
+                ? { x: pos.x + heading.dx * 100, y: pos.y, z: pos.z + heading.dz * 100 }
+                : { x: pos.x + 100, y: pos.y, z: pos.z };
+              await withTimeout(movement.goto(dest.x, dest.y, dest.z, 4), 'villageTrek');
+              success = true;
+            }
+            const roadside = senses.getNearbyBlock?.('chest', 10);
+            if (roadside) {
+              const { VALUABLES } = require('./decision/rules/lootStructure');
+              await inventory.openChestAndWithdraw(roadside, VALUABLES);
+            }
+          } catch (trekErr) {
+            logger.debug('AgentLoop', `VILLAGE_SEEK failed (${trekErr.message})`);
+          }
+          eventBuffer.addEvent('villageSeek', { success });
+          actionSuccess = success;
+          break;
+        }
+
+        case 'LOOT_STRUCTURE': {
+          const { VALUABLES } = require('./decision/rules/lootStructure');
+          const chest = senses.getNearbyBlock?.('chest', 12) || senses.getNearbyBlock?.('trapped_chest', 12);
+          if (!chest) {
+            actionSuccess = false;
+            break;
+          }
+          let ok = false;
+          try {
+            ok = await withTimeout(inventory.openChestAndWithdraw(chest, VALUABLES), 'lootChest');
+          } catch (lootErr) {
+            logger.debug('AgentLoop', `LOOT_STRUCTURE failed (${lootErr.message})`);
+          }
+          eventBuffer.addEvent('lootStructure', { success: !!ok, chest: chest.position });
+          actionSuccess = !!ok;
+          break;
+        }
+
+        case 'ENCHANT': {
+          const tableBlock = senses.getNearbyBlock?.('enchanting_table', 10);
+          const invItems = bot.inventory?.items() || [];
+          const gearItem = invItems.find(i => /^(diamond|iron)_(sword|pickaxe|axe|chestplate|helmet|leggings|boots)$/.test(i.name));
+          const lapisItem = invItems.find(i => i.name === 'lapis_lazuli');
+          if (!tableBlock || !gearItem || !lapisItem) {
+            actionSuccess = false;
+            break;
+          }
+          let ok = false;
+          try {
+            await withTimeout((async () => {
+              await movement.goto(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, 3);
+              const table = await bot.openEnchantmentTable(tableBlock);
+              try {
+                await table.putTargetItem(gearItem);
+                await table.putLapis(lapisItem);
+                const xp = bot.experience?.level ?? 0;
+                let choice = table.enchantments.findIndex(e => e.level <= xp && e.level >= 0);
+                if (choice === -1) choice = 0;
+                await table.enchant(choice);
+                await table.takeTargetItem();
+                ok = true;
+              } finally {
+                try { table.close(); } catch {}
+              }
+            })(), 'enchantGear');
+          } catch (enchErr) {
+            logger.debug('AgentLoop', `ENCHANT failed (${enchErr.message})`);
+          }
+          eventBuffer.addEvent('enchant', { success: ok, gear: gearItem.name });
+          actionSuccess = ok;
+          break;
+        }
+
+        case 'BREED': {
+          const { BREED_FOODS } = require('./decision/rules/breed');
+          const species = decision.species;
+          const foodName = decision.food;
+          let ok = false;
+          try {
+            const pair = (senses.getNearbyPassiveMobs?.(10) || [])
+              .filter(a => (a.name || '').toLowerCase().includes(species || '###'))
+              .slice(0, 2);
+            const foodItem = bot.inventory?.items().find(i => i.name === foodName);
+            if (pair.length >= 2 && foodItem && BREED_FOODS[species]?.includes(foodName)) {
+              await bot.equip(foodItem, 'hand');
+              await bot.activateEntity(pair[0]);
+              await bot.activateEntity(pair[1]);
+              ok = true;
+            }
+          } catch (breedErr) {
+            logger.debug('AgentLoop', `BREED failed (${breedErr.message})`);
+          }
+          eventBuffer.addEvent('breed', { success: ok, species });
+          actionSuccess = ok;
+          break;
+        }
+
         case ACTIONS.TALK:
         case 'TALK': {
           // Always escalate TALK to LLM for authentic personality-driven speech

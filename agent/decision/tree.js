@@ -16,6 +16,11 @@ const evaluateSmelt = require('./rules/smelt');
 const evaluateScout = require('./rules/scout');
 const evaluateGuard = require('./rules/guard');
 const evaluateBuild = require('./rules/build');
+const evaluateDiamondSeek = require('./rules/diamondSeek');
+const evaluateVillageSeek = require('./rules/villageSeek');
+const evaluateLootStructure = require('./rules/lootStructure');
+const evaluateEnchant = require('./rules/enchant');
+const evaluateBreed = require('./rules/breed');
 const buildAffordances = require('../perception/affordances');
 const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
@@ -77,7 +82,12 @@ class DecisionTree {
       evaluateSmelt(senses, stats, persona, agentState),
       evaluateScout(senses, stats, persona, agentState),
       evaluateGuard(senses, stats, persona, agentState),
-      evaluateBuild(senses, stats, persona, agentState)
+      evaluateBuild(senses, stats, persona, agentState),
+      evaluateDiamondSeek(senses, stats, persona, agentState),
+      evaluateVillageSeek(senses, stats, persona, agentState),
+      evaluateLootStructure(senses, stats),
+      evaluateEnchant(senses, stats, persona, agentState),
+      evaluateBreed(senses, stats)
     ];
 
     // Include dynamically learned rules
@@ -105,6 +115,11 @@ class DecisionTree {
         if (c.name === 'SCOUT') conf += (tr.curiosity - 0.5) * 0.45 + (tr.caution - 0.5) * 0.25;
         if (c.name === 'GUARD') conf += (tr.sociability - 0.5) * 0.35 + (tr.caution - 0.5) * 0.30;
         if (c.name === 'BUILD') conf += (tr.ambition - 0.5) * 0.40 + (tr.patience - 0.5) * 0.25;
+        if (c.name === 'DIAMOND_SEEK') conf += (tr.ambition - 0.5) * 0.45 + (tr.curiosity - 0.5) * 0.25;
+        if (c.name === 'VILLAGE_SEEK') conf += (tr.curiosity - 0.5) * 0.45 + (tr.sociability - 0.5) * 0.30;
+        if (c.name === 'LOOT_STRUCTURE') conf += (tr.greed - 0.5) * 0.40 + (0.5 - tr.caution) * 0.25;
+        if (c.name === 'ENCHANT') conf += (tr.ambition - 0.5) * 0.35 + (tr.patience - 0.5) * 0.25;
+        if (c.name === 'BREED') conf += (tr.patience - 0.5) * 0.35 + (tr.sociability - 0.5) * 0.25;
       }
       return { ...c, confidence: Math.min(0.99, Math.max(0.01, Number(conf.toFixed(2)))) };
     });
@@ -153,6 +168,11 @@ class DecisionTree {
       'EXPLORE': ['MINE', 'SCOUT'],
       'SCOUT': ['EXPLORE', 'MINE'],
       'BUILD': ['GUARD', 'DEFEND'],
+      'DIAMOND_SEEK': ['MINE'],
+      'VILLAGE_SEEK': ['LOOT_STRUCTURE', 'TRADE'],
+      'LOOT_STRUCTURE': ['CHEST', 'CRAFT'],
+      'ENCHANT': ['MINE'],
+      'BREED': ['FARM', 'EAT']
     };
     const lastCompletedAction = agentState.lastActionResult?.action;
     if (lastCompletedAction && agentState.lastActionResult?.ok && ACTION_CHAINS[lastCompletedAction]) {

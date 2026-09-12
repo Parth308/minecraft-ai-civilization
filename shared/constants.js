@@ -32,7 +32,12 @@ module.exports = {
     SCOUT: 'SCOUT',
     GUARD: 'GUARD',
     COOPERATE: 'COOPERATE',
-    STEAL: 'STEAL'
+    STEAL: 'STEAL',
+    DIAMOND_SEEK: 'DIAMOND_SEEK',
+    VILLAGE_SEEK: 'VILLAGE_SEEK',
+    LOOT_STRUCTURE: 'LOOT_STRUCTURE',
+    ENCHANT: 'ENCHANT',
+    BREED: 'BREED'
   },
   SCARCE_RESOURCES: {
     emerald: { scarcityWeight: 2.8, baseValue: 50 },

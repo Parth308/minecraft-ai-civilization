@@ -782,6 +782,11 @@ SLEEP   - sleep in a bed at night
 EXPLORE - walk toward new terrain / biomes
 WANDER  - short random walk
 BUILD   - build a structure (shelter, wall, tower, farm, house)
+DIAMOND_SEEK - descend to Y -59 and branch-mine for diamonds (needs iron+ pick)
+VILLAGE_SEEK - travel toward villagers/villages, loot chests on the way
+LOOT_STRUCTURE - withdraw valuables from a nearby chest
+ENCHANT - enchant gear at a table (needs lapis + XP levels)
+BREED   - feed a nearby animal pair to breed
 TRADE   - offer items to another agent
 TALK    - say something in-world or start conversation
 PLAN    - set a new multi-step civilization goal
@@ -793,12 +798,14 @@ DECISION RULES:
 - No armor in slots but armor in inventory? EQUIP now
 - Raw ore/food in inventory and furnace nearby? SMELT
 - Night with no bed? BUILD shelter
+- Iron pick and few diamonds? DIAMOND_SEEK to Y -59
+- Day, geared, curious? VILLAGE_SEEK for loot and trade
 - Hunger < 30 and have food? EAT
 - Set PLAN goals to build civilization long-term
 
 Reply ONLY as raw JSON:
 {
-   "action": "MINE|CRAFT|SMELT|EQUIP|EAT|HARVEST|CHEST|FIGHT|FLEE|DEFEND|GUARD|HUNT|SCOUT|COOPERATE|STEAL|FARM|SLEEP|EXPLORE|WANDER|BUILD|TRADE|TALK|PLAN|IDLE",
+   "action": "MINE|CRAFT|SMELT|EQUIP|EAT|HARVEST|CHEST|FIGHT|FLEE|DEFEND|GUARD|HUNT|SCOUT|COOPERATE|STEAL|FARM|SLEEP|EXPLORE|WANDER|BUILD|DIAMOND_SEEK|VILLAGE_SEEK|LOOT_STRUCTURE|ENCHANT|BREED|TRADE|TALK|PLAN|IDLE",
   "reason": "1-2 sentence reasoning",
   "chatMessage": "optional chat or null",
   "tacticLearned": "optional memory tactic or null",

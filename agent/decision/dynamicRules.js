@@ -331,6 +331,17 @@ class DynamicRuleEngine {
         if (targets24.length === 0) conf = 0.10;
       } else if (rule.action === 'TRADE') {
         if (!hasTradable || targets24.length === 0) conf = 0.10;
+      } else if (rule.action === 'DIAMOND_SEEK') {
+        const hasIronPick = senses.hasItem?.('iron_pickaxe') || senses.hasItem?.('diamond_pickaxe') || senses.hasItem?.('netherite_pickaxe');
+        if (!hasIronPick) conf = 0.05;
+      } else if (rule.action === 'VILLAGE_SEEK') {
+        if (typeof senses.isNight === 'function' && senses.isNight()) conf = 0.05;
+      } else if (rule.action === 'LOOT_STRUCTURE') {
+        if (!senses.getNearbyBlock?.('chest', 12)) conf = 0.10;
+      } else if (rule.action === 'ENCHANT') {
+        if (!senses.getNearbyBlock?.('enchanting_table', 10)) conf = 0.10;
+      } else if (rule.action === 'BREED') {
+        if (typeof senses.getNearbyPassiveMobs !== 'function' || senses.getNearbyPassiveMobs(10).length < 2) conf = 0.10;
       }
 
       candidateActions.push({
