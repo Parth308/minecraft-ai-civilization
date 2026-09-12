@@ -934,6 +934,7 @@ function createAgent() {
               eventBuffer.addEvent('craftItem', { item, count });
               EmotionalState.forAgent(bot.username).appraise('craft_success', {}, persona?.traits || {});
               BeliefNetwork.forAgent(bot.username).learnFrom('craft_success', {});
+              persona.recoverTraits('completed_craft');
               actionSuccess = true;
 
               // Tool Progression & Crafting Milestone Lessons
@@ -1151,6 +1152,7 @@ function createAgent() {
           }
           eventBuffer.addEvent('buildShelter', { buildType });
           actionSuccess = !!didBuild;
+          if (didBuild) persona.recoverTraits('completed_build');
           break;
         }
 
