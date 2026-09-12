@@ -639,11 +639,19 @@ class DecisionTree {
       }
     }
 
-    // Confidence ceiling: persona, emotion, opportunity, mastery, and chain
-    // boosts stack additively after the initial 0.99 cap, pushing learned rules
-    // past 1.0 and preventing the stuck-loop detector from firing. Hard clamp.
+    // Confidence ceiling & Free Will preservation:
+    // Emergency actions (acute flee, eating when starving, active combat, night sleep)
+    // can peak at 0.99 for swift reflex survival.
+    // Routine static candidates (non-emergency lifestyle choices) are capped at 0.74
+    // so they do not bypass LLM escalation — preserving agent sovereign agency.
+    // Dynamic learned rules represent lived experience and can reach up to 0.85.
+    const EMERGENCY_ACTIONS = new Set(['FLEE', 'EAT', 'FIGHT', 'SLEEP']);
     for (const c of candidates) {
-      c.confidence = Math.min(0.99, Math.max(0.01, c.confidence));
+      if (!c.isDynamic && !EMERGENCY_ACTIONS.has(c.name)) {
+        c.confidence = Math.min(0.74, Math.max(0.01, c.confidence));
+      } else {
+        c.confidence = Math.min(0.99, Math.max(0.01, c.confidence));
+      }
     }
 
     // Hysteresis: running action holds +0.08 so near-ties commit instead
@@ -703,9 +711,14 @@ class DecisionTree {
       this._loopPenalties.set(topCandidate.name, Date.now() + 60000);
       for (const u of uniqueRecent) this._loopPenalties.set(u, Date.now() + 60000);
       this._actionHistory = [];
-      if (penalizedTop.name !== topCandidate.name) {
-        topCandidate = penalizedTop;
+      // Re-penalize and re-sort candidates immediately so topCandidate switches away on this tick
+      for (const c of candidates) {
+        if (c.name === topCandidate.name || uniqueRecent.includes(c.name)) {
+          c.confidence = Math.max(0.01, Number((c.confidence - 0.60).toFixed(2)));
+        }
       }
+      candidates.sort((a, b) => b.confidence - a.confidence);
+      topCandidate = candidates[0];
     }
 
     // Escalation suppression: if the last N escalations for this action all returned
@@ -772,9 +785,6 @@ class DecisionTree {
     } else if (isFireRisk) {
       hazardType = 'lava';
       hazardResearchQuery = 'minecraft lava fire damage water bucket counter';
-    } else if (isWaterRisk) {
-      hazardType = 'drowning';
-      hazardResearchQuery = 'minecraft drowning underwater oxygen torch air pocket counter';
     } else if (isMobRisk) {
       hazardType = 'mob_swarm';
       hazardResearchQuery = 'minecraft hostile mob swarm pillar defense tactics';

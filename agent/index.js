@@ -659,7 +659,7 @@ function createAgent() {
 
           if (goalManager.getActivePlan()) {
             const planMu = process.memoryUsage();
-            if (planMu.heapUsed > 150 * 1048576) {
+            if (planMu.heapUsed > 320 * 1048576) {
               logger.warn('AgentLoop', `[PLAN GUARD] heap=${Math.round(planMu.heapUsed / 1048576)}MB — clearing plan to avoid OOM from pathfinding`);
               goalManager.clearPlan('heap pressure');
             } else {

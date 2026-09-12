@@ -237,22 +237,26 @@ class DynamicRuleEngine {
     const candidateActions = [];
     if (!this.learnedRules || this.learnedRules.length === 0) return candidateActions;
 
-    // Batch pre-computed context checks once per tick (avoids 100x redundant block/item scans)
-    const cachedMiningBlock = senses.getNearbyBlock('iron_ore', 16) ||
-                              senses.getNearbyBlock('coal_ore', 16) ||
-                              senses.getNearbyBlock('log', 24) ||
-                              senses.getNearbyBlock('stone', 8) ||
-                              senses.getNearbyBlock('copper_ore', 16) ||
-                              senses.getNearbyBlock('deepslate', 12);
-    const hasCraftable = senses.hasItem('log') || senses.hasItem('oak_planks') ||
-                         senses.hasItem('cobblestone') || senses.hasItem('iron_ingot') ||
-                         senses.hasItem('raw_iron') || senses.hasItem('stick');
-    const hasSmeltable = senses.hasItem('raw_iron') || senses.hasItem('raw_gold') ||
-                         senses.hasItem('raw_copper') || senses.hasItem('iron_ore');
-    const hasFuel = senses.hasItem('coal') || senses.hasItem('charcoal') || senses.hasItem('log') || senses.hasItem('oak_planks');
-    const hasFurnace = !!senses.getNearbyBlock?.('furnace', 16);
-    const hasBlocks = senses.hasItem('oak_planks') || senses.hasItem('cobblestone') ||
-                      senses.hasItem('dirt') || senses.hasItem('stone') || senses.hasItem('stone_bricks');
+    // Batch pre-computed context checks once per tick — guarded by whether any active rule actually needs them
+    const hasMineRule = this.learnedRules.some(r => r.action === 'MINE');
+    const cachedMiningBlock = hasMineRule ? (
+      senses.getNearbyBlock?.('iron_ore', 12) ||
+      senses.getNearbyBlock?.('coal_ore', 12) ||
+      senses.getNearbyBlock?.('log', 12) ||
+      senses.getNearbyBlock?.('stone', 8) ||
+      senses.getNearbyBlock?.('copper_ore', 12) ||
+      senses.getNearbyBlock?.('deepslate', 8)
+    ) : null;
+    const hasCraftable = senses.hasItem?.('log') || senses.hasItem?.('oak_planks') ||
+                         senses.hasItem?.('cobblestone') || senses.hasItem?.('iron_ingot') ||
+                         senses.hasItem?.('raw_iron') || senses.hasItem?.('stick');
+    const hasSmeltable = senses.hasItem?.('raw_iron') || senses.hasItem?.('raw_gold') ||
+                         senses.hasItem?.('raw_copper') || senses.hasItem?.('iron_ore');
+    const hasFuel = senses.hasItem?.('coal') || senses.hasItem?.('charcoal') || senses.hasItem?.('log') || senses.hasItem?.('oak_planks');
+    const hasSmeltRule = this.learnedRules.some(r => r.action === 'SMELT');
+    const hasFurnace = hasSmeltRule ? !!senses.getNearbyBlock?.('furnace', 12) : false;
+    const hasBlocks = senses.hasItem?.('oak_planks') || senses.hasItem?.('cobblestone') ||
+                      senses.hasItem?.('dirt') || senses.hasItem?.('stone') || senses.hasItem?.('stone_bricks');
     const hostileCount16 = typeof senses.getNearbyHostileMobs === 'function'
       ? (senses.getNearbyHostileMobs(16) || []).length : 0;
     const hostiles12 = typeof senses.getNearbyHostileMobs === 'function'
