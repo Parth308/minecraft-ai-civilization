@@ -30,14 +30,12 @@ class FarmerSkill {
 
   getRawFoodInInventory() {
     if (!this.bot.inventory) return [];
-    return this.bot.inventory.items().filter(i => 
-      i.name.startsWith('raw_') ||
-      i.name === 'beef' ||
-      i.name === 'porkchop' ||
-      i.name === 'chicken' ||
-      i.name === 'mutton' ||
-      i.name === 'potato'
-    );
+    // Explicit allowlist — raw_copper/iron/gold start with 'raw_' but are ores, NOT food.
+    const COOKABLE = new Set([
+      'raw_beef', 'raw_porkchop', 'raw_chicken', 'raw_mutton', 'raw_cod', 'raw_salmon', 'raw_rabbit',
+      'beef', 'porkchop', 'chicken', 'mutton', 'potato'
+    ]);
+    return this.bot.inventory.items().filter(i => COOKABLE.has(i.name));
   }
 
   async tillAndPlant(radius = 12) {

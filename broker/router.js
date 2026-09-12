@@ -232,21 +232,22 @@ class ProviderRouter {
     if (criticality === 'critical') {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
-      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'LLM7', 'Agnes', 'FreellmAPI', 'OllamaLocal'];
+      // LLM7 moved to last: 280/280 all-timeout in 2.4h, 8s timeout set in llm7.js
+      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'Agnes', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
       // QwenLocal leads REFLECTION only: slow background jobs suit the
       // single-slot giant; live lanes use fast providers (no 90s stalls).
-      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'Nvidia', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'Nvidia', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['QwenLocal', 'KiraAI', 'OmniRoute', 'LiteRouter', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'Chutes', 'OpenRouter', 'LLM7', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['QwenLocal', 'KiraAI', 'OmniRoute', 'LiteRouter', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'Chutes', 'OpenRouter', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models.
       // OllamaLocal appended as last-resort — ~50s latency is painful but
       // a real reply strictly beats the blind-WANDER fallbackHeuristic
       // during total provider exhaustion.
-      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'LLM7', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal'];
+      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     }
 
     // Filter to configured, non-rate-limited providers

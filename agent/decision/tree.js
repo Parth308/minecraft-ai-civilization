@@ -736,15 +736,33 @@ class DecisionTree {
       logger.warn('DecisionTree', `[DROWNING PRE-EMPTION] Oxygen=${oxygenLevel} — forcing FLEE`);
     }
 
+    // ── Water: always resolve locally — never stall underwater waiting for broker ──────────────────
+    // isWaterRisk was inside isHazard which triggered a 30s broker escalation; agents suffocated
+    // waiting for an LLM response. flee.js now generates FLEE with 0.94–0.99 from the oxygen gate,
+    // and this early return guarantees we never broker-escalate while submerged.
+    if (isInWaterNow && oxygenLevel < 15) {
+      const fleeCandid = candidates.find(c => c.name === 'FLEE') || topCandidate;
+      logger.warn('DecisionTree', `[DROWNING LOCAL] Oxygen=${oxygenLevel} — local-only resolution, skipping broker`);
+      return {
+        action: 'FLEE',
+        confidence: fleeCandid.confidence,
+        escalated: false,
+        source: 'drowning_gate',
+        provider: null, model: null, cached: false, cacheType: null, fallback: false, costUsd: 0, latencyMs: 0,
+        reason: `[DROWNING GATE] Oxygen ${oxygenLevel}/20 — local resolution`,
+        meta: fleeCandid,
+        allCandidates: candidates.slice(0, 8).map(c => ({ name: c.name, confidence: c.confidence, reason: (c.reason || '').slice(0, 150), isDynamic: !!c.isDynamic }))
+      };
+    }
+
     // Environmental Hazard Detection & Counter-Strategy Tagging
     const biomeLower = (agentState.biome || senses.getBiome?.() || '').toLowerCase();
     const isColdBiome = biomeLower.includes('snow') || biomeLower.includes('ice') || biomeLower.includes('frozen') || biomeLower.includes('peak') || biomeLower.includes('cold') || biomeLower.includes('grove');
     const isFreezingRisk = isColdBiome && (stats.health < 20 || (topCandidate.reason || '').toLowerCase().includes('snow') || (topCandidate.reason || '').toLowerCase().includes('freeze'));
     const isFireRisk = senses.isOnFire?.() || agentState.isOnFire || (topCandidate.reason || '').toLowerCase().includes('lava') || (topCandidate.reason || '').toLowerCase().includes('fire');
-    const isWaterRisk = isInWaterNow && (stats.health < 16 || oxygenLevel < 15);
     const isMobRisk = (senses.getNearbyHostileMobs?.(8)?.length || 0) >= 2 || (stats.health <= 10 && (senses.getNearbyHostileMobs?.(12)?.length || 0) > 0);
 
-    const isHazard = isFreezingRisk || isFireRisk || isWaterRisk || isMobRisk;
+    const isHazard = isFreezingRisk || isFireRisk || isMobRisk;
     let hazardType = null;
     let hazardResearchQuery = null;
 

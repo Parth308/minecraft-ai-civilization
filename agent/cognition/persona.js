@@ -301,11 +301,22 @@ class DynamicPersona {
       case 'death': {
         const cause = (typeof impact === 'object' && impact?.cause) ? impact.cause : 'fatal hazard';
         const penalizedRules = (typeof impact === 'object' && impact?.penalizedRules) ? impact.penalizedRules : [];
+
+        // Daily death scar cap: only first 10 deaths per UTC day apply trait penalties.
+        // At ~130 deaths/day the old unbounded ratchet pinned all agents to Caution 0.95 / Ambition 0.10
+        // within hours of a fresh deploy, collapsing all personality diversity.
+        const today = new Date().toDateString();
+        if (this._deathScarDay !== today) { this._deathScarDay = today; this._deathScarCount = 0; }
+        const applyPenalty = (this._deathScarCount || 0) < 10;
+        if (applyPenalty) this._deathScarCount = (this._deathScarCount || 0) + 1;
+
         const prevCaution = this.traits.caution;
         const prevAmbition = this.traits.ambition;
 
-        this.traits.caution = Math.min(0.95, Number((this.traits.caution + 0.08).toFixed(2)));
-        this.traits.ambition = Math.max(0.10, Number((this.traits.ambition - 0.05).toFixed(2)));
+        if (applyPenalty) {
+          this.traits.caution = Math.min(0.95, Number((this.traits.caution + 0.08).toFixed(2)));
+          this.traits.ambition = Math.max(0.10, Number((this.traits.ambition - 0.05).toFixed(2)));
+        }
 
         const cautionDelta = Number((this.traits.caution - prevCaution).toFixed(2));
         const ambitionDelta = Number((this.traits.ambition - prevAmbition).toFixed(2));
@@ -317,10 +328,15 @@ class DynamicPersona {
           penalizedRules,
           cautionDelta,
           ambitionDelta,
+          penaltyApplied: applyPenalty,
           timestamp: new Date().toISOString()
         });
 
-        logger.warn('Persona', `[TRAIT SCARRING] ${this.agentId} permanently scarred by death (${cause}): Caution -> ${this.traits.caution} (+${cautionDelta}), Ambition -> ${this.traits.ambition} (${ambitionDelta})${penalizedRules.length > 0 ? ` | Penalized Rules: ${penalizedRules.join(', ')}` : ''}`);
+        if (applyPenalty) {
+          logger.warn('Persona', `[TRAIT SCARRING] ${this.agentId} scarred by death (${cause}) [${this._deathScarCount}/10 today]: Caution -> ${this.traits.caution} (+${cautionDelta}), Ambition -> ${this.traits.ambition} (${ambitionDelta})${penalizedRules.length > 0 ? ` | Penalized Rules: ${penalizedRules.join(', ')}` : ''}`);
+        } else {
+          logger.info('Persona', `[TRAIT SCARRING CAPPED] ${this.agentId} death #${this._deathScarCount + 1} today — no further trait penalty (daily cap 10 reached)`);
+        }
         break;
       }
 
@@ -346,11 +362,56 @@ class DynamicPersona {
     }
   }
 
+  // Recover traits after positive outcomes: milestone actions and survival streaks.
+  // Counterpart to evolveFromExperience('death'). Ambition and caution drift back toward
+  // a healthier range when the agent actually achieves things or stays alive.
+  recoverTraits(event) {
+    const today = new Date().toDateString();
+    if (this._recoveryDay !== today) { this._recoveryDay = today; this._recoveryAmbition = 0; this._recoveryCaution = 0; }
+
+    // Soft daily recovery cap: +0.10 ambition / -0.05 caution per day max.
+    const maxAmbitionRecovery = 0.10;
+    const maxCautionRecovery = 0.05;
+
+    let ambitionGain = 0;
+    let cautionReduction = 0;
+
+    if (event === 'survived_minute') {
+      ambitionGain = 0.01;
+      cautionReduction = 0.005;
+    } else if (event === 'completed_craft' || event === 'completed_trade' || event === 'completed_build') {
+      ambitionGain = 0.02;
+      cautionReduction = 0.01;
+    }
+
+    const remainingAmbition = maxAmbitionRecovery - (this._recoveryAmbition || 0);
+    const remainingCaution = maxCautionRecovery - (this._recoveryCaution || 0);
+
+    const actualAmbition = Math.min(ambitionGain, remainingAmbition);
+    const actualCaution = Math.min(cautionReduction, remainingCaution);
+
+    if (actualAmbition <= 0 && actualCaution <= 0) return;
+
+    const prevAmbition = this.traits.ambition;
+    const prevCaution = this.traits.caution;
+
+    this.traits.ambition = Math.min(0.99, Number((this.traits.ambition + actualAmbition).toFixed(2)));
+    this.traits.caution = Math.max(0.10, Number((this.traits.caution - actualCaution).toFixed(2)));
+
+    this._recoveryAmbition = (this._recoveryAmbition || 0) + actualAmbition;
+    this._recoveryCaution = (this._recoveryCaution || 0) + actualCaution;
+
+    if (actualAmbition > 0 || actualCaution > 0) {
+      logger.info('Persona', `[TRAIT RECOVERY] ${this.agentId} after ${event}: Ambition ${prevAmbition} -> ${this.traits.ambition}, Caution ${prevCaution} -> ${this.traits.caution}`);
+    }
+  }
+
   getScarSummary() {
     if (!this.scarHistory) this.scarHistory = [];
     const deaths = this.scarHistory.filter(s => s.event === 'death').length;
+    const penalised = this.scarHistory.filter(s => s.event === 'death' && s.penaltyApplied !== false).length;
     if (deaths === 0) return 'Unscarred — fresh and bold';
-    return `Scarred by ${deaths} death${deaths > 1 ? 's' : ''} — grown more cautious, less ambitious`;
+    return `Scarred by ${deaths} death${deaths > 1 ? 's' : ''} (${penalised} with trait penalty) — grown more cautious, less ambitious`;
   }
 
   setSelfImage(text) {

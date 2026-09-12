@@ -502,22 +502,43 @@ function createAgent() {
           if (total < 40) return;
           const [topAction, count] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
           if (count / total < 0.4) return;
-          const ROLE_NAMES = { MINE: 'Miner', EXPLORE: 'Scout', WANDER: 'Scout', TRADE: 'Merchant', TALK: 'Diplomat', FARM: 'Farmer', CRAFT: 'Artisan', BUILD: 'Builder', FIGHT: 'Guard' };
+          const ROLE_NAMES = {
+            MINE: 'Miner', EXPLORE: 'Scout', WANDER: 'Scout',
+            TRADE: 'Merchant', TALK: 'Diplomat', FARM: 'Farmer',
+            CRAFT: 'Artisan', BUILD: 'Builder', FIGHT: 'Guard',
+            FLEE: 'Wanderer', COOK: 'Cook'  // FLEE/COOK were missing — profession never announced for these
+          };
           const role = ROLE_NAMES[topAction];
           if (role && role !== persona.emergentRole) {
-            persona.emergentRole = role;
             logger.info('AgentLoop', `[PROFESSION] ${bot.username} has specialized as a ${role} (${count}/${total} actions)`);
             detailedLogger.logCognition(bot.username, `Profession emerged: ${role}`, { topAction, share: Number((count / total).toFixed(2)) });
             eventBuffer.addEvent('professionShift', { role, topAction });
+            // Announce BEFORE setting emergentRole — the old order set it first,
+            // making (role !== persona.emergentRole) always false on subsequent checks.
             if (lastAnnouncedRole !== role && Date.now() - lastOutgoingChat > 10000) {
               lastAnnouncedRole = role;
               lastOutgoingChat = Date.now();
               chat.say(`I've found my calling — I'm the settlement's ${role.toLowerCase()} now.`);
             }
+            persona.emergentRole = role;
           }
         } catch { /* profession tracking is advisory */ }
       }, 90000);
       professionTimer.unref?.();
+
+      // Bug 3 (trait scarring): 60s survival recovery timer — if the agent stays alive
+      // for a full minute, ambition recovers +0.01 and caution relaxes −0.005 (daily cap).
+      // Works alongside milestone recovery (completed_craft/trade/build in executeDecision).
+      let _lastDeathTimestamp = 0;
+      events.on('agentDeath', () => { _lastDeathTimestamp = Date.now(); });
+      const traitRecoveryTimer = setInterval(() => {
+        try {
+          if (Date.now() - _lastDeathTimestamp > 60000) {
+            persona.recoverTraits('survived_minute');
+          }
+        } catch { /* recovery is advisory */ }
+      }, 60000);
+      traitRecoveryTimer.unref?.();
 
       // Heap watchdog: samples RSS/heap growth every 2s. If heap approaches
       // the V8 cap we exit(0) CLEANLY — docker restarts a fresh process with
@@ -571,6 +592,13 @@ function createAgent() {
       const staggerDelay = config.username === 'Agent_Alpha' ? 0 : config.username === 'Agent_Beta' ? 350 : 700;
       setTimeout(() => {
         tickInterval = setInterval(async () => {
+          // Out-of-band swim interrupt: runs unconditionally BEFORE inFlightTick guard.
+          // Keeps agents surfacing even during COOK/MINE/broker-await; the FLEE case in
+          // executeDecision only runs when FLEE is the chosen action — this covers all others.
+          if (senses.isInWater?.() && (bot.oxygenLevel ?? 20) < 12) {
+            movement.swimToSurface();
+          }
+
           if (inFlightTick) return;
           inFlightTick = true;
 
@@ -970,6 +998,22 @@ function createAgent() {
           }
           if (block) {
             logger.info('AgentLoop', `Executing MINE action on ${block.name} at X:${block.position.x} Y:${block.position.y} Z:${block.position.z}`);
+
+            // Bug 8: Discovery POST on sight (not just on block-break).
+            // Agents that die before mining or lack the right pickaxe never triggered blockBroken,
+            // so world_discoveries.json stayed empty. Post immediately when we identify a target.
+            if (/ore/.test(block.name) && Date.now() - (agentState._lastDiscoveryPostAt || 0) > 10000) {
+              agentState._lastDiscoveryPostAt = Date.now();
+              const svcUrl = memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002';
+              fetch(`${svcUrl}/api/world/discoveries`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  agentId: bot.username, blockName: block.name,
+                  position: block.position, dimension: 'overworld', source: 'mine_sight'
+                })
+              }).catch(() => {});
+            }
             // digBlock-only: collectBlock plugin task queue leaked heap to OOM
             // (proven by Golf bisect — 0 FATALs vs 5-8 fleet-wide). Manual
             // navigate + equip + dig covers all mining needs.
@@ -1128,7 +1172,15 @@ function createAgent() {
           }
           const partnerMatch = offer.match(/from (\S+)/i);
           const tradePartnerRaw = (partnerMatch && partnerMatch[1]) || decision.meta?.partner;
-          const tradePartner = typeof tradePartnerRaw === 'object' ? (tradePartnerRaw.username || tradePartnerRaw.name || String(tradePartnerRaw)) : tradePartnerRaw;
+          const tradePartnerStr = typeof tradePartnerRaw === 'object' ? (tradePartnerRaw.username || tradePartnerRaw.name || String(tradePartnerRaw)) : tradePartnerRaw;
+
+          // Bug 5: validate partner against live entities — LLM sometimes returns 'any', 'someone', or
+          // biome/generic words from freeform offer text, creating ghost trades with no real player.
+          const onlineUsernames = new Set(
+            Object.values(bot.entities).filter(e => e.username && e.username !== bot.username).map(e => e.username)
+          );
+          const tradePartner = (tradePartnerStr && onlineUsernames.has(tradePartnerStr)) ? tradePartnerStr : null;
+
           const giveItem = giveMatch?.[2] || 'oak_planks';
           const giveCount = parseInt(giveMatch?.[1] || '4');
           const wantItem = wantMatch?.[2] || 'cobblestone';
@@ -1195,17 +1247,22 @@ function createAgent() {
                 });
               }
             }
-            factionManager.considerAllianceWith(tradePartner, memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002').then(announcement => {
-              if (announcement && Date.now() - lastOutgoingChat > 3000) {
-                lastOutgoingChat = Date.now();
-                chat.say(announcement);
-                const chest = (inventory?.claimedChests || [])[inventory.claimedChests.length - 1];
-                if (chest) {
-                  SocietyClient.forAgent(bot.username).shareChest(chest.x, chest.y, chest.z, tradePartner);
-                  logger.info('AgentLoop', `[CHEST SHARED] Opened storage @ ${chest.x},${chest.y},${chest.z} to ally ${tradePartner}`);
-                }
+              // Bug 5: considerAllianceWith now only runs on confirmed trade success,
+              // not on every TRADE attempt. Prevents ghost alliances with 'any'/'someone'.
+              if (tradeResult.success && tradePartner) {
+                persona.recoverTraits('completed_trade');  // Bug 3: milestone recovery
+                factionManager.considerAllianceWith(tradePartner, memoryClient?.serviceUrl || process.env.MEMORY_SERVICE_URL || 'http://localhost:3002').then(announcement => {
+                  if (announcement && Date.now() - lastOutgoingChat > 3000) {
+                    lastOutgoingChat = Date.now();
+                    chat.say(announcement);
+                    const chest = (inventory?.claimedChests || [])[inventory.claimedChests.length - 1];
+                    if (chest) {
+                      SocietyClient.forAgent(bot.username).shareChest(chest.x, chest.y, chest.z, tradePartner);
+                      logger.info('AgentLoop', `[CHEST SHARED] Opened storage @ ${chest.x},${chest.y},${chest.z} to ally ${tradePartner}`);
+                    }
+                  }
+                }).catch(() => {});
               }
-            }).catch(() => {});
           } else {
             if (Date.now() - lastOutgoingChat > 3000) {
               lastOutgoingChat = Date.now();
@@ -1547,6 +1604,10 @@ function createAgent() {
     }
   });
   events.on('agentHurt', async ({ health }) => {
+    // Bug 4: snapshot inventory on EVERY damage hit — bot.inventory is cleared
+    // before the 'agentDeath' event fires, so hadArmor/hadSword always read false there.
+    agentState.lastPreDeathInventory = bot.inventory?.items()?.map(i => ({ name: i.name, count: i.count })) || [];
+
     stats.addAnger(25);
     stats.addHappiness(-15);
     detailedLogger.logCombat(bot.username, `Agent took damage! Health is now ${health}`, { currentHealth: health });
@@ -1852,7 +1913,10 @@ function createAgent() {
     const deathLessonKey = `${bot.username}:${cause || 'hazard'}`;
     if (Date.now() - (lastDeathLessonAt[deathLessonKey] || 0) > 600000) {
       lastDeathLessonAt[deathLessonKey] = Date.now();
-      const inv = bot.inventory?.items() || [];
+      // Bug 4: use inventory snapshotted at last agentHurt — Mineflayer clears
+      // bot.inventory before the 'agentDeath' event fires, so reading items() here
+      // always returns [] and hadArmor/hadSword always fire the "unequipped" lesson.
+      const inv = (agentState.lastPreDeathInventory || []).map(i => ({ name: i.name }));
       const hadArmor = inv.some(i => i.name?.includes('chestplate') || i.name?.includes('helmet'));
       const hadSword = inv.some(i => i.name?.includes('sword'));
       const hadFood  = inv.some(i => ['bread','cooked_beef','cooked_porkchop','apple'].includes(i.name));

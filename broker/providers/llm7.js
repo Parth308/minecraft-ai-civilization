@@ -30,7 +30,9 @@ async function queryLLM7(apiKey, prompt) {
           temperature: 0.6,
           max_tokens: 1024
         }),
-        signal: AbortSignal.timeout(30000)
+        // 280/280 all-timeout in a 2.4h window (AGENTS.md known issue).
+        // Fail fast at 8s so this dead-weight provider doesn't burn 30s per routing slot.
+        signal: AbortSignal.timeout(8000)
       });
 
       const latencyMs = Date.now() - t0;

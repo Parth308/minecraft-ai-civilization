@@ -17,6 +17,18 @@ function isFleeOnCooldown(key = 'night') {
 }
 
 function evaluateFlee(senses, stats) {
+  // Water/drowning gate — checked before all other threats.
+  // evaluateFlee previously had zero oxygen logic; agents drowned at 0.05 base confidence.
+  const isInWater = senses.isInWater?.() ?? false;
+  const oxygen = senses.bot?.oxygenLevel ?? 20;
+  if (isInWater && oxygen < 15) {
+    return {
+      name: ACTIONS.FLEE,
+      confidence: oxygen < 8 ? 0.99 : 0.94,
+      reason: `[WATER] Oxygen ${oxygen}/20 — surface immediately`
+    };
+  }
+
   const hostiles = senses.getNearbyHostileMobs(12);
 
   if (hostiles.length === 0 && stats.health > 6) {

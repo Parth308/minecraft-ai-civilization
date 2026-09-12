@@ -87,6 +87,16 @@ class CivilizationLedger {
     try {
       const lines = entries.map(e => JSON.stringify({ kind, archivedAt: new Date().toISOString(), entry: e })).join('\n') + '\n';
       fs.appendFileSync(LEDGER_ARCHIVE_PATH, lines, 'utf-8');
+      // Bug 10: ledger_archive.jsonl is unbounded — the Sep-11 OOM fix paged overflow
+      // here but never limited how large the archive could grow. Rotate at 50MB.
+      try {
+        const stat = fs.statSync(LEDGER_ARCHIVE_PATH);
+        if (stat.size > 50 * 1024 * 1024) {
+          const rotated = LEDGER_ARCHIVE_PATH.replace('.jsonl', `_${Date.now()}.jsonl`);
+          fs.renameSync(LEDGER_ARCHIVE_PATH, rotated);
+          logger.warn('CivLedger', `Archive rotated: ${path.basename(rotated)} (was ${Math.round(stat.size / 1024 / 1024)}MB)`);
+        }
+      } catch { /* rotation is best-effort; non-blocking */ }
     } catch (err) {
       logger.error('CivLedger', 'Failed to append ledger archive', err);
     }

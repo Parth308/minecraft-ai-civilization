@@ -113,10 +113,18 @@ class SocietyClient {
   // ── Credit & debt ───────────────────────────────────────────────────────────
 
   createDebt(debtor, item, amount, context = '') {
+    const payload = { creditor: this.agentId, debtor, item, amount, context };
+    // Bug 6: dual-write to ledger/debts so the dashboard/settle-check read from
+    // the same source as the society debt store. Fire-and-forget, non-blocking.
+    fetch(`${this.serviceUrl}/api/ledger/debts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
     return fetch(`${this.serviceUrl}/api/society/debts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creditor: this.agentId, debtor, item, amount, context })
+      body: JSON.stringify(payload)
     }).then(r => r.json()).catch(err => {
       logger.debug('SocietyClient', `Debt creation failed: ${err.message}`);
       return {};
@@ -124,10 +132,17 @@ class SocietyClient {
   }
 
   oweDebt(creditor, item, amount, context = '') {
+    const payload = { creditor, debtor: this.agentId, item, amount, context };
+    // Bug 6: dual-write to ledger/debts (see createDebt above).
+    fetch(`${this.serviceUrl}/api/ledger/debts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
     return fetch(`${this.serviceUrl}/api/society/debts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creditor, debtor: this.agentId, item, amount, context })
+      body: JSON.stringify(payload)
     }).then(r => r.json()).catch(err => {
       logger.debug('SocietyClient', `IOU creation failed: ${err.message}`);
       return {};
