@@ -23,7 +23,7 @@ function evaluateFarm(senses, stats, persona = null, agentState = {}) {
   // Explicit allowlist — raw_copper/iron/gold also start with 'raw_' and must NOT trigger COOK.
   const COOKABLE_FOODS = new Set([
     'raw_beef', 'raw_porkchop', 'raw_chicken', 'raw_mutton', 'raw_cod', 'raw_salmon', 'raw_rabbit',
-    'beef', 'porkchop', 'chicken', 'mutton', 'cod', 'salmon', 'rabbit'
+    'beef', 'porkchop', 'chicken', 'mutton', 'cod', 'salmon', 'rabbit', 'potato', 'kelp'
   ]);
   const rawFood = inv.find(i => COOKABLE_FOODS.has(i.name));
   const furnaceBlock = senses.getNearbyBlock('furnace', 10) || senses.getNearbyBlock('smoker', 10);
