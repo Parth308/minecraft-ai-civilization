@@ -43,6 +43,15 @@ for (const prefix of TOOL_TIERS) {
   }
 }
 
+// Leather/golden armor have mcData recipes but no TOOL_TIERS prefix, so without
+// these labels they fall into default category 'material' and the craft sweep skips them.
+for (const [prefix, tier] of [['leather_', 0], ['golden_', 1]]) {
+  for (const type of ARMOR_TYPES) {
+    const name = prefix + type;
+    ITEM_META[name] = { tier, category: 'armor', value: 2 + tier * 2 };
+  }
+}
+
 const SMELT_META = {
   iron_ingot:     { tier: 3, category: 'material', value: 4 },
   gold_ingot:     { tier: 3, category: 'material', value: 3 },

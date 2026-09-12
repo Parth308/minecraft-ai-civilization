@@ -1,4 +1,5 @@
 const { ACTIONS } = require('../../../shared/constants');
+const { TECH_TREE, hasIngredients, hasItemOrBetter } = require('../../cognition/craftingChain');
 
 const craftCooldowns = new Map();
 
@@ -213,6 +214,42 @@ function evaluateCraft(senses, stats) {
         reason: `Crafting wooden axe for wood gathering`
       };
     }
+  }
+
+  // 9. mcData survival sweep — every armor/weapon/tool/furnace recipe from
+  // minecraft-data TECH_TREE, not just the 8 hardcoded above. v23 showed 293
+  // stuck loops/30min with agents dying unarmored while the tree knew zero
+  // armor recipes. Armor 0.97 deliberately outbids night FLEE 0.96 when
+  // ingredients are held; crit-health FLEE 0.98 still wins.
+  const SWEEP = [
+    { categories: ['armor'], confidence: 0.97 },
+    { categories: ['weapon'], confidence: 0.95 },
+    { categories: ['tool'], confidence: 0.93 },
+  ];
+  const hasWorkbenchAccess = hasTable || senses.hasItem('crafting_table') || plankCount >= 4;
+  let bestSweep = null;
+  if (Array.isArray(TECH_TREE) && TECH_TREE.length > 0) {
+    for (const node of TECH_TREE) {
+      if (node.source === 'gather' || node.source === 'smelt') continue;
+      const isFurnace = node.id === 'furnace';
+      if (!isFurnace && !SWEEP.some(s => s.categories.includes(node.category))) continue;
+      if (hasItemOrBetter(senses, node.id)) continue;
+      if (isCraftOnCooldown(node.id)) continue;
+      if (node.requiresTable && !hasWorkbenchAccess) continue;
+      if (!hasIngredients(senses, node)) continue;
+      const band = isFurnace ? 0.94 : SWEEP.find(s => s.categories.includes(node.category)).confidence;
+      const score = band * 100 + node.tier * 2 + Math.min(node.value, 9);
+      if (!bestSweep || score > bestSweep.score) bestSweep = { node, confidence: band, score };
+    }
+  }
+  if (bestSweep) {
+    return {
+      name: ACTIONS.CRAFT,
+      confidence: bestSweep.confidence,
+      itemToCraft: bestSweep.node.id,
+      count: 1,
+      reason: `Crafting ${bestSweep.node.id.replace(/_/g, ' ')} from mcData recipe (${bestSweep.node.ingredients.map(i => `${i.count}x ${i.item}`).join(', ')})`
+    };
   }
 
   return { name: ACTIONS.CRAFT, confidence: 0.0, reason: 'All essential tools crafted or missing ingredients' };
