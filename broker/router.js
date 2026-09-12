@@ -28,6 +28,8 @@ const RateLimiter = require('./rateLimiter');
 const WebKnowledgeClient = require('./search/webSearch');
 const config = require('./config');
 const logger = require('../shared/logger');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Free Tier & Benchmark Rates (USD per 1M tokens)
@@ -128,6 +130,7 @@ class ProviderRouter {
     // Civilization shared-lesson injection (ledger wisdom → decision prompts)
     this.lessonCache = { fetchedAt: 0, lessons: [] };
     this._lessonVectors = new Map();
+    this.progressionSections = this._loadProgression();
   }
 
   // ── Stats helpers ─────────────────────────────────────────────────────────
@@ -358,6 +361,38 @@ class ProviderRouter {
       logger.debug('Router', `Lesson injection skipped: ${err.message}`);
       return [];
     }
+  }
+
+  _loadProgression() {
+    try {
+      const raw = fs.readFileSync(path.join(__dirname, 'knowledge', 'progression.md'), 'utf8');
+      const sections = {};
+      for (const chunk of raw.split(/^## /m)) {
+        const nl = chunk.indexOf('\n');
+        if (nl === -1) continue;
+        const name = chunk.slice(0, nl).trim().toUpperCase();
+        if (!name || name.startsWith('#')) continue;
+        sections[name] = chunk.slice(nl + 1).trim();
+      }
+      return sections;
+    } catch {
+      return {};
+    }
+  }
+
+  _renderProgression(top = {}) {
+    const map = {
+      MINE: 'ORES', CRAFT: 'GEAR', SMELT: 'GEAR', EQUIP: 'GEAR',
+      EXPLORE: 'STRUCTURES', SCOUT: 'STRUCTURES', WANDER: 'STRUCTURES',
+      TRADE: 'VILLAGERS', TALK: 'VILLAGERS', COOPERATE: 'VILLAGERS', STEAL: 'VILLAGERS',
+      FARM: 'HUSBANDRY', HARVEST: 'HUSBANDRY', HUNT: 'HUSBANDRY', EAT: 'HUSBANDRY',
+      FIGHT: 'COMBAT', GUARD: 'COMBAT', DEFEND: 'COMBAT',
+      BUILD: 'BUILDING', SLEEP: 'BUILDING', CHEST: 'BUILDING',
+      PLAN: 'PLAN'
+    };
+    const text = this.progressionSections[map[top.name] || 'GEAR'];
+    if (!text) return '';
+    return `CIVILIZATION KNOWLEDGE (full game lore — use it to dream bigger, final call is yours):\n${text}\n`;
   }
 
   async processEscalation(situationPayload) {
@@ -719,7 +754,7 @@ Active goal: ${payload.activeGoal || 'none - pick one'}
 Recent actions: ${payload.recentEvents || 'none'}
 Memories: ${JSON.stringify(memories)}
 ${_renderSkills(skills)}${_renderLessons(lessons)}${webFacts ? 'Minecraft Wiki & Survival Facts:\n' + (typeof webFacts === 'object' && webFacts.text ? webFacts.text : webFacts) + '\n' : ''}
-${_renderAffordances(payload.affordances)}${_renderLastActionResult(payload.lastActionResult)}
+${_renderAffordances(payload.affordances)}${_renderLastActionResult(payload.lastActionResult)}${this._renderProgression(top)}
 ${payload.isHazard ? `⚠️ CRITICAL ENVIRONMENTAL HAZARD ALERT (${payload.hazardType || 'mortal threat'}):\nYou are under immediate threat of environmental damage or death! Review the hazard counter-strategies above (e.g. Leather Boots against powder snow, Water Bucket against fire/fall, Torch air pocket against drowning). Formulate an immediate counter-action and record a durable tactic in tacticLearned!\n` : ''}${payload.stuckWarning ? '⚠️ CRITICAL STAGNATION ALERT:\n' + payload.stuckWarning + '\nDO NOT repeat the same unrewarded action. Formulate a multi-step PLAN or pivot strategy.\n' : ''}
 
 RULE ENGINE SAYS:
