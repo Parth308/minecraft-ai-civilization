@@ -178,7 +178,8 @@ function buildTreeFromMcData() {
       const node = nodes.get(resultName);
       if (node.ingredients.length === 0 || ingredients.length < node.ingredients.length) {
         node.ingredients = ingredients;
-        node.requiresTable = ingList.length > 4 || (shape && shape.length > 1);
+        const width = shape ? Math.max(...shape.map(r => r.length)) : 1;
+        node.requiresTable = ingList.length > 4 || (shape && (shape.length > 2 || width > 2));
       }
     }
   }

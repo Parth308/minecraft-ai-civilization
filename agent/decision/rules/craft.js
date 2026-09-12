@@ -216,28 +216,34 @@ function evaluateCraft(senses, stats) {
     }
   }
 
-  // 9. mcData survival sweep — every armor/weapon/tool/furnace recipe from
+  // 9. mcData survival sweep — armor/weapon/tool/furnace/shelter recipes from
   // minecraft-data TECH_TREE, not just the 8 hardcoded above. v23 showed 293
   // stuck loops/30min with agents dying unarmored while the tree knew zero
   // armor recipes. Armor 0.97 deliberately outbids night FLEE 0.96 when
   // ingredients are held; crit-health FLEE 0.98 still wins.
-  const SWEEP = [
-    { categories: ['armor'], confidence: 0.97 },
-    { categories: ['weapon'], confidence: 0.95 },
-    { categories: ['tool'], confidence: 0.93 },
-  ];
+  const sweepBand = (node) => {
+    if (node.category === 'armor') return 0.97;
+    if (node.id.includes('sword') || node.id === 'bow') return 0.95;
+    if (node.id === 'furnace' || node.id.endsWith('_bed')) return 0.94;
+    if (node.category === 'tool') return 0.93;
+    return 0.90;
+  };
+  const SWEEP_IDS = new Set(['furnace', 'torch', 'bow', 'arrow', 'chest', 'bucket']);
+  const sweepEligible = (node) => {
+    if (node.source === 'gather' || node.source === 'smelt') return false;
+    if (node.category === 'armor' || node.category === 'tool') return true;
+    return SWEEP_IDS.has(node.id) || node.id.endsWith('_bed');
+  };
   const hasWorkbenchAccess = hasTable || senses.hasItem('crafting_table') || plankCount >= 4;
   let bestSweep = null;
   if (Array.isArray(TECH_TREE) && TECH_TREE.length > 0) {
     for (const node of TECH_TREE) {
-      if (node.source === 'gather' || node.source === 'smelt') continue;
-      const isFurnace = node.id === 'furnace';
-      if (!isFurnace && !SWEEP.some(s => s.categories.includes(node.category))) continue;
+      if (!sweepEligible(node)) continue;
       if (hasItemOrBetter(senses, node.id)) continue;
       if (isCraftOnCooldown(node.id)) continue;
       if (node.requiresTable && !hasWorkbenchAccess) continue;
       if (!hasIngredients(senses, node)) continue;
-      const band = isFurnace ? 0.94 : SWEEP.find(s => s.categories.includes(node.category)).confidence;
+      const band = sweepBand(node);
       const score = band * 100 + node.tier * 2 + Math.min(node.value, 9);
       if (!bestSweep || score > bestSweep.score) bestSweep = { node, confidence: band, score };
     }
