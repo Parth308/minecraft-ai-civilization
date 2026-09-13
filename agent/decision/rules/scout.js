@@ -19,7 +19,7 @@ function evaluateScout(senses, stats, persona = null, agentState = {}) {
   const explorationNeed = ores.length === 0 ? 0.15 : 0;
   const socialNeed = alliedAgents.length === 0 ? 0.10 : 0;
 
-  let confidence = 0.35 + dangerLevel + explorationNeed + socialNeed + (curiosity * 0.20) + (caution * 0.10);
+  let confidence = 0.25 + dangerLevel + explorationNeed + socialNeed + (curiosity * 0.20) + (caution * 0.10);
 
   if (stats.health < 12) confidence -= 0.20;
   if (stats.hunger < 30) confidence -= 0.15;

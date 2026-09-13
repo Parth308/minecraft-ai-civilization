@@ -97,8 +97,9 @@ class DecisionTree {
     // Apply persona trait biases so different agents make distinct behavioral choices
     // Weights scaled to ±0.50+ so personality can override learned rules (max 0.85)
     const candidates = rawCandidates.map(c => {
+      const evaluatorSuppressed = c.confidence <= 0;
       let conf = c.confidence;
-      if (persona && persona.traits) {
+      if (!evaluatorSuppressed && persona && persona.traits) {
         const tr = persona.traits;
         if (c.name === 'EXPLORE') conf += (tr.curiosity - 0.5) * 0.50;
         if (c.name === 'FLEE') conf += (tr.caution - 0.5) * 0.45;
@@ -121,7 +122,7 @@ class DecisionTree {
         if (c.name === 'ENCHANT') conf += (tr.ambition - 0.5) * 0.35 + (tr.patience - 0.5) * 0.25;
         if (c.name === 'BREED') conf += (tr.patience - 0.5) * 0.35 + (tr.sociability - 0.5) * 0.25;
       }
-      return { ...c, confidence: Math.min(0.99, Math.max(0.01, Number(conf.toFixed(2)))) };
+      return { ...c, confidence: evaluatorSuppressed ? 0 : Math.min(0.99, Math.max(0.01, Number(conf.toFixed(2)))), _suppressed: evaluatorSuppressed };
     });
 
     // ── Inner weather & needs: feelings tint confidence, never command. ────────
@@ -129,6 +130,7 @@ class DecisionTree {
     const emo = EmotionalState.forAgent(selfId);
     const beliefs = BeliefNetwork.forAgent(selfId);
     for (const c of candidates) {
+      if (c._suppressed) continue;
       if (c.name === 'FLEE') c.confidence += emo.emotions.fear * 0.06;
       if (c.name === 'FIGHT') c.confidence += emo.directedSum('anger') * 0.07;
       if (c.name === 'TALK' || c.name === 'COOPERATE') {
@@ -143,10 +145,10 @@ class DecisionTree {
     if (survivalFine && persona?.traits) {
       const tr = persona.traits;
       if ((tr.sociability ?? 0.5) > 0.6) {
-        for (const c of candidates) if (c.name === 'TALK') c.confidence += 0.04; // belonging
+        for (const c of candidates) if (c.name === 'TALK' && !c._suppressed) c.confidence += 0.04; // belonging
       }
       if ((tr.curiosity ?? 0.5) > 0.65 || (tr.ambition ?? 0.5) > 0.7) {
-        for (const c of candidates) if (c.name === 'MINE' || c.name === 'CRAFT') c.confidence += 0.04; // mastery
+        for (const c of candidates) if ((c.name === 'MINE' || c.name === 'CRAFT') && !c._suppressed) c.confidence += 0.04; // mastery
       }
     }
 
@@ -156,6 +158,7 @@ class DecisionTree {
       ruleCounts[r.action] = (ruleCounts[r.action] || 0) + 1;
     }
     for (const c of candidates) {
+      if (c._suppressed) continue;
       if (ruleCounts[c.name]) c.confidence += Math.min(0.04, ruleCounts[c.name] * 0.01);
     }
 
@@ -170,7 +173,7 @@ class DecisionTree {
         social: ['TALK', 'COOPERATE'], cooking: ['COOK', 'SMELT', 'FARM'], fishing: ['HUNT']
       };
       for (const c of candidates) {
-        if ((ROLE_ACTIONS[role] || []).includes(c.name)) c.confidence += 0.06;
+        if (!c._suppressed && (ROLE_ACTIONS[role] || []).includes(c.name)) c.confidence += 0.06;
       }
     }
 
@@ -193,7 +196,7 @@ class DecisionTree {
     if (lastCompletedAction && agentState.lastActionResult?.ok && ACTION_CHAINS[lastCompletedAction]) {
       const nextActions = ACTION_CHAINS[lastCompletedAction];
       for (const c of candidates) {
-        if (nextActions.includes(c.name)) {
+        if (!c._suppressed && nextActions.includes(c.name)) {
           c.confidence += 0.12;
           c.reason += ` [chain from ${lastCompletedAction}]`;
         }
@@ -205,6 +208,7 @@ class DecisionTree {
     const nearbyLogs = senses.getNearbyBlock?.('log', 16);
     if (nearbyLogs) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'MINE') {
           c.confidence += 0.20;
           c.reason += ' [tree proximity: logs detected nearby]';
@@ -222,6 +226,7 @@ class DecisionTree {
     const timeSinceSpawn = Date.now() - spawnTime;
     if (timeSinceSpawn > 0 && timeSinceSpawn < 180000) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'MINE' || c.name === 'CRAFT' || c.name === 'BUILD' || c.name === 'EXPLORE') {
           c.confidence += 0.15;
           c.reason += ` [spawn protection: ${Math.round((180000 - timeSinceSpawn) / 1000)}s remaining]`;
@@ -244,6 +249,7 @@ class DecisionTree {
       this._lastProductiveAt = Date.now();
     } else if (Date.now() - this._lastProductiveAt > 60000) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (PRODUCTIVE_ACTIONS.has(c.name)) {
           c.confidence += 0.15;
           c.reason += ' [productivity nudge: no resource-gathering in 60s]';
@@ -260,6 +266,7 @@ class DecisionTree {
     const fleeCount = lastSixFlee.filter(a => a === 'FLEE').length;
     if (fleeCount >= 4) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'FLEE') {
           c.confidence -= 0.20;
           c.reason += ` [flee streak: ${fleeCount}/6, pivoting to shelter]`;
@@ -282,6 +289,7 @@ class DecisionTree {
     const isDusk = agentState.isDusk || false;
 
     for (const c of candidates) {
+      if (c._suppressed) continue;
       if (isNight) {
         if (c.name === 'SLEEP') c.confidence += 0.20;
         if (c.name === 'BUILD') c.confidence += 0.10;
@@ -310,6 +318,7 @@ class DecisionTree {
       const durabilityRatio = durability / maxDurability;
 
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'MINE' && durabilityRatio < 0.2) {
           c.confidence -= 0.25;
           c.reason += ` [tool low durability: ${Math.round(durabilityRatio * 100)}%]`;
@@ -349,6 +358,7 @@ class DecisionTree {
           );
           if (deathNearby) {
             for (const c of candidates) {
+              if (c._suppressed) continue;
               if (c.name === 'EXPLORE' || c.name === 'SCOUT') {
                 c.confidence -= 0.18;
                 c.reason += ' [death memory nearby]';
@@ -361,6 +371,7 @@ class DecisionTree {
           );
           if (successNearby) {
             for (const c of candidates) {
+              if (c._suppressed) continue;
               if (c.name === 'MINE' || c.name === 'BUILD') {
                 c.confidence += 0.08;
                 c.reason += ' [success memory nearby]';
@@ -382,6 +393,7 @@ class DecisionTree {
         const isDistrusted = rep.some(r => r.includes('distrusted') || r.includes('enemy'));
 
         for (const c of candidates) {
+          if (c._suppressed) continue;
           if (c.name === 'COOPERATE' || c.name === 'TRADE') {
             if (isTrusted) c.confidence += 0.10;
             if (isDistrusted) c.confidence -= 0.12;
@@ -404,6 +416,7 @@ class DecisionTree {
     const isNightNow = agentState.isNight || false;
 
     for (const c of candidates) {
+      if (c._suppressed) continue;
       let risk = 0;
       let reward = 0;
 
@@ -469,6 +482,7 @@ class DecisionTree {
     const nearbyAnimals = senses.getNearbyPassiveMobs?.(12) || [];
 
     for (const c of candidates) {
+      if (c._suppressed) continue;
       if (c.name === 'TRADE' && nearbyPlayers.length > 0) {
         c.confidence += 0.12;
         c.reason += ' [opportunity: player nearby]';
@@ -499,6 +513,7 @@ class DecisionTree {
     const hasAnyPickaxe = (agentState.inventory || []).some(i => i.name?.includes('pickaxe'));
     if (nearbyOres.length >= 3 && hasAnyPickaxe && stats.health > 12 && stats.hunger > 25) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'MINE') {
           c.confidence += 0.20;
           c.reason += ` [urgency: ${nearbyOres.length} ores visible]`;
@@ -506,6 +521,7 @@ class DecisionTree {
       }
     } else if (nearbyOres.length >= 1 && hasAnyPickaxe && stats.health > 14) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'MINE') {
           c.confidence += 0.10;
           c.reason += ` [opportunity: ${nearbyOres.length} ore${nearbyOres.length > 1 ? 's' : ''} spotted]`;
@@ -536,6 +552,7 @@ class DecisionTree {
         if (otherAgent !== (senses.bot?.username || 'Agent')) {
           if (text.includes('died') && text.includes('lava')) {
             for (const c of candidates) {
+              if (c._suppressed) continue;
               if (c.name === 'MINE' || c.name === 'EXPLORE') {
                 c.confidence -= 0.06;
                 c.reason += ' [learned: others died to lava]';
@@ -544,6 +561,7 @@ class DecisionTree {
           }
           if (text.includes('starved')) {
             for (const c of candidates) {
+              if (c._suppressed) continue;
               if (c.name === 'FARM' || c.name === 'HUNT') {
                 c.confidence += 0.05;
                 c.reason += ' [learned: others starved]';
@@ -552,6 +570,7 @@ class DecisionTree {
           }
           if (text.includes('killed by') && text.includes('zombie')) {
             for (const c of candidates) {
+              if (c._suppressed) continue;
               if (c.name === 'FIGHT' && stats.health < 14) {
                 c.confidence -= 0.08;
                 c.reason += ' [learned: others killed by zombies]';
@@ -572,6 +591,7 @@ class DecisionTree {
     const inventoryFull = inventory.length >= 36;
 
     for (const c of candidates) {
+      if (c._suppressed) continue;
       if (c.name === 'MINE' && !hasPickaxe) {
         c.confidence -= 0.25;
         c.reason += ' [no pickaxe]';
@@ -606,6 +626,7 @@ class DecisionTree {
     const deathCount = agentState.deathCount || 0;
     if (deathCount > 0) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'FIGHT' || c.name === 'STEAL' || c.name === 'EXPLORE') {
           c.confidence -= deathCount * 0.04;
           c.reason += ` [died ${deathCount}x: more cautious]`;
@@ -631,6 +652,7 @@ class DecisionTree {
       const hasIronInInv = (agentState.inventory || []).some(i => i.name?.includes('iron'));
       const hasWoodInInv = (agentState.inventory || []).some(i => i.name?.includes('log') || i.name?.includes('plank'));
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === 'CRAFT' || c.name === 'SMELT') {
           c.confidence += hasIronInInv ? 0.22 : 0.12;
           c.reason += ' [post-death: gear up priority]';
@@ -640,10 +662,8 @@ class DecisionTree {
           c.reason += ' [post-death: shelter priority]';
         }
         if (c.name === 'MINE' && !hasAnyPickaxe && hasWoodInInv) {
-          // Has wood but no pickaxe — craft first, then mine
           c.confidence -= 0.15;
         }
-        // Killer-specific avoidance: if a zombie/drowned killed us, extra flee when they're nearby again
         if (c.name === 'FLEE' && (this._lastDeathCause === 'zombie' || this._lastDeathCause === 'drowned') && stats.health < 16) {
           c.confidence += 0.15;
           c.reason += ` [post-death: avoided ${this._lastDeathCause}]`;
@@ -665,23 +685,23 @@ class DecisionTree {
       const woodPlanks   = inv.filter(i => i.name?.includes('planks')).reduce((s, i) => s + i.count, 0);
 
       if (!hasStonePick && !hasIronPick && cobble >= 3) {
-        // Tier 0→1: have cobble, craft stone pickaxe NOW
         for (const c of candidates) {
+          if (c._suppressed) continue;
           if (c.name === 'CRAFT') { c.confidence += 0.25; c.reason += ' [tier-up: craft stone pickaxe]'; }
         }
       } else if (!hasIronPick && ironIngots >= 3) {
-        // Tier 1→2: have iron ingots, craft iron pickaxe NOW
         for (const c of candidates) {
+          if (c._suppressed) continue;
           if (c.name === 'CRAFT') { c.confidence += 0.25; c.reason += ' [tier-up: craft iron pickaxe]'; }
         }
       } else if (!hasIronPick && ironIngots < 3 && (hasStonePick || hasAnyPickaxe)) {
-        // Tier 1: need more iron ore — mining is the path
         for (const c of candidates) {
+          if (c._suppressed) continue;
           if (c.name === 'MINE') { c.confidence += 0.18; c.reason += ' [tier-up: mining for iron]'; }
         }
       } else if (!hasAnyPickaxe && woodPlanks >= 3) {
-        // Tier 0: have planks but no pickaxe at all — craft wooden pickaxe first
         for (const c of candidates) {
+          if (c._suppressed) continue;
           if (c.name === 'CRAFT') { c.confidence += 0.30; c.reason += ' [tier-up: craft wooden pickaxe — no tools]'; }
         }
       }
@@ -700,6 +720,7 @@ class DecisionTree {
         this._actionConsecutiveFailures.set(lastResult.action, prev + 1);
         const penalty = Math.min(0.50, 0.18 * (prev + 1));
         for (const c of candidates) {
+          if (c._suppressed) continue;
           if (c.name === lastResult.action) c.confidence -= penalty;
         }
       } else if (lastResult.ok === true) {
@@ -715,6 +736,7 @@ class DecisionTree {
     // Dynamic learned rules represent lived experience and can reach up to 0.85.
     const EMERGENCY_ACTIONS = new Set(['FLEE', 'EAT', 'FIGHT', 'SLEEP']);
     for (const c of candidates) {
+      if (c._suppressed) continue;
       if (!c.isDynamic && !EMERGENCY_ACTIONS.has(c.name)) {
         c.confidence = Math.min(0.74, Math.max(0.01, c.confidence));
       } else {
@@ -727,6 +749,7 @@ class DecisionTree {
     const lastExec = (this._actionHistory || [])[(this._actionHistory || []).length - 1];
     if (lastExec) {
       for (const c of candidates) {
+        if (c._suppressed) continue;
         if (c.name === lastExec) c.confidence = Math.min(0.99, c.confidence + 0.08);
       }
     }
