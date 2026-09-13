@@ -43,6 +43,17 @@ function slimBlock(block) {
   };
 }
 
+// Generic cooldowns (ms) applied to dynamic rule candidates to prevent
+// learned-rule loops from spamming the same action every tick.
+// Static evaluators enforce their own cooldowns internally; this catches dynamic bypass.
+const DYNAMIC_ACTION_COOLDOWNS = {
+  SCOUT: 120_000,
+  EXPLORE: 60_000,
+  TRADE: 30_000,
+  TALK: 15_000,
+  GUARD: 30_000,
+};
+
 class DecisionTree {
   constructor(threshold = 0.6, memoryClient = null, brainClient = null) {
     this.confidenceEvaluator = new ConfidenceEvaluator(threshold);
@@ -52,6 +63,7 @@ class DecisionTree {
     this._eventsCache = { data: '', expiry: 0 };
     this._lessonsCache = { data: [], expiry: 0 };
     this._discoveriesCache = new Map();
+    this._actionCooldowns = new Map(); // action -> last execution timestamp (ms)
   }
 
   async evaluate(senses, statsManager, persona = null, agentState = {}) {
@@ -92,7 +104,15 @@ class DecisionTree {
 
     // Include dynamically learned rules
     const dynamicCandidates = this.dynamicRuleEngine.evaluateDynamicRules(senses, stats);
-    const rawCandidates = [...staticCandidates, ...dynamicCandidates];
+    const now = Date.now();
+    const filteredDynamic = dynamicCandidates.filter(c => {
+      const cd = DYNAMIC_ACTION_COOLDOWNS[c.name];
+      if (!cd) return true;
+      const last = this._actionCooldowns.get(c.name);
+      if (!last) return true;
+      return (now - last) >= cd;
+    });
+    const rawCandidates = [...staticCandidates, ...filteredDynamic];
 
     // Apply persona trait biases so different agents make distinct behavioral choices
     // Weights scaled to ±0.50+ so personality can override learned rules (max 0.85)
@@ -764,6 +784,7 @@ class DecisionTree {
     if (!this._loopPenalties) this._loopPenalties = new Map(); // action -> penalty until timestamp
     this._actionHistory.push(topCandidate.name);
     if (this._actionHistory.length > 8) this._actionHistory.shift();
+    this._actionCooldowns.set(topCandidate.name, Date.now());
 
     const now = Date.now();
     for (const [action, expiry] of this._loopPenalties) {
