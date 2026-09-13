@@ -210,6 +210,148 @@ const SURVIVAL_SKILLS = [
     severity: 0.7,
     confidence: 0.8,
     context: { trigger: 'spider_encounter', strategy: 'mob_avoidance' }
+  },
+
+  // ── COMBAT TACTICS ──────────────────────────────────────────────
+  {
+    lesson: 'Raise shield before skeleton shoots. Block the arrow, then rush in while skeleton reloads. Shield cooldown is 0.5s, skeleton reload is 1s. Hit during reload window.',
+    severity: 0.9,
+    confidence: 0.9,
+    context: { trigger: 'skeleton_combat', strategy: 'combat_tactics' }
+  },
+  {
+    lesson: 'Sword cooldown matters. Wait for full charge before hitting. Critical hits deal 150% damage. Jump and hit on the way down for critical. Spam-clicking deals minimal damage.',
+    severity: 0.85,
+    confidence: 0.88,
+    context: { trigger: 'melee_combat', strategy: 'combat_tactics' }
+  },
+  {
+    lesson: 'When outnumbered by mobs, retreat to a chokepoint. Fight one at a time through a 1-block gap. Mobs cannot surround you in narrow tunnels.',
+    severity: 0.9,
+    confidence: 0.92,
+    context: { trigger: 'outnumbered', strategy: 'combat_tactics' }
+  },
+  {
+    lesson: 'Fall back while fighting. Backpedal to keep mobs in front. Use terrain advantage: fight on high ground, mobs must climb up. Never fight with your back to a cliff.',
+    severity: 0.8,
+    confidence: 0.85,
+    context: { trigger: 'retreat_combat', strategy: 'combat_tactics' }
+  },
+
+  // ── NIGHT SURVIVAL ─────────────────────────────────────────────
+  {
+    lesson: 'Place bed at first shelter. Right-click to sleep when night comes. Sleeping skips night and resets spawn point. Bed explodes in Nether — never sleep there.',
+    severity: 0.95,
+    confidence: 0.95,
+    context: { trigger: 'night_approach', strategy: 'night_survival' }
+  },
+  {
+    lesson: 'No bed? Seal yourself in cobblestone or dig 2 blocks into a wall. Place torch. Wait until morning. Staying inside prevents mob spawns near you.',
+    severity: 0.9,
+    confidence: 0.9,
+    context: { trigger: 'no_bed', strategy: 'night_survival' }
+  },
+  {
+    lesson: 'Light up your base perimeter with torches every 8 blocks. Hostile mobs spawn at light level 0. Keep all surfaces above light level 1. Torches prevent spawns.',
+    severity: 0.85,
+    confidence: 0.88,
+    context: { trigger: 'base_defense', strategy: 'night_survival' }
+  },
+
+  // ── FARMING BASICS ─────────────────────────────────────────────
+  {
+    lesson: 'Wheat farm: till 9x9 area with hoe, place water in center, plant seeds. Wheat grows in 4 stages. Harvest when yellow. 3 wheat = 1 bread. Plant near light.',
+    severity: 0.8,
+    confidence: 0.85,
+    context: { trigger: 'hunger_long_term', strategy: 'farming' }
+  },
+  {
+    lesson: 'Animal pen: fence 8x8 area, push 2 animals inside with wheat. Breed by feeding wheat. Keeps food supply renewable. Never kill last animal.',
+    severity: 0.75,
+    confidence: 0.8,
+    context: { trigger: 'food_sustainability', strategy: 'farming' }
+  },
+  {
+    lesson: 'Bread production chain: plant wheat -> harvest -> craft 3 wheat into 3 bread. Keep 1 bread in reserve at all times. Never eat last bread unless starving.',
+    severity: 0.8,
+    confidence: 0.82,
+    context: { trigger: 'food_management', strategy: 'farming' }
+  },
+
+  // ── TOOL PROGRESSION ───────────────────────────────────────────
+  {
+    lesson: 'Tool upgrade order: wood pickaxe -> stone pickaxe -> iron pickaxe -> diamond pickaxe. Each tier mines faster and unlocks new ores. Iron is the critical milestone.',
+    severity: 0.85,
+    confidence: 0.9,
+    context: { trigger: 'tool_upgrade', strategy: 'tool_progression' }
+  },
+  {
+    lesson: 'Repair tools at anvil: combine two damaged tools. Costs XP levels. Iron pickaxe lasts 2500 uses. Diamond lasts 15625 uses. Repair before tool breaks.',
+    severity: 0.8,
+    confidence: 0.85,
+    context: { trigger: 'tool_repair', strategy: 'tool_progression' }
+  },
+  {
+    lesson: 'Enchanting priority: Fortune III on pickaxe (3x ore drops), Sharpness on sword, Protection on armor. Unbreaking III doubles tool lifespan. Lapis lazuli required.',
+    severity: 0.75,
+    confidence: 0.8,
+    context: { trigger: 'enchanting', strategy: 'tool_progression' }
+  },
+
+  // ── MOB-PROOFING ───────────────────────────────────────────────
+  {
+    lesson: 'Place slabs on roofs to prevent spider climbing. Spiders cannot climb bottom-half slabs. Slab your roof and walls to make base spider-proof.',
+    severity: 0.7,
+    confidence: 0.8,
+    context: { trigger: 'spider_proofing', strategy: 'mob_proofing' }
+  },
+  {
+    lesson: 'Use iron doors with buttons instead of wooden doors. Zombies can break wooden doors on Hard difficulty. Iron doors cannot be broken by mobs.',
+    severity: 0.75,
+    confidence: 0.82,
+    context: { trigger: 'base_security', strategy: 'mob_proofing' }
+  },
+
+  // ── NETHER PREP ────────────────────────────────────────────────
+  {
+    lesson: 'Nether portal: build 4x5 obsidian frame, light with flint and steel. Stand inside portal for 4 seconds to teleport. Bring cobblestone for emergency walls.',
+    severity: 0.85,
+    confidence: 0.88,
+    context: { trigger: 'nether_entry', strategy: 'nether_prep' }
+  },
+  {
+    lesson: 'Nether survival: craft fire resistance potion before entering. Wear gold armor to prevent Piglin attacks. Never use beds — they explode. Bring extra blocks.',
+    severity: 0.9,
+    confidence: 0.92,
+    context: { trigger: 'nether_survival', strategy: 'nether_prep' }
+  },
+
+  // ── RESOURCE PRIORITIES ────────────────────────────────────────
+  {
+    lesson: 'First 10 minutes priority: wood (crafting table + tools), food (kill animals), coal (torches), iron (armor + better tools). Skip stone tools if iron found fast.',
+    severity: 0.8,
+    confidence: 0.85,
+    context: { trigger: 'early_game', strategy: 'resource_priority' }
+  },
+  {
+    lesson: 'What to skip: gold ore (rare use), lapis (only for enchanting), redstone (advanced only). Focus on iron, coal, and food. Diamonds when Y=-59.',
+    severity: 0.7,
+    confidence: 0.78,
+    context: { trigger: 'mining_priorities', strategy: 'resource_priority' }
+  },
+
+  // ── SOCIAL SURVIVAL ────────────────────────────────────────────
+  {
+    lesson: 'Trading rule: never trade your last weapon or food. Always keep backup sword and 5 bread minimum. Trade surplus items only. Fair trades build trust.',
+    severity: 0.8,
+    confidence: 0.85,
+    context: { trigger: 'trading', strategy: 'social_survival' }
+  },
+  {
+    lesson: 'Alliance formation: help others first, then ask for help. Share resources early to build trust. Joint projects (house, farm) create lasting bonds. Betrayal has consequences.',
+    severity: 0.75,
+    confidence: 0.8,
+    context: { trigger: 'alliance_building', strategy: 'social_survival' }
   }
 ];
 
