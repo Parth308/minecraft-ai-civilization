@@ -1340,7 +1340,8 @@ function createAgent() {
               }
             } else if (buildType === 'house' || buildType === 'trading_hall') {
               didBuild = await withTimeout(builder.buildBlueprint(null, buildType), `blueprint(${buildType})`);
-              const alliesHere = (senses.getNearbyPlayers?.(24) || []).some(p => p.username !== bot.username);
+              // Broader gate: view-distance 4 = 64 blocks radius; 48 ensures overlap
+              const alliesHere = (senses.getNearbyPlayers?.(48) || []).some(p => p.username !== bot.username);
               if (didBuild && buildType === 'house' && alliesHere && !goalManager.activeSharedGoalId) {
                 await goalManager.proposeSharedGoal(
                   `Expand our house with walls, torches and beds`,
@@ -1812,6 +1813,34 @@ function createAgent() {
       tickCount++;
       if (tickCount % 120 === 0) {
         chunkMemory.persist().catch(() => {});
+        // Every ~2 minutes: if an allied agent is nearby and no shared goal
+        // is active, propose one — the dialogue path alone never fires because
+        // agents never meet close enough for the LLM to chat about goals.
+        try {
+          if (!goalManager.activeSharedGoalId) {
+            const nearbyAllies = (senses.getNearbyPlayers?.(48) || []).filter(p => p.username !== bot.username);
+            const alliedPlayer = nearbyAllies.find(p => {
+              const rel = relationshipTracker.get(p.username);
+              return rel && (rel.trust ?? 50) >= 30;
+            });
+            if (alliedPlayer) {
+              const inv = (bot.inventory?.items() || []).map(i => i.name);
+              const hasWood = inv.some(n => n.includes('plank') || n.includes('log') || n.includes('wood'));
+              const goalDesc = hasWood
+                ? `Gather resources and build a community shelter together near ${bot.entity?.position ? `${Math.round(bot.entity.position.x)}, ${Math.round(bot.entity.position.z)}` : 'our location'}`
+                : `Explore together and gather wood for a community shelter`;
+              goalManager.proposeSharedGoal(
+                goalDesc, 2,
+                [{ item: 'oak_planks', count: 32 }, { item: 'cobblestone', count: 16 }],
+                bot.entity?.position || null,
+                process.env.MEMORY_SERVICE_URL || 'http://localhost:3002'
+              );
+              logger.info('SocialGoals', `[PERIODIC PROPOSAL] ${bot.username} proposed "${goalDesc}" near ${alliedPlayer.username}`);
+            }
+          }
+        } catch (sgErr) {
+          logger.debug('SocialGoals', `Periodic shared goal check failed: ${sgErr.message}`);
+        }
       }
     }
   }
