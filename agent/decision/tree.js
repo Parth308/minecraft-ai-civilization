@@ -104,15 +104,16 @@ class DecisionTree {
 
     // Include dynamically learned rules
     const dynamicCandidates = this.dynamicRuleEngine.evaluateDynamicRules(senses, stats);
-    const now = Date.now();
-    const filteredDynamic = dynamicCandidates.filter(c => {
+    const allCandidates = [...staticCandidates, ...dynamicCandidates];
+    const tick = Date.now();
+    const filteredCandidates = allCandidates.filter(c => {
       const cd = DYNAMIC_ACTION_COOLDOWNS[c.name];
       if (!cd) return true;
       const last = this._actionCooldowns.get(c.name);
       if (!last) return true;
-      return (now - last) >= cd;
+      return (tick - last) >= cd;
     });
-    const rawCandidates = [...staticCandidates, ...filteredDynamic];
+    const rawCandidates = filteredCandidates;
 
     // Apply persona trait biases so different agents make distinct behavioral choices
     // Weights scaled to ±0.50+ so personality can override learned rules (max 0.85)
