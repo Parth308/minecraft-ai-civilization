@@ -1,6 +1,6 @@
 const { ACTIONS } = require('../../../shared/constants');
 
-const SHELTER_BLOCKS = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'cobblestone', 'stone_bricks'];
+const SHELTER_BLOCKS = ['oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'cobblestone', 'stone_bricks', 'dirt', 'sand', 'sandstone'];
 const TORCH_BLOCKS = ['torch', 'wall_torch'];
 
 function evaluateBuild(senses, stats, persona = null, agentState = {}) {
@@ -14,7 +14,7 @@ function evaluateBuild(senses, stats, persona = null, agentState = {}) {
     invCounts[item.name] = (invCounts[item.name] || 0) + item.count;
   }
 
-  const hasBlocks = SHELTER_BLOCKS.some(b => (invCounts[b] || 0) >= 8);
+  const hasBlocks = SHELTER_BLOCKS.some(b => (invCounts[b] || 0) >= 4);
   const hasTorches = (invCounts['torch'] || 0) >= 4;
 
   const shelterNearby = senses.getNearbyBlock('crafting_table', 16) ||

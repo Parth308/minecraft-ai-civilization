@@ -213,6 +213,41 @@ class MovementActuator {
   stopSwimming() {
     this.bot.setControlState('jump', false);
   }
+
+  // Emergency survival: dig a 2-block hole and crouch when no shelter exists.
+  // Called from FLEE execution when night + no blocks + no nearby shelter.
+  async emergencyDigIn() {
+    const pos = this.bot.entity?.position;
+    if (!pos) return { success: false, reason: 'no_position' };
+
+    const blockBelow = this.bot.blockAt(new Vec3(Math.floor(pos.x), Math.floor(pos.y) - 1, Math.floor(pos.z)));
+    if (!blockBelow) return { success: false, reason: 'no_block_below' };
+
+    // Can't dig through bedrock or unbreakable blocks
+    if (blockBelow.name === 'bedrock' || blockBelow.hardness < 0) {
+      return { success: false, reason: 'unbreakable_block' };
+    }
+
+    logger.info('Actuation:Movement', `Emergency dig-in: digging below at ${blockBelow.position}`);
+    detailedLogger.logMovement(this.agentId, 'Emergency dig-in', { blockPos: blockBelow.position });
+
+    try {
+      // Dig block below feet
+      await this.bot.dig(blockBelow);
+      // Dig one more down to create a 2-deep hole
+      const blockBelow2 = this.bot.blockAt(new Vec3(Math.floor(pos.x), Math.floor(pos.y) - 2, Math.floor(pos.z)));
+      if (blockBelow2 && blockBelow2.hardness >= 0) {
+        await this.bot.dig(blockBelow2);
+      }
+      // Crouch to stay in hole
+      this.sneak(true);
+      logger.info('Actuation:Movement', 'Emergency dig-in complete — crouching in hole');
+      return { success: true, reason: 'dug_in' };
+    } catch (err) {
+      logger.debug('Actuation:Movement', `Emergency dig-in failed: ${err.message}`);
+      return { success: false, reason: err.message };
+    }
+  }
 }
 
 module.exports = MovementActuator;

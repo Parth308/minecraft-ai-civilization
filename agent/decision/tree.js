@@ -200,6 +200,39 @@ class DecisionTree {
       }
     }
 
+    // Pre-completion tree proximity boost: when SCOUT detects nearby logs,
+    // directly boost MINE so agents chop trees instead of just looking at them.
+    const nearbyLogs = senses.getNearbyBlock?.('log', 16);
+    if (nearbyLogs) {
+      for (const c of candidates) {
+        if (c.name === 'MINE') {
+          c.confidence += 0.20;
+          c.reason += ' [tree proximity: logs detected nearby]';
+        }
+        if (c.name === 'EXPLORE') {
+          c.confidence += 0.10;
+          c.reason += ' [tree proximity: toward resource gathering]';
+        }
+      }
+    }
+
+    // Spawn protection: first 180s after respawn, boost productive actions
+    // and suppress FLEE to give agents time to gather resources.
+    const spawnTime = agentState.spawnProtectedUntil || 0;
+    const timeSinceSpawn = Date.now() - spawnTime;
+    if (timeSinceSpawn > 0 && timeSinceSpawn < 180000) {
+      for (const c of candidates) {
+        if (c.name === 'MINE' || c.name === 'CRAFT' || c.name === 'BUILD' || c.name === 'EXPLORE') {
+          c.confidence += 0.15;
+          c.reason += ` [spawn protection: ${Math.round((180000 - timeSinceSpawn) / 1000)}s remaining]`;
+        }
+        if (c.name === 'FLEE') {
+          c.confidence -= 0.20;
+          c.reason += ' [spawn protection: suppressing flee for resource gathering]';
+        }
+      }
+    }
+
     // ── Improvement 1: Productivity stagnation detector ───────────────────────
     // If no resource-gathering action in the last 60s, nudge the agent away from
     // pure exploration loops and toward productive work. This breaks the

@@ -864,14 +864,67 @@ function createAgent() {
             eventBuffer.addEvent('flee', { threat: fleeThreat.name || 'hostile' });
             actionSuccess = true;
           } else {
-            // Ambient night-flee: commit to ONE shelter waypoint instead of
-            // re-randomizing a wander target every tick (jitter livelock).
-            const shelterResult = movement.goToShelter();
-            eventBuffer.addEvent('flee', { mode: 'shelter', committed: shelterResult.committed });
-            if (shelterResult.arrived || !shelterResult.committed) {
-              require('./decision/rules/flee').setFleeCooldown('night', 45000);
+            const invItems = bot.inventory?.items() || [];
+            const invCounts = {};
+            for (const item of invItems) {
+              invCounts[item.name] = (invCounts[item.name] || 0) + item.count;
             }
-            actionSuccess = true;
+            const hasAnyBlocks = ['oak_planks','spruce_planks','birch_planks','cobblestone','stone_bricks','dirt','sand']
+              .some(b => (invCounts[b] || 0) >= 4);
+            const hasLogs = (invCounts['oak_log'] || invCounts['spruce_log'] || invCounts['birch_log'] || 0) >= 1;
+            const nearbyTree = senses.getNearbyBlock?.('log', 16);
+
+            if (hasAnyBlocks) {
+              try {
+                const buildResult = await withTimeout(builder.buildShelter(), 'emergencyBuildShelter');
+                eventBuffer.addEvent('flee', { mode: 'emergency_build', built: buildResult });
+                actionSuccess = true;
+              } catch (buildErr) {
+                logger.debug('AgentLoop', `emergency shelter build failed: ${buildErr.message}`);
+                const shelterResult = movement.goToShelter();
+                eventBuffer.addEvent('flee', { mode: 'shelter', committed: shelterResult.committed });
+                actionSuccess = true;
+              }
+            } else if (hasLogs) {
+              const craftTable = senses.getNearbyBlock('crafting_table', 8);
+              if (craftTable) {
+                try {
+                  await withTimeout(inventory.craftItem('oak_planks', 4), 'craftPlanksEmergency');
+                  const buildResult = await withTimeout(builder.buildShelter(), 'emergencyBuildFromPlanks');
+                  eventBuffer.addEvent('flee', { mode: 'craft_and_build', built: buildResult });
+                  actionSuccess = true;
+                } catch (craftErr) {
+                  logger.debug('AgentLoop', `emergency craft+build failed: ${craftErr.message}`);
+                  const digResult = await movement.emergencyDigIn();
+                  eventBuffer.addEvent('flee', { mode: 'dig_in', ...digResult });
+                  actionSuccess = true;
+                }
+              } else {
+                const digResult = await movement.emergencyDigIn();
+                eventBuffer.addEvent('flee', { mode: 'dig_in_no_table', ...digResult });
+                actionSuccess = true;
+              }
+            } else if (nearbyTree) {
+              try {
+                await withTimeout(inventory.digBlock(nearbyTree), 'emergencyChopTree');
+                eventBuffer.addEvent('flee', { mode: 'emergency_chop', block: nearbyTree.name });
+                actionSuccess = true;
+              } catch (chopErr) {
+                logger.debug('AgentLoop', `emergency tree chop failed: ${chopErr.message}`);
+                const digResult = await movement.emergencyDigIn();
+                eventBuffer.addEvent('flee', { mode: 'dig_in_chop_fail', ...digResult });
+                actionSuccess = true;
+              }
+            } else {
+              const digResult = await movement.emergencyDigIn();
+              eventBuffer.addEvent('flee', { mode: 'dig_in_last_resort', ...digResult });
+              actionSuccess = true;
+            }
+            if (!actionSuccess) {
+              const shelterResult = movement.goToShelter();
+              eventBuffer.addEvent('flee', { mode: 'shelter_fallback', committed: shelterResult.committed });
+              actionSuccess = true;
+            }
           }
           break;
         }
