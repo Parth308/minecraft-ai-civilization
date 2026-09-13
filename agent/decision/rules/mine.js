@@ -77,7 +77,7 @@ function evaluateMine(senses, stats) {
   const plankCount = senses.countItem('planks');
   const cobbleCount = senses.countItem('cobblestone') + senses.countItem('cobbled_deepslate');
 
-  if (logCount + plankCount < 8 && stats.health > 8) {
+  if (logCount + plankCount < 8 && stats.health > 3) {
     const tree = senses.getNearbyBlock('log', 32);
     if (tree) {
       return {

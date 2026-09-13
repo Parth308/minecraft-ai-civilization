@@ -46,6 +46,17 @@ function evaluateBuild(senses, stats, persona = null, agentState = {}) {
     };
   }
 
+  // Utility placement: furnace when cobblestone available and no furnace nearby
+  const hasFurnace = senses.getNearbyBlock('furnace', 10) || senses.getNearbyBlock('blast_furnace', 10) || senses.getNearbyBlock('smoker', 10);
+  if (!hasFurnace && (invCounts['cobblestone'] || 0) >= 8) {
+    return {
+      name: ACTIONS.BUILD,
+      confidence: 0.72,
+      buildType: 'furnace',
+      reason: `Placing furnace — have ${invCounts['cobblestone']} cobblestone, no furnace nearby`
+    };
+  }
+
   const hasFoundation = invCounts['cobblestone'] >= 16 || invCounts['stone_bricks'] >= 16;
   if (hasFoundation && hasTorches && ambition > 0.6 && !isNight) {
     let confidence = 0.55 + (ambition * 0.15);

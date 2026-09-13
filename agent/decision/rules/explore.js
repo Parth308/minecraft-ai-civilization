@@ -5,7 +5,7 @@ function evaluateExplore(senses, stats) {
   if (stats.health > 12 && stats.fatigue < 70 && stats.hunger > 30) {
     return {
       name: ACTIONS.EXPLORE || 'EXPLORE',
-      confidence: 0.68,
+      confidence: 0.55,
       reason: `Healthy condition (HP:${stats.health}/20, Stamina:${100 - stats.fatigue}%) — exploring biome and scouting resources`
     };
   }

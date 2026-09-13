@@ -1324,7 +1324,21 @@ function createAgent() {
 
           let didBuild = false;
           try {
-            if (buildType === 'house' || buildType === 'trading_hall') {
+            if (buildType === 'furnace') {
+              const pos = bot.entity?.position;
+              if (pos) {
+                const furnaceItem = bot.inventory?.items().find(i => i.name === 'furnace');
+                if (furnaceItem) {
+                  const floor = bot.blockAt(pos.offset(0, -1, 0));
+                  const spot = bot.blockAt(pos.offset(1, 0, 0));
+                  if (floor && floor.name !== 'air' && spot && spot.name === 'air') {
+                    await inventory.placeBlock('furnace', floor);
+                    didBuild = true;
+                    logger.info('AgentLoop', 'Placed furnace for smelting station');
+                  }
+                }
+              }
+            } else if (buildType === 'house' || buildType === 'trading_hall') {
               didBuild = await withTimeout(builder.buildBlueprint(null, buildType), `blueprint(${buildType})`);
               const alliesHere = (senses.getNearbyPlayers?.(24) || []).some(p => p.username !== bot.username);
               if (didBuild && buildType === 'house' && alliesHere && !goalManager.activeSharedGoalId) {
