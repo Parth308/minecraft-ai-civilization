@@ -303,6 +303,81 @@ class DecisionTree {
       }
     }
 
+    // ── Survival context hints: human-like escape strategies ─────────────
+    // Underground + low health + no food = critical danger. Boost shelter/surface.
+    const isUnderground = typeof senses.isUnderground === 'function' ? senses.isUnderground() : false;
+    const healthLow = stats.health <= 6;
+    const healthCritical = stats.health <= 3;
+    const hungerLow = stats.hunger <= 30;
+    const hungerCritical = stats.hunger <= 10;
+    const noFood = !hasFood;
+
+    if (isUnderground) {
+      for (const c of candidates) {
+        if (c._suppressed) continue;
+        if (healthLow) {
+          if (c.name === 'FLEE') { c.confidence += 0.20; c.reason += ' [survival: underground + low health → surface]'; }
+          if (c.name === 'BUILD') { c.confidence += 0.15; c.reason += ' [survival: underground shelter while weak]'; }
+        }
+        if (hungerLow) {
+          if (c.name === 'FLEE') { c.confidence += 0.12; c.reason += ' [survival: underground + hungry → surface for food]'; }
+          if (c.name === 'EAT') { c.confidence += 0.15; c.reason += ' [survival: eat to restore health underground]'; }
+        }
+        if (noFood && hungerCritical) {
+          if (c.name === 'FLEE') { c.confidence += 0.25; c.reason += ' [survival: no food + underground → escape or die trying]'; }
+        }
+      }
+    }
+
+    // Strategic death: when critical health, no food, and trapped — FLEE is
+    // still preferred (escape attempt). But if FLEE has failed repeatedly
+    // (flee streak + underground + critical), accept the situation.
+    if (healthCritical && noFood && fleeCount >= 3 && isUnderground) {
+      for (const c of candidates) {
+        if (c._suppressed) continue;
+        if (c.name === 'FLEE') {
+          c.confidence += 0.15;
+          c.reason += ' [strategic death: last escape attempt before respawn]';
+        }
+        if (c.name === 'BUILD') {
+          c.confidence += 0.10;
+          c.reason += ' [strategic death: build shelter as final stand]';
+        }
+      }
+    }
+
+    // Water bucket escape: when falling or in lava, water is the top priority
+    const inLava = senses.bot?.entity?.onFire || false;
+    const falling = senses.bot?.entity?.velocity?.y < -0.5;
+    if (inLava || (falling && stats.health < 10)) {
+      for (const c of candidates) {
+        if (c._suppressed) continue;
+        if (c.name === 'FLEE') {
+          c.confidence += 0.30;
+          c.reason += ' [survival: falling/lava → water bucket escape]';
+        }
+        if (c.name === 'BUILD') {
+          c.confidence += 0.20;
+          c.reason += ' [survival: place blocks to break fall]';
+        }
+      }
+    }
+
+    // Surface urgency: when underground at night, strong pull to surface
+    if (isUnderground && isNight) {
+      for (const c of candidates) {
+        if (c._suppressed) continue;
+        if (c.name === 'FLEE') {
+          c.confidence += 0.15;
+          c.reason += ' [survival: underground at night → surface]';
+        }
+        if (c.name === 'BUILD') {
+          c.confidence += 0.12;
+          c.reason += ' [survival: build shelter underground at night]';
+        }
+      }
+    }
+
     // Time-of-day weighting: actions appropriate for current time get boost
     const timeOfDay = agentState.timeOfDay || 'day';
     const isNight = agentState.isNight || false;

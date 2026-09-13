@@ -558,6 +558,16 @@ app.get('/api/rules/adjust/:agentId', (req, res) => {
 
 app.listen(config.port, () => {
   logger.info('MemoryService', `Central Memory Service running on http://localhost:${config.port}`);
+
+  // Seed survival skill templates into the ledger on first boot.
+  // These teach agents human-like escape strategies (torch navigation,
+  // water bucket, underground shelter, strategic death, etc.).
+  const { seedSurvivalSkills } = require('../scripts/seed-survival-skills');
+  seedSurvivalSkills().then(result => {
+    logger.info('MemoryService', `Survival skills seeded: ${result.seeded} OK, ${result.errors} errors`);
+  }).catch(err => {
+    logger.debug('MemoryService', `Survival skill seeding skipped: ${err.message}`);
+  });
 });
 
 const shutdown = () => {
