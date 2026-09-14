@@ -80,6 +80,9 @@ class SocietyStore {
       if (!Array.isArray(data.jobs)) data.jobs = [];
       if (!data.shops || typeof data.shops !== 'object') data.shops = {};
       if (!Array.isArray(data.events)) data.events = [];
+      if (!Array.isArray(data.trials)) data.trials = [];
+      if (!Array.isArray(data.exiles)) data.exiles = [];
+      if (!Array.isArray(data.leaderPowers)) data.leaderPowers = [];
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
