@@ -290,12 +290,12 @@ function createAgent() {
   const eventBuffer = new EventBuffer(20, (bufferSnapshot) => {
     memoryClient.flushBuffer(bufferSnapshot);
   });
+  const gossip = new Gossip(config.username, bot, memoryClient);
   const deathInvestigator = new DeathInvestigator(config.username, {
     brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses, gossip
   });
   const taxCollector = new TaxCollector(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', chat });
   const chunkMemory = new ChunkMemory(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002' });
-  const gossip = new Gossip(config.username, bot, memoryClient);
 
   let tickInterval = null;
   let inFlightTick = false;
