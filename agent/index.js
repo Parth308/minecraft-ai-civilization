@@ -228,7 +228,6 @@ function createAgent() {
   const inventory = new InventoryActuator(bot);
   const stats = new StatsManager();
   const statsDecay = new StatsDecayEngine(stats, movement);
-  const relationships = new RelationshipTracker(memoryClient);
 
   // Cognitive & Social Architecture
   const persona = new DynamicPersona(config.username, config.personalitySeed);
@@ -257,6 +256,7 @@ function createAgent() {
 
   // Memory components
   const memoryClient = new MemoryClient(config.username);
+  const relationships = new RelationshipTracker(memoryClient);
   const reflection = new ReflectionEngine(brainClient, persona, memoryClient, chat);
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
   dialogueEngine.setReflectionEngine(reflection);
