@@ -227,6 +227,7 @@ class Gossip {
     if (discoveryMatch) {
       return {
         type: 'discovery',
+        target: 'resource',
         item: discoveryMatch[1]
       };
     }
