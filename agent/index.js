@@ -228,7 +228,7 @@ function createAgent() {
   const inventory = new InventoryActuator(bot);
   const stats = new StatsManager();
   const statsDecay = new StatsDecayEngine(stats, movement);
-  const relationships = new RelationshipTracker();
+  const relationships = new RelationshipTracker(memoryClient);
 
   // Cognitive & Social Architecture
   const persona = new DynamicPersona(config.username, config.personalitySeed);
@@ -453,7 +453,7 @@ function createAgent() {
     doRandomHumanBehaviour();
   }, 12000 + Math.random() * 18000);
 
-  bot.once('spawn', () => {
+  bot.once('spawn', async () => {
     try {
       const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : { x: 0, y: 0, z: 0 };
       logger.info('Agent', `${bot.username} spawned at X:${pos.x} Y:${pos.y} Z:${pos.z}`);
@@ -476,6 +476,9 @@ function createAgent() {
 
       // Seed dynamic rules from civilization shared lessons (personality-weighted)
       decisionTree.dynamicRuleEngine.seedFromSharedLessons(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', persona);
+
+      await relationships.loadFromMemory();
+      relationships.startAutoSave();
 
       // Grounded curriculum check: when basics (tools/shelter) are missing,
       // nudge the goal toward the next tech milestone every few minutes.
@@ -578,6 +581,10 @@ function createAgent() {
           process.exit(0);
         }
       });
+
+      const _shutdownFlush = () => { relationships.shutdown(); };
+      process.on('SIGTERM', _shutdownFlush);
+      process.on('SIGINT', _shutdownFlush);
 
       try {
         const { spawn } = require('child_process');

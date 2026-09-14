@@ -248,6 +248,24 @@ app.get('/api/memory/sections/:agentId/:section', (req, res) => {
   res.json({ agentId, section, content });
 });
 
+app.put('/api/memory/sections/:agentId/:section', (req, res) => {
+  const { agentId, section } = req.params;
+  if (!SECTIONS.includes(section)) {
+    return res.status(400).json({ error: `Invalid section. Valid: ${SECTIONS.join(', ')}` });
+  }
+  initializeAgentMemoryFiles(agentId);
+  const { content } = req.body;
+  if (typeof content !== 'string') {
+    return res.status(400).json({ error: 'content string required in body' });
+  }
+  const filePath = getSectionFilePath(agentId, section);
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, content, 'utf8');
+  fs.renameSync(tmpPath, filePath);
+  logger.info('MemoryAPI', `Direct section write: ${agentId}/${section} (${content.length} bytes)`);
+  res.json({ agentId, section, ok: true, bytes: content.length });
+});
+
 const { getInstance } = require('./store/civilization/ledger');
 const ledger = getInstance();
 

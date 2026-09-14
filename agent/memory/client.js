@@ -75,6 +75,35 @@ class MemoryClient {
       return [];
     }
   }
+
+  async loadSection(section) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/memory/sections/${this.agentId}/${section}`);
+      if (!response.ok) return '';
+      const data = await response.json();
+      return data.content || '';
+    } catch (err) {
+      logger.debug('MemoryClient', `Section load failed (${section}): ${err.message}`);
+      return '';
+    }
+  }
+
+  async saveSection(section, content) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/memory/sections/${this.agentId}/${section}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return true;
+    } catch (err) {
+      logger.warn('MemoryClient', `Section save failed (${section}): ${err.message}`);
+      return false;
+    }
+  }
 }
 
 module.exports = MemoryClient;
