@@ -6,6 +6,13 @@ const Vec3 = require('vec3');
 const logger = require('../../shared/logger');
 const detailedLogger = require('../../shared/detailedLogger');
 
+let baritoneGoals;
+try {
+  baritoneGoals = require('@miner-org/mineflayer-baritone').goals;
+} catch {
+  baritoneGoals = null;
+}
+
 class MovementActuator {
   constructor(bot) {
     this.bot = bot;
@@ -20,13 +27,21 @@ class MovementActuator {
   goto(x, y, z, range = 1) {
     logger.info('Actuation:Movement', `Navigating to coordinates X:${x} Y:${y} Z:${z} (Range: ${range})`);
     detailedLogger.logMovement(this.agentId, 'Navigating to coordinates', { target: { x, y, z, range }, currentPos: this.bot.entity?.position });
-    this.bot.pathfinder.setGoal(new GoalNear(x, y, z, range));
+    if (this.bot.ashfinder && baritoneGoals) {
+      this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(x, y, z), range));
+    } else {
+      this.bot.pathfinder.setGoal(new GoalNear(x, y, z, range));
+    }
   }
 
   gotoBlock(x, y, z) {
     logger.info('Actuation:Movement', `Navigating directly to block X:${x} Y:${y} Z:${z}`);
     detailedLogger.logMovement(this.agentId, 'Navigating to block goal', { blockPos: { x, y, z } });
-    this.bot.pathfinder.setGoal(new GoalBlock(x, y, z));
+    if (this.bot.ashfinder && baritoneGoals) {
+      this.bot.ashfinder.goto(new baritoneGoals.GoalExact(new Vec3(x, y, z)));
+    } else {
+      this.bot.pathfinder.setGoal(new GoalBlock(x, y, z));
+    }
   }
 
   follow(entity, distance = 2) {
@@ -128,11 +143,18 @@ class MovementActuator {
   stop() {
     logger.info('Actuation:Movement', 'Stopping all active movement.');
     detailedLogger.logMovement(this.agentId, 'Stopped movement');
-    this.bot.pathfinder.setGoal(null);
+    if (this.bot.ashfinder) {
+      this.bot.ashfinder.stop();
+    } else {
+      this.bot.pathfinder.setGoal(null);
+    }
     this.bot.clearControlStates();
   }
 
   isMoving() {
+    if (this.bot.ashfinder) {
+      return !this.bot.ashfinder.stopped;
+    }
     return this.bot.pathfinder ? this.bot.pathfinder.isMoving() : false;
   }
 

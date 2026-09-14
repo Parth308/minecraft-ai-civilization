@@ -160,14 +160,23 @@ class InventoryActuator {
     if (!this.bot.inventory || !block) return false;
     const blockName = block.name.toLowerCase();
 
-    // ── Determine tool type and minimum tier ───────────────────────────────
+    if (this.bot.tool) {
+      try {
+        await this.bot.tool.equipForBlock(block);
+        detailedLogger.logInventory(this.agentId, `Tool plugin equipped for ${blockName}`);
+        return true;
+      } catch (err) {
+        logger.debug('Actuation:Inventory', `Tool plugin equip failed for ${blockName}: ${err.message}`);
+      }
+    }
+
     let toolType = null;
     let minTier = 'wooden';
 
     if (
       blockName.includes('log') || blockName.includes('wood') ||
       blockName.includes('plank') || blockName.includes('bamboo') ||
-      blockName.includes('stem') // mushroom stems, warped/crimson stems
+      blockName.includes('stem')
     ) {
       toolType = 'axe';
     } else if (
@@ -206,30 +215,28 @@ class InventoryActuator {
       toolType = 'shovel';
     } else if (
       blockName.includes('leaves') || blockName.includes('wool') ||
-      blockName.includes('cobweb') // shears fastest on cobweb
+      blockName.includes('cobweb')
     ) {
       toolType = 'shears';
     } else if (
       blockName.includes('farmland') || blockName.includes('dirt_path')
     ) {
-      toolType = 'hoe'; // hoe is fastest for farmland
+      toolType = 'hoe';
     } else if (
       blockName.includes('melon') || blockName.includes('pumpkin')
     ) {
-      toolType = 'axe'; // axe is fastest for these
+      toolType = 'axe';
     } else if (blockName.includes('cobweb')) {
-      toolType = 'sword'; // sword breaks cobweb instantly
+      toolType = 'sword';
     }
 
-    if (!toolType) return false; // no special tool — use fist / held item
+    if (!toolType) return false;
 
-    // ── Pick best available tool meeting minimum tier ──────────────────────
     const tool = toolType === 'shears'
       ? this._pickBestTool('shears')
       : this._pickBestTool(toolType, minTier);
 
     if (!tool) {
-      // We don't have a tool of sufficient tier — warn but don't equip wrong one
       if (minTier !== 'wooden') {
         logger.warn('Actuation:Inventory', `Cannot mine ${blockName}: need ${minTier}+ ${toolType} but none in inventory. Block will drop nothing.`);
       }

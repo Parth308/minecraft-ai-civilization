@@ -10,8 +10,8 @@ class CombatActuator {
     this.blocking = false;
     this._combatLoop = null;
     this._lastAttackMs = 0;
-    // Minecraft sword attack cooldown is ~600ms at full charge (for 1.9+ servers)
     this._attackCooldownMs = 630;
+    this._pvpActive = false;
   }
 
   get agentId() {
@@ -197,11 +197,10 @@ class CombatActuator {
 
   // ─── Main Attack Entry ───────────────────────────────────────────────────────
 
-  // Decides whether to use bow (if ranged + has bow) or melee, and runs the loop.
   async attack(entity) {
     if (!entity || !this.bot.entity) return;
 
-    this.stopCombat(); // cancel any existing loop first
+    this.stopCombat();
     this.target = entity;
     const targetName = entity.name || entity.username || 'hostile';
 
@@ -214,13 +213,24 @@ class CombatActuator {
 
     await this.equipBestArmor();
 
-    // Try ranged first if target is far and we have a bow
+    if (this.bot.pvp) {
+      this._pvpActive = true;
+      this.bot.pvp.equipAll();
+      this.bot.pvp.attack(entity);
+      detailedLogger.logCombat(this.agentId, `PvP plugin engaged against: ${targetName}`);
+      this._combatLoop = setInterval(() => {
+        if (!entity || !this.bot.entity || !entity.isValid) {
+          this.stopCombat();
+        }
+      }, 500);
+      return;
+    }
+
     if (this.bot.entity) {
       const dist = this.bot.entity.position.distanceTo(entity.position);
       if (dist > 6 && this.hasBow() && this.hasArrows()) {
         const bowResult = await this.bowAttack(entity);
         if (bowResult) {
-          // After bow shot, check if target still alive and in range for melee follow-up
           await new Promise(r => setTimeout(r, 400));
           if (entity.isValid) {
             await this.equipBestWeapon();
@@ -231,7 +241,6 @@ class CombatActuator {
       }
     }
 
-    // Fallback: melee
     await this.equipBestWeapon();
     await this.engageMelee(entity);
   }
@@ -242,6 +251,10 @@ class CombatActuator {
     if (this._combatLoop) {
       clearInterval(this._combatLoop);
       this._combatLoop = null;
+    }
+    if (this._pvpActive && this.bot.pvp) {
+      this.bot.pvp.stop();
+      this._pvpActive = false;
     }
     if (this.target) {
       detailedLogger.logCombat(this.agentId, `Disengaged from: ${this.target.name || this.target.username || 'target'}`);

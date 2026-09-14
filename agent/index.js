@@ -220,6 +220,13 @@ function createAgent() {
       logger.warn('Agent', `mineflayer-auto-eat unavailable (${aeErr.message}) — legacy eat logic remains.`);
     });
 
+  // Load community plugins (baritone, armor-manager, tool, pvp, statemachine)
+  const { loadPlugins } = require('./plugins/loader');
+  loadPlugins(bot).then(manifest => {
+    logger.info('Agent', `Plugin manifest: ${JSON.stringify(manifest)}`);
+  }).catch(err => {
+    logger.warn('Agent', `Plugin loader failed: ${err.message}`);
+  });
 
   // Components instantiation
   const senses = new Senses(bot);
