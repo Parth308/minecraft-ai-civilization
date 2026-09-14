@@ -868,7 +868,7 @@ class DecisionTree {
     candidates.sort((a, b) => b.confidence - a.confidence);
     const penalizedTop = candidates[0];
 
-    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK', 'GUARD']);
+    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK', 'GUARD', 'SLEEP']);
     const historyLen = this._actionHistory.length;
     const lastSix = this._actionHistory.slice(-6);
     const uniqueRecent = [...new Set(lastSix)];

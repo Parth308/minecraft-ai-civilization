@@ -370,11 +370,13 @@ function createAgent() {
         delete decision.targetResource;
       }
     }
-    if (!decision || decision.escalated !== true) return decision;
-    if (decision.action === 'SLEEP' && !decision.meta?.bed && !senses.isNight()) {
-      logger.warn('AgentLoop', '[PRE-FLIGHT] SLEEP rejected — not night. Overriding to WANDER.');
+    // SLEEP daytime guard — applies to ALL sources (learned rules produce
+    // high-confidence SLEEP at daytime via hallucinated "sleep heals" belief).
+    if (decision && decision.action === 'SLEEP' && !senses.isNight()) {
+      logger.warn('AgentLoop', '[PRE-FLIGHT] SLEEP rejected — daytime. Overriding to WANDER.');
       decision.action = 'WANDER';
     }
+    if (!decision || decision.escalated !== true) return decision;
     if (decision.action === 'TRADE') {
       const nearbyPlayers = senses.getNearbyPlayers ? senses.getNearbyPlayers(32) : [];
       if (nearbyPlayers.length === 0 && !(decision.tradeOffer || '').match(/from \S+/i)) {
@@ -956,16 +958,21 @@ function createAgent() {
 
         case ACTIONS.SLEEP:
         case 'SLEEP': {
-          // Use meta.bed if provided by rule engine, else search for one
           const bedBlock = decision.meta?.bed || senses.getNearbyBed(20);
           if (bedBlock) {
             logger.info('AgentLoop', 'Executing SLEEP action');
             detailedLogger.logCognition(bot.username, 'Entering bed to sleep', { bedPos: bedBlock.position });
-            bot.sleep(bedBlock).catch(err => logger.warn('AgentLoop', `Sleep failed: ${err.message}`));
-            eventBuffer.addEvent('sleep', { bedPos: bedBlock.position });
-            actionSuccess = true;
-          } else if (senses.isNight()) {
-            logger.info('AgentLoop', 'Night but no bed found — building shelter or staying put');
+            try {
+              await bot.sleep(bedBlock);
+              eventBuffer.addEvent('sleep', { bedPos: bedBlock.position, ok: true });
+              actionSuccess = true;
+            } catch (sleepErr) {
+              logger.warn('AgentLoop', `Sleep failed: ${sleepErr.message}`);
+              eventBuffer.addEvent('sleep', { bedPos: bedBlock.position, ok: false, error: sleepErr.message });
+              actionSuccess = false;
+            }
+          } else {
+            logger.debug('AgentLoop', 'SLEEP requested but no bed found');
             actionSuccess = false;
           }
           break;
