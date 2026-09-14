@@ -1,7 +1,7 @@
 const logger = require('../../shared/logger');
 
 class DeathInvestigator {
-  constructor(agentId, { brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses }) {
+  constructor(agentId, { brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses, gossip }) {
     this.agentId = agentId;
     this.brainClient = brainClient;
     this.relationships = relationships;
@@ -10,6 +10,7 @@ class DeathInvestigator {
     this.chat = chat;
     this.movement = movement;
     this.senses = senses;
+    this.gossip = gossip;
     this._pendingInvestigation = null;
     this._griefEntries = [];
   }
@@ -70,7 +71,16 @@ class DeathInvestigator {
         victim, killer: killerName, emotionalWeight, affinity
       });
 
-      // Close friends announce revenge
+      if (this.gossip) {
+        this.gossip.addRumor({
+          type: 'murder',
+          target: killerName,
+          victim,
+          killer: killerName,
+          source: 'observed'
+        });
+      }
+
       if (affinity > 60) {
         this.chat.say(`You'll pay for this, ${killerName}!`);
       } else if (affinity > 40) {

@@ -291,7 +291,7 @@ function createAgent() {
     memoryClient.flushBuffer(bufferSnapshot);
   });
   const deathInvestigator = new DeathInvestigator(config.username, {
-    brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses
+    brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses, gossip
   });
   const taxCollector = new TaxCollector(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', chat });
   const chunkMemory = new ChunkMemory(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002' });
@@ -655,6 +655,7 @@ function createAgent() {
 
           // 1d. Spread gossip if buffer has rumors
           gossip.spread().catch(() => {});
+          gossip.decay();
 
           // 2. Run local stats decay tick
           statsDecay.tick();
@@ -1511,6 +1512,7 @@ function createAgent() {
             try {
               await withTimeout(inventory.stealFromPlayer(targetEntity, stolenItem), `stealFrom(${targetName})`);
               eventBuffer.addEvent('steal', { target: targetName, item: stolenItem });
+              gossip.addRumor({ type: 'theft', target: targetName, item: stolenItem, source: 'observed' });
               actionSuccess = true;
             } catch (stealErr) {
               logger.debug('AgentLoop', `STEAL failed (${stealErr.message})`);
@@ -2381,13 +2383,15 @@ function createAgent() {
   });
 
   events.on('playerChat', async ({ username, message }) => {
-    // Always record to recentChat
     agentState.recentChat.push({ username, message, timestamp: new Date().toISOString() });
     if (agentState.recentChat.length > 60) agentState.recentChat.shift();
     eventBuffer.addEvent('playerChat', { username, message });
 
-    // Ignore our own echoes and spectator bots
     if (username === bot.username || username.toLowerCase().includes('spectator')) return;
+
+    if (username.startsWith('Agent_')) {
+      gossip.receiveFromChat(username, message);
+    }
 
     // Check if answering an 'ask' consent prompt for lesson sharing
     if (reflection.pendingLesson) {

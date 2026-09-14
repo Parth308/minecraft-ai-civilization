@@ -1,11 +1,12 @@
 const logger = require('../../shared/logger');
 
 class StealDetection {
-  constructor(agentId, bot, relationships, factions) {
+  constructor(agentId, bot, relationships, factions, gossip) {
     this.agentId = agentId;
     this.bot = bot;
     this.relationships = relationships;
     this.factions = factions;
+    this.gossip = gossip;
     this.pendingDetections = new Map();
     this.knownThefts = new Map();
   }
@@ -67,6 +68,15 @@ class StealDetection {
       await this.bot.chat(`${thiefName} stole from me! You are no longer part of our faction!`);
     } else {
       await this.bot.chat(`${thiefName} stole my ${itemName}! I won't forget this!`);
+    }
+
+    if (this.gossip) {
+      this.gossip.addRumor({
+        type: 'theft',
+        target: thiefName,
+        item: itemName,
+        source: 'observed'
+      });
     }
 
     return { trustPenalty, sameFaction };
