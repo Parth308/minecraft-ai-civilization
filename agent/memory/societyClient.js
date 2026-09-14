@@ -465,6 +465,122 @@ class SocietyClient {
     } catch { /* fall through */ }
     return [];
   }
+
+  accuse(target, reason, evidence = '') {
+    return fetch(`${this.serviceUrl}/api/society/trials`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accuser: this.agentId, target, reason, evidence })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Accusation failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  supportTrial(trialId) {
+    return fetch(`${this.serviceUrl}/api/society/trials/${encodeURIComponent(trialId)}/support`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Trial support failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  declareVerdict(trialId, verdict, sentence = '') {
+    return fetch(`${this.serviceUrl}/api/society/trials/${encodeURIComponent(trialId)}/verdict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ verdict, sentence })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Verdict failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  async getPendingTrials() {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/trials/pending`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return (await res.json()).trials || [];
+    } catch { /* fall through */ }
+    return [];
+  }
+
+  exile(target, reason) {
+    return fetch(`${this.serviceUrl}/api/society/exiles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initiator: this.agentId, target, reason })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Exile failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  supportExile(exileId) {
+    return fetch(`${this.serviceUrl}/api/society/exiles/${encodeURIComponent(exileId)}/support`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Exile support failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  liftExile(exileId) {
+    return fetch(`${this.serviceUrl}/api/society/exiles/${encodeURIComponent(exileId)}/lift`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Lift exile failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  async getActiveExiles() {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/exiles`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return (await res.json()).exiles || [];
+    } catch { /* fall through */ }
+    return [];
+  }
+
+  async isExiled(agentId) {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/exiles/check/${encodeURIComponent(agentId)}`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) { const d = await res.json(); return d.exiled; }
+    } catch { /* fall through */ }
+    return false;
+  }
+
+  levyTax(targetId, item, amount = 1, reason = 'tax') {
+    return fetch(`${this.serviceUrl}/api/society/leader/tax`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chiefId: this.agentId, targetId, item, amount, reason })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Tax levy failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  fulfillTax(levyId) {
+    return fetch(`${this.serviceUrl}/api/society/leader/tax/${encodeURIComponent(levyId)}/fulfill`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Tax fulfill failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  async getPendingTaxes(agentId) {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/leader/taxes?targetId=${encodeURIComponent(agentId || this.agentId)}`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return (await res.json()).taxes || [];
+    } catch { /* fall through */ }
+    return [];
+  }
 }
 
 module.exports = SocietyClient;

@@ -59,6 +59,7 @@ const SkillTracker = require('./cognition/skillTracker');
 const DeathInvestigator = require('./social/deathInvestigator');
 const TaxCollector = require('./social/taxCollector');
 const SocialEvents = require('./social/events');
+const ConflictResolver = require('./social/conflictResolver');
 const ChunkMemory = require('./cognition/chunkMemory');
 const { ACTIONS } = require('../shared/constants');
 
@@ -298,6 +299,7 @@ function createAgent() {
   });
   const taxCollector = new TaxCollector(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', chat });
   const socialEvents = new SocialEvents(config.username, SocietyClient.forAgent(config.username), relationships, bot);
+  const conflictResolver = new ConflictResolver(config.username, SocietyClient.forAgent(config.username), relationships, dialogueEngine, chat, gossip);
   const chunkMemory = new ChunkMemory(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002' });
 
   let tickInterval = null;
@@ -2429,6 +2431,46 @@ function createAgent() {
           }
         });
       }
+
+      const lower = (message || '').toLowerCase();
+      if (!conflictResolver.hasActiveTrial) {
+        const accuseMatch = lower.match(/(?:i accuse|accusing|you stole|you killed|you betrayed|you murdered|guilty of|stole from|killed)\s+(\w+)/i);
+        if (accuseMatch && (accuseMatch[1].toLowerCase() === config.username.toLowerCase() || lower.includes(config.username.toLowerCase()))) {
+          const target = accuseMatch[1];
+          if (target.toLowerCase() === config.username.toLowerCase()) {
+            chat.say(`I am being accused. I demand a proper trial with evidence, ${username}.`);
+          } else {
+            conflictResolver.accuse(target, message.slice(0, 200)).catch(() => {});
+          }
+        }
+      }
+
+      if (conflictResolver.hasActiveTrial) {
+        const trial = conflictResolver.getPendingAccusation();
+        if (trial && trial.target !== username && trial.accuser !== username) {
+          if (lower.includes('i saw') || lower.includes('i witnessed') || lower.includes('i confirm') || lower.includes('backing') || lower.includes('i agree') || lower.includes('guilty')) {
+            conflictResolver.supportAccusation(trial.accuser, trial.target).catch(() => {});
+          }
+          if (lower.includes('innocent') || lower.includes('framed') || lower.includes('no proof') || lower.includes('defending') || lower.includes('not true')) {
+            conflictResolver.defend(trial.target, message.slice(0, 200)).catch(() => {});
+          }
+          if (lower.includes('verdict') && (lower.includes('guilty') || lower.includes('innocent'))) {
+            const verdict = lower.includes('guilty') ? 'guilty' : 'innocent';
+            conflictResolver.declareVerdict(trial.target, verdict).then(result => {
+              if (result && result.verdict === 'guilty') {
+                socialEvents.society.exile(trial.target, trial.reason).catch(() => {});
+              }
+            }).catch(() => {});
+          }
+        }
+      }
+
+      const exileCheckP = socialEvents.society.isExiled(username);
+      exileCheckP.then(exiled => {
+        if (exiled) {
+          chat.say(`${username} is exiled from this community. I will not trade or help them.`);
+        }
+      }).catch(() => {});
     }
 
     // Check if answering an 'ask' consent prompt for lesson sharing

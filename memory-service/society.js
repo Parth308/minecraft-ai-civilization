@@ -47,6 +47,9 @@ class SocietyStore {
         jobs: [],
         shops: {},
         events: [],
+        trials: [],
+        exiles: [],
+        leaderPowers: [],
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -1273,6 +1276,154 @@ function societyRoutes(app) {
     const limit = parseInt(req.query.limit, 10) || 20;
     const data = store.load();
     res.json({ events: data.events.slice().reverse().slice(0, limit) });
+  });
+
+  app.post('/api/society/trials', (req, res) => {
+    const { accuser, target, reason, evidence } = req.body || {};
+    if (!accuser || !target || !reason) return res.status(400).json({ error: 'accuser, target, reason required' });
+    const data = store.load();
+    const trial = {
+      id: `trl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      accuser, target, reason: String(reason).slice(0, 200), evidence: String(evidence || '').slice(0, 300),
+      supporters: [accuser], verdict: 'pending', proposedAt: new Date().toISOString()
+    };
+    data.trials.push(trial);
+    if (data.trials.length > 50) data.trials.splice(0, data.trials.length - 50);
+    store.save(data);
+    logger.info('SocietyStore', `[TRIAL] ${accuser} accused ${target}: ${reason}`);
+    res.json({ success: true, trial });
+  });
+
+  app.post('/api/society/trials/:id/support', (req, res) => {
+    const { id } = req.params;
+    const { agentId } = req.body || {};
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const data = store.load();
+    const trial = data.trials.find(t => t.id === id);
+    if (!trial) return res.status(404).json({ error: 'Trial not found' });
+    if (!trial.supporters.includes(agentId) && agentId !== trial.accuser) {
+      trial.supporters.push(agentId);
+    }
+    store.save(data);
+    res.json({ success: true, trial });
+  });
+
+  app.post('/api/society/trials/:id/verdict', (req, res) => {
+    const { id } = req.params;
+    const { verdict, sentence } = req.body || {};
+    if (!verdict || !['guilty', 'innocent'].includes(verdict)) return res.status(400).json({ error: 'verdict must be guilty or innocent' });
+    const data = store.load();
+    const trial = data.trials.find(t => t.id === id);
+    if (!trial) return res.status(404).json({ error: 'Trial not found' });
+    trial.verdict = verdict;
+    trial.verdictAt = new Date().toISOString();
+    trial.sentence = sentence || '';
+    store.save(data);
+    logger.info('SocietyStore', `[VERDICT] ${trial.target} found ${verdict} — ${trial.supporters.length} supporters`);
+    res.json({ success: true, trial });
+  });
+
+  app.get('/api/society/trials/pending', (req, res) => {
+    const data = store.load();
+    const pending = data.trials.filter(t => t.verdict === 'pending');
+    res.json({ trials: pending });
+  });
+
+  app.get('/api/society/trials', (req, res) => {
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const data = store.load();
+    res.json({ trials: data.trials.slice().reverse().slice(0, limit) });
+  });
+
+  app.post('/api/society/exiles', (req, res) => {
+    const { initiator, target, reason } = req.body || {};
+    if (!initiator || !target) return res.status(400).json({ error: 'initiator and target required' });
+    const data = store.load();
+    const existing = data.exiles.find(e => e.target === target && !e.lifted);
+    if (existing) return res.json({ success: false, reason: 'Already exiled' });
+    const exile = {
+      id: `exl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      initiator, target, reason: String(reason || '').slice(0, 200),
+      supporters: [initiator], lifted: false, timestamp: new Date().toISOString()
+    };
+    data.exiles.push(exile);
+    store.save(data);
+    logger.info('SocietyStore', `[EXILE] ${initiator} exiled ${target}: ${reason}`);
+    res.json({ success: true, exile });
+  });
+
+  app.post('/api/society/exiles/:id/support', (req, res) => {
+    const { id } = req.params;
+    const { agentId } = req.body || {};
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const data = store.load();
+    const exile = data.exiles.find(e => e.id === id);
+    if (!exile || exile.lifted) return res.status(404).json({ error: 'Active exile not found' });
+    if (!exile.supporters.includes(agentId)) exile.supporters.push(agentId);
+    store.save(data);
+    res.json({ success: true, exile });
+  });
+
+  app.post('/api/society/exiles/:id/lift', (req, res) => {
+    const { id } = req.params;
+    const data = store.load();
+    const exile = data.exiles.find(e => e.id === id);
+    if (!exile) return res.status(404).json({ error: 'Exile not found' });
+    exile.lifted = true;
+    exile.liftedAt = new Date().toISOString();
+    store.save(data);
+    logger.info('SocietyStore', `[EXILE LIFTED] ${exile.target} no longer exiled`);
+    res.json({ success: true, exile });
+  });
+
+  app.get('/api/society/exiles', (req, res) => {
+    const data = store.load();
+    const active = data.exiles.filter(e => !e.lifted);
+    res.json({ exiles: active });
+  });
+
+  app.get('/api/society/exiles/check/:agentId', (req, res) => {
+    const { agentId } = req.params;
+    const data = store.load();
+    const exiled = data.exiles.find(e => e.target === agentId && !e.lifted);
+    res.json({ exiled: !!exiled, exile: exiled || null });
+  });
+
+  app.post('/api/society/leader/tax', (req, res) => {
+    const { chiefId, targetId, item, amount, reason } = req.body || {};
+    if (!chiefId || !targetId || !item) return res.status(400).json({ error: 'chiefId, targetId, item required' });
+    const data = store.load();
+    const chief = data.chief || {};
+    if (!chief.id || chief.id !== chiefId) return res.json({ success: false, reason: 'Not the chief' });
+    const levy = {
+      id: `lev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      chiefId, targetId, item, amount: Math.max(1, parseInt(amount, 10) || 1),
+      reason: String(reason || 'tax').slice(0, 100), timestamp: new Date().toISOString(), fulfilled: false
+    };
+    data.leaderPowers.push(levy);
+    if (data.leaderPowers.length > 80) data.leaderPowers.splice(0, data.leaderPowers.length - 80);
+    store.save(data);
+    logger.info('SocietyStore', `[TAX LEVY] Chief ${chiefId} levied ${levy.amount}x ${item} on ${targetId}`);
+    res.json({ success: true, levy });
+  });
+
+  app.post('/api/society/leader/tax/:id/fulfill', (req, res) => {
+    const { id } = req.params;
+    const data = store.load();
+    const levy = data.leaderPowers.find(l => l.id === id);
+    if (!levy) return res.status(404).json({ error: 'Levy not found' });
+    levy.fulfilled = true;
+    levy.fulfilledAt = new Date().toISOString();
+    store.save(data);
+    res.json({ success: true, levy });
+  });
+
+  app.get('/api/society/leader/taxes', (req, res) => {
+    const { targetId } = req.query || {};
+    const data = store.load();
+    let taxes = data.leaderPowers || [];
+    if (targetId) taxes = taxes.filter(l => l.targetId === targetId && !l.fulfilled);
+    res.json({ taxes: taxes.slice(-20) });
   });
 
   // History Book — compiled origin stories and milestones for meaning-making
