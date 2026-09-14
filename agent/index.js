@@ -58,6 +58,7 @@ const { nextCraftingObjective, getCurrentCraftableOptions } = require('./cogniti
 const SkillTracker = require('./cognition/skillTracker');
 const DeathInvestigator = require('./social/deathInvestigator');
 const TaxCollector = require('./social/taxCollector');
+const SocialEvents = require('./social/events');
 const ChunkMemory = require('./cognition/chunkMemory');
 const { ACTIONS } = require('../shared/constants');
 
@@ -296,6 +297,7 @@ function createAgent() {
     brainClient, relationships, dialogueEngine, eventBuffer, chat, movement, senses, gossip
   });
   const taxCollector = new TaxCollector(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002', chat });
+  const socialEvents = new SocialEvents(config.username, SocietyClient.forAgent(config.username), relationships, bot);
   const chunkMemory = new ChunkMemory(config.username, { memoryServiceUrl: process.env.MEMORY_SERVICE_URL || 'http://localhost:3002' });
 
   let tickInterval = null;
@@ -664,6 +666,22 @@ function createAgent() {
           // 1d. Spread gossip if buffer has rumors
           gossip.spread().catch(() => {});
           gossip.decay();
+
+          if (_heapLogCounter % 10 === 0) {
+            socialEvents.society.getActiveEvents().then(events => {
+              for (const evt of events) {
+                if (evt.proposer === config.username) continue;
+                if (evt.rsvps && evt.rsvps[config.username] && evt.coords && bot.entity?.position) {
+                  const dx = bot.entity.position.x - evt.coords.x;
+                  const dz = bot.entity.position.z - evt.coords.z;
+                  const dist = Math.sqrt(dx * dx + dz * dz);
+                  if (dist < 16) {
+                    socialEvents.society.attendEvent(evt.id).catch(() => {});
+                  }
+                }
+              }
+            }).catch(() => {});
+          }
 
           // 2. Run local stats decay tick
           statsDecay.tick();
@@ -2399,6 +2417,18 @@ function createAgent() {
 
     if (username.startsWith('Agent_')) {
       gossip.receiveFromChat(username, message);
+      const proposal = socialEvents.parseProposal(message, username);
+      if (proposal) {
+        socialEvents.decideAttendance(proposal).then(decision => {
+          socialEvents.society.rsvpEvent(proposal.id || 'pending', decision.attend).catch(() => {});
+          if (decision.message) {
+            chat.say(decision.message);
+          }
+          if (decision.attend && proposal.coords) {
+            logger.info('SocialEvents', `${config.username} attending ${proposal.type} by ${username} at ${proposal.location}`);
+          }
+        });
+      }
     }
 
     // Check if answering an 'ask' consent prompt for lesson sharing

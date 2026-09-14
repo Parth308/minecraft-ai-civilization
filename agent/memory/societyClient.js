@@ -405,6 +405,66 @@ class SocietyClient {
       return {};
     });
   }
+
+  proposeEvent(type, purpose, location, coords = null) {
+    return fetch(`${this.serviceUrl}/api/society/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposer: this.agentId, type, purpose, location, coords })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Event propose failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  rsvpEvent(eventId, attending) {
+    return fetch(`${this.serviceUrl}/api/society/events/${encodeURIComponent(eventId)}/rsvp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId, attending })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Event RSVP failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  attendEvent(eventId) {
+    return fetch(`${this.serviceUrl}/api/society/events/${encodeURIComponent(eventId)}/attend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: this.agentId })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Event attend failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  completeEvent(eventId, outcome = '') {
+    return fetch(`${this.serviceUrl}/api/society/events/${encodeURIComponent(eventId)}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outcome })
+    }).then(r => r.json()).catch(err => {
+      logger.debug('SocietyClient', `Event complete failed: ${err.message}`);
+      return {};
+    });
+  }
+
+  async getActiveEvents() {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/events/active`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return (await res.json()).events || [];
+    } catch { /* fall through */ }
+    return [];
+  }
+
+  async getRecentEvents(limit = 10) {
+    try {
+      const res = await fetch(`${this.serviceUrl}/api/society/events?limit=${limit}`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return (await res.json()).events || [];
+    } catch { /* fall through */ }
+    return [];
+  }
 }
 
 module.exports = SocietyClient;

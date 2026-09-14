@@ -46,6 +46,7 @@ class SocietyStore {
         recentRites: [],
         jobs: [],
         shops: {},
+        events: [],
         updatedAt: new Date().toISOString()
       }, null, 2), 'utf-8');
     }
@@ -75,6 +76,7 @@ class SocietyStore {
       if (!Array.isArray(data.recentRites)) data.recentRites = [];
       if (!Array.isArray(data.jobs)) data.jobs = [];
       if (!data.shops || typeof data.shops !== 'object') data.shops = {};
+      if (!Array.isArray(data.events)) data.events = [];
       return data;
     } catch (err) {
       logger.error('SocietyStore', 'Failed to read society file', err);
@@ -1197,6 +1199,80 @@ function societyRoutes(app) {
 
   app.get('/api/society/chief', (req, res) => {
     res.json(store.getChief());
+  });
+
+  app.post('/api/society/events', (req, res) => {
+    const { proposer, type, purpose, location, coords } = req.body || {};
+    if (!proposer || !type) return res.status(400).json({ error: 'proposer and type required' });
+    const data = store.load();
+    const event = {
+      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      proposer,
+      type,
+      purpose: String(purpose || '').slice(0, 200),
+      location: String(location || '').slice(0, 100),
+      coords: coords || null,
+      proposedAt: new Date().toISOString(),
+      rsvps: { [proposer]: true },
+      attendees: [],
+      status: 'proposed'
+    };
+    data.events.push(event);
+    if (data.events.length > 100) data.events.splice(0, data.events.length - 100);
+    store.save(data);
+    logger.info('SocietyStore', `[EVENT PROPOSED] ${proposer} proposed ${type}: ${purpose}`);
+    res.json({ success: true, event });
+  });
+
+  app.post('/api/society/events/:id/rsvp', (req, res) => {
+    const { id } = req.params;
+    const { agentId, attending } = req.body || {};
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const data = store.load();
+    const event = data.events.find(e => e.id === id);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    event.rsvps[agentId] = !!attending;
+    store.save(data);
+    logger.info('SocietyStore', `[EVENT RSVP] ${agentId} ${attending ? 'accepts' : 'declines'} ${event.type} by ${event.proposer}`);
+    res.json({ success: true, event });
+  });
+
+  app.post('/api/society/events/:id/attend', (req, res) => {
+    const { id } = req.params;
+    const { agentId } = req.body || {};
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const data = store.load();
+    const event = data.events.find(e => e.id === id);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (!event.attendees.includes(agentId)) event.attendees.push(agentId);
+    store.save(data);
+    res.json({ success: true, event });
+  });
+
+  app.post('/api/society/events/:id/complete', (req, res) => {
+    const { id } = req.params;
+    const { outcome } = req.body || {};
+    const data = store.load();
+    const event = data.events.find(e => e.id === id);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    event.status = 'completed';
+    event.completedAt = new Date().toISOString();
+    event.outcome = outcome || 'Event concluded';
+    store.save(data);
+    logger.info('SocietyStore', `[EVENT COMPLETE] ${event.type} by ${event.proposer} — ${event.attendees.length} attended`);
+    res.json({ success: true, event });
+  });
+
+  app.get('/api/society/events/active', (req, res) => {
+    const data = store.load();
+    const active = data.events.filter(e => e.status === 'proposed' || e.status === 'active');
+    res.json({ events: active });
+  });
+
+  app.get('/api/society/events', (req, res) => {
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const data = store.load();
+    res.json({ events: data.events.slice().reverse().slice(0, limit) });
   });
 
   // History Book — compiled origin stories and milestones for meaning-making
