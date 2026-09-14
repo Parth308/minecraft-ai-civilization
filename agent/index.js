@@ -247,6 +247,10 @@ function createAgent() {
   const brainClient = new BrainClient(config.brokerUrl);
   const factionManager = new FactionAffiliationManager(config.username, persona);
   factionManager.restoreFromLedger(process.env.MEMORY_SERVICE_URL || 'http://localhost:3002').catch(() => {});
+
+  const memoryClient = new MemoryClient(config.username);
+  const relationships = new RelationshipTracker(memoryClient);
+
   const dialogueEngine = new SocialDialogueEngine(brainClient, persona, goalManager, relationships, factionManager);
   const builder = new BuilderSkill(bot, inventory, movement, goalManager);
   bot.goalManager = goalManager;
@@ -254,9 +258,6 @@ function createAgent() {
   const farmer = new FarmerSkill(bot, inventory, movement);
   const skillTracker = new SkillTracker(config.username);
 
-  // Memory components
-  const memoryClient = new MemoryClient(config.username);
-  const relationships = new RelationshipTracker(memoryClient);
   const reflection = new ReflectionEngine(brainClient, persona, memoryClient, chat);
   const decisionTree = new DecisionTree(config.confidenceThreshold, memoryClient, brainClient);
   dialogueEngine.setReflectionEngine(reflection);
