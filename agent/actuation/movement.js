@@ -309,28 +309,20 @@ class MovementActuator {
           }
         }
 
-        // Clear any pathfinder goal that may override manual controls
         if (this.bot.pathfinder?.setGoal) {
           try { this.bot.pathfinder.setGoal(null); } catch {}
-          await this.bot.waitForTicks(3);
+          await this.bot.waitForTicks(2);
         }
 
-        // Try direct velocity injection (Minecraft jump = 0.42 upward)
-        this.bot.entity.velocity.y = 0.42;
-        this.bot.setControlState('jump', true);
-        this.bot.setControlState('forward', true);
-        await this.bot.waitForTicks(5);
-        this.bot.setControlState('jump', false);
-        this.bot.setControlState('forward', false);
-        await this.bot.waitForTicks(10);
+        if (this.bot.ashfinder && baritoneGoals) {
+          this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(bx, currentY + 2, bz), 0));
+        } else if (this.bot.pathfinder?.setGoal) {
+          this.bot.pathfinder.setGoal(new GoalBlock(bx, currentY + 2, bz));
+        }
+        await this.bot.waitForTicks(40);
 
-        // Also try pathfinder as secondary attempt
         if (this.bot.pathfinder?.setGoal) {
-          try {
-            this.bot.pathfinder.setGoal(new GoalBlock(bx, currentY + 1, bz));
-            await this.bot.waitForTicks(15);
-            this.bot.pathfinder.setGoal(null);
-          } catch {}
+          try { this.bot.pathfinder.setGoal(null); } catch {}
         }
 
         const newY = Math.floor(this.bot.entity?.position?.y || 0);
