@@ -28,6 +28,7 @@ class MovementActuator {
     logger.info('Actuation:Movement', `Navigating to coordinates X:${x} Y:${y} Z:${z} (Range: ${range})`);
     detailedLogger.logMovement(this.agentId, 'Navigating to coordinates', { target: { x, y, z, range }, currentPos: this.bot.entity?.position });
     if (this.bot.ashfinder && baritoneGoals) {
+      this._clearNav();
       this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(x, y, z), range));
     } else {
       this.bot.pathfinder.setGoal(new GoalNear(x, y, z, range));
@@ -38,6 +39,7 @@ class MovementActuator {
     logger.info('Actuation:Movement', `Navigating directly to block X:${x} Y:${y} Z:${z}`);
     detailedLogger.logMovement(this.agentId, 'Navigating to block goal', { blockPos: { x, y, z } });
     if (this.bot.ashfinder && baritoneGoals) {
+      this._clearNav();
       this.bot.ashfinder.goto(new baritoneGoals.GoalExact(new Vec3(x, y, z)));
     } else {
       this.bot.pathfinder.setGoal(new GoalBlock(x, y, z));
@@ -264,14 +266,19 @@ class MovementActuator {
     let blocksDug = 0;
     let stuckCount = 0;
     let staircaseAttempts = 0;
+    const startY = Math.floor(this.bot.entity?.position?.y || 0);
+    let highWaterY = startY;
+    let iterations = 0;
 
     try {
       while (blocksDug < maxBlocks) {
+        iterations++;
         const cx = Math.floor(this.bot.entity?.position?.x || 0);
         const cy = Math.floor(this.bot.entity?.position?.y || 0);
         const cz = Math.floor(this.bot.entity?.position?.z || 0);
 
-        // Success conditions
+        if (cy > highWaterY) highWaterY = cy;
+
         if (cy >= targetY) {
           logger.info('Actuation:Movement', `DIG_UP: Reached target Y:${cy} after ${blocksDug} blocks`);
           return { success: true, blocksDug, reason: 'reached_target' };
@@ -282,6 +289,11 @@ class MovementActuator {
             logger.info('Actuation:Movement', `DIG_UP: Reached open air at Y:${cy} after ${blocksDug} blocks`);
             return { success: true, blocksDug, reason: 'reached_surface' };
           }
+        }
+
+        if (iterations > 12 && (highWaterY - startY) <= 2) {
+          logger.warn('Actuation:Movement', `DIG_UP: Net progress stall — startY=${startY} highWater=${highWaterY} after ${iterations} iterations`);
+          return { success: false, blocksDug, reason: 'stuck_no_climb' };
         }
 
         // Dig solid blocks above
