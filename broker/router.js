@@ -22,6 +22,7 @@ const queryOllamaCloud = require('./providers/ollamacloud');
 const queryChutes = require('./providers/chutes');
 const querySambaNova = require('./providers/sambanova');
 const queryQwenLocal = require('./providers/qwenlocal');
+const queryCehpoint = require('./providers/cehpoint');
 const ExactCache = require('./cache/exactCache');
 const { SemanticCache } = require('./cache/semanticCache');
 const RateLimiter = require('./rateLimiter');
@@ -57,7 +58,8 @@ const BENCHMARK_RATES_PER_MTOK = {
   OllamaCloud:  { input: 0.00, output: 0.00, name: 'Ollama Cloud (free starter usage, light models)' },
   Chutes:       { input: 0.00, output: 0.00, name: 'Chutes (free ~100 req/day open models)' },
   QwenLocal:    { input: 0.00, output: 0.00, name: 'QwenLocal Qwen3.6-35B (self-hosted, free unlimited)' },
-  SambaNova:    { input: 0.00, output: 0.00, name: 'SambaNova RDU (free tier: 20 req/day/model, no card)' }
+  SambaNova:    { input: 0.00, output: 0.00, name: 'SambaNova RDU (free tier: 20 req/day/model, no card)' },
+  Cehpoint:     { input: 0.00, output: 0.00, name: 'Cehpoint AI (zero auth, unlimited free calls)' }
 };
 
 const MAX_ESCALATION_LOG = 200;
@@ -96,7 +98,8 @@ class ProviderRouter {
       LiteRouter: { name: 'LiteRouter', key: config.keys.literouter, fn: queryLiteRouter },
       OllamaCloud: { name: 'OllamaCloud', key: config.keys.ollamacloud, fn: queryOllamaCloud },
       Chutes: { name: 'Chutes', key: config.keys.chutes, fn: queryChutes },
-      QwenLocal: { name: 'QwenLocal', key: config.keys.qwenlocal, fn: queryQwenLocal }
+      QwenLocal: { name: 'QwenLocal', key: config.keys.qwenlocal, fn: queryQwenLocal },
+      Cehpoint: { name: 'Cehpoint', key: config.keys.cehpoint, fn: queryCehpoint }
     };
 
     // ── Observability state ────────────────────────────────────────────────
@@ -236,21 +239,21 @@ class ProviderRouter {
       // Emergencies get the smartest available brains first — quota thrift is
       // irrelevant when the agent is on fire (sometimes literally).
       // LLM7 moved to last: 280/280 all-timeout in 2.4h, 8s timeout set in llm7.js
-      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'Agnes', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
+      baseOrder = ['Groq', 'Cerebras', 'LiteRouter', 'KiraAI', 'OmniRoute', 'Mistral', 'Nvidia', 'Cehpoint', 'SiliconFlow', 'Zhipu', 'Cohere', 'Cloudflare', 'HuggingFace', 'Qwen', 'Gemini', 'Agnes', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     } else if (taskType === 'REASONING' || taskType === 'PLAN' || taskType === 'RESEARCH') {
       // High-intelligence thinking & multi-step planning cascade
       // QwenLocal leads REFLECTION only: slow background jobs suit the
       // single-slot giant; live lanes use fast providers (no 90s stalls).
-      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'Nvidia', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
+      baseOrder = ['KiraAI', 'OmniRoute', 'LiteRouter', 'Cerebras', 'SiliconFlow', 'Groq', 'Agnes', 'OllamaCloud', 'Nvidia', 'Cehpoint', 'Mistral', 'Zhipu', 'Chutes', 'OpenRouter', 'Gemini', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     } else if (taskType === 'REFLECTION') {
       // Deep macro-reflection — Mistral's ~1B tokens/month budget leads here
-      baseOrder = ['QwenLocal', 'KiraAI', 'OmniRoute', 'LiteRouter', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cohere', 'Chutes', 'OpenRouter', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
+      baseOrder = ['QwenLocal', 'KiraAI', 'OmniRoute', 'LiteRouter', 'Mistral', 'SiliconFlow', 'Groq', 'Nvidia', 'Cehpoint', 'Cohere', 'Chutes', 'OpenRouter', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     } else {
       // SOCIAL_CHAT / REFLEX: Fast, high-throughput dialogue models.
       // OllamaLocal appended as last-resort — ~50s latency is painful but
       // a real reply strictly beats the blind-WANDER fallbackHeuristic
       // during total provider exhaustion.
-      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
+      baseOrder = ['Groq', 'LiteRouter', 'KiraAI', 'OmniRoute', 'SiliconFlow', 'Cloudflare', 'Nvidia', 'Cehpoint', 'Zhipu', 'Mistral', 'OllamaCloud', 'Chutes', 'TokenReply', 'OpenRouter', 'Agnes', 'Gemini', 'FreellmAPI', 'OllamaLocal', 'LLM7'];
     }
 
     // Filter to configured, non-rate-limited providers

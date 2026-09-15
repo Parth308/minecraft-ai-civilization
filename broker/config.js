@@ -24,7 +24,8 @@ module.exports = {
     literouter: process.env.LITEROUTER_API_KEY,
     ollamacloud: process.env.OLLAMACLOUD_API_KEY,
     chutes: process.env.CHUTES_API_KEY,
-    qwenlocal: process.env.QWENLOCAL_BASE_URL || 'http://10.10.2.10:8080/v1'
+    qwenlocal: process.env.QWENLOCAL_BASE_URL || 'http://10.10.2.10:8080/v1',
+    cehpoint: process.env.CEHPOINT_API_KEY
   },
   cacheTTLSeconds: parseInt(process.env.CACHE_TTL_SECONDS, 10) || 300
 };
