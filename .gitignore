@@ -2,11 +2,13 @@
 node_modules/
 npm-debug.log
 yarn-error.log
-.env
-.env.local
 dist/
 build/
 .next/
+
+# Environment
+.env
+.env.local
 
 # Python
 __pycache__/
@@ -23,25 +25,30 @@ pip-delete-this-directory.txt
 # Simulation Logs & Dumps
 logs/
 logs_dump/
-logs_dump_v1/
-logs_dump_v2/
-logs_dump_v3/
+Logs-DUmp/
 logs_dump_v*/
 logs_dump_new/
+*.log
 *.gz
 *.tar.gz
 *.dump
 *.log.gz
+
+# Minecraft Server Data
+minecraft-server/
+
+# Memory Service Data (runtime state, not source)
 memory-service/store/civilization/ledger.json
 memory-service/store/civilization/society.json
 memory-service/store/world_discoveries.json
 memory-service/store/*.snapshot.json
 memory-service/civilization/*.json
 
-# Markdown files (allow README and agent knowledge base)
-*.md
-!README.md
-!.agent/*.md
+# Backups
+backups/
+
+# Private Agent Docs (internal ops manual)
+AGENTS.md
 
 # OS generated files
 .DS_Store
@@ -55,4 +62,5 @@ Thumbs.db
 # Scratch ops scripts (kept locally, never committed)
 tmp_*.sh
 tmp_*.py
-.omo/
+omo/
+.opencode/
