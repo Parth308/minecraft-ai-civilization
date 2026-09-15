@@ -825,7 +825,7 @@ class DecisionTree {
     // Routine static candidates (non-emergency lifestyle choices) are capped at 0.74
     // so they do not bypass LLM escalation — preserving agent sovereign agency.
     // Dynamic learned rules represent lived experience and can reach up to 0.85.
-    const EMERGENCY_ACTIONS = new Set(['FLEE', 'EAT', 'FIGHT', 'SLEEP']);
+    const EMERGENCY_ACTIONS = new Set(['FLEE', 'EAT', 'FIGHT', 'SLEEP', 'DIG_UP']);
     for (const c of candidates) {
       if (c._suppressed) continue;
       if (!c.isDynamic && !EMERGENCY_ACTIONS.has(c.name)) {
@@ -845,7 +845,9 @@ class DecisionTree {
       }
     }
 
-    // Sort by highest confidence
+    const digUpCandidate = candidates.find(c => c.name === 'DIG_UP');
+
+
     candidates.sort((a, b) => b.confidence - a.confidence);
     let topCandidate = candidates[0];
 
@@ -947,6 +949,27 @@ class DecisionTree {
         provider: null, model: null, cached: false, cacheType: null, fallback: false, costUsd: 0, latencyMs: 0,
         reason: `[DROWNING GATE] Oxygen ${oxygenLevel}/20 — local resolution`,
         meta: fleeCandid,
+        allCandidates: candidates.slice(0, 8).map(c => ({ name: c.name, confidence: c.confidence, reason: (c.reason || '').slice(0, 150), isDynamic: !!c.isDynamic }))
+      };
+    }
+
+    // ── DIG_UP: underground desperate escape — hard gate, never stall for broker ──────
+    // Agent is underground + desperate (starving, no tools, deep). Force DIG_UP
+    // regardless of what topCandidate won the sort — SLEEP/ dynamic FLEE can beat
+    // DIG_UP's 0.95, but an underground agent who can't surface will die.
+    const digUpCand = candidates.find(c => c.name === 'DIG_UP' && !c._suppressed);
+    const digUpDesperation = Number(digUpCand?.meta?.desperation ?? 0);
+    const digUpCurrentY = digUpCand?.meta?.currentY ?? 0;
+    if (digUpCand && digUpDesperation >= 0.60) {
+      logger.warn('DecisionTree', `[DIG_UP GATE] Underground desperate escape (Y:${digUpCurrentY}, desperation=${digUpDesperation.toFixed(2)}, raw conf=${digUpCand.confidence.toFixed(2)}) — forcing over ${topCandidate.name}=${topCandidate.confidence.toFixed(2)}`);
+      return {
+        action: 'DIG_UP',
+        confidence: digUpCand.confidence,
+        escalated: false,
+        source: 'underground_escape_gate',
+        provider: null, model: null, cached: false, cacheType: null, fallback: false, costUsd: 0, latencyMs: 0,
+        reason: `[DIG_UP GATE] Underground desperate escape (Y:${digUpCurrentY}, desperation:${digUpDesperation.toFixed(2)}) — forced local resolution`,
+        meta: digUpCand,
         allCandidates: candidates.slice(0, 8).map(c => ({ name: c.name, confidence: c.confidence, reason: (c.reason || '').slice(0, 150), isDynamic: !!c.isDynamic }))
       };
     }
