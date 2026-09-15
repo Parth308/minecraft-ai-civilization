@@ -224,6 +224,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-alpha"
       STATUS_PORT: "3010"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3010/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -268,6 +271,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-beta"
       STATUS_PORT: "3011"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3011/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -312,6 +318,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-gamma"
       STATUS_PORT: "3012"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3012/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -358,6 +367,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-delta"
       STATUS_PORT: "3013"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3013/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -402,6 +414,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-echo"
       STATUS_PORT: "3014"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3014/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -446,6 +461,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-foxtrot"
       STATUS_PORT: "3015"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3015/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -490,6 +508,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-golf"
       STATUS_PORT: "3016"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3016/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]
@@ -534,6 +555,9 @@ services:
       MEMORY_SERVICE_URL: "http://memory-service:3002"
       STATUS_HOST: "agent-hotel"
       STATUS_PORT: "3017"
+      RCON_HOST: "minecraft-server"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: "${RCON_PASSWORD:-changeme}"
       NODE_OPTIONS: "--max-old-space-size=640"
     healthcheck:
       test: [ "CMD", "node", "-e", "fetch('http://localhost:3017/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" ]

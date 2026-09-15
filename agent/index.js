@@ -7,6 +7,7 @@ const detailedLogger = require('../shared/detailedLogger');
 const Senses = require('./perception/senses');
 const EventObserver = require('./perception/events');
 const MovementActuator = require('./actuation/movement');
+const { rconTeleport } = require('./actuation/rconRescue');
 const ChatActuator = require('./actuation/chat');
 const CombatActuator = require('./actuation/combat');
 const InventoryActuator = require('./actuation/inventory');
@@ -853,10 +854,12 @@ function createAgent() {
   // skip — the agent appears alive but does nothing.  A timeout rejects
   // the promise so the tick loop can recover on the next cycle.
   const ACTION_TIMEOUT_MS = 15000;
-  function withTimeout(promise, label) {
+  const DIG_UP_TIMEOUT_MS = 120000;
+  function withTimeout(promise, label, overrideMs) {
+    const ms = overrideMs || ACTION_TIMEOUT_MS;
     let timer;
     const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`ActionTimeout: ${label} exceeded ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS);
+      timer = setTimeout(() => reject(new Error(`ActionTimeout: ${label} exceeded ${ms}ms`)), ms);
     });
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
@@ -1834,12 +1837,31 @@ function createAgent() {
           const targetY = decision.meta?.targetY || 65;
           const maxBlocks = 50;
           logger.info('AgentLoop', `Executing DIG_UP: ascending from Y:${Math.round(bot.entity?.position?.y || 0)} to Y:${targetY}`);
-          const digResult = await withTimeout(movement.digUpToSurface(targetY, maxBlocks), 'digUpToSurface');
+          const digResult = await withTimeout(movement.digUpToSurface(targetY, maxBlocks), 'digUpToSurface', DIG_UP_TIMEOUT_MS);
           eventBuffer.addEvent('digUp', { targetY, ...digResult });
-          actionSuccess = digResult.success;
+
           if (digResult.success) {
+            actionSuccess = true;
             logger.info('AgentLoop', `DIG_UP complete: ${digResult.blocksDug} blocks dug, reached Y:${Math.round(bot.entity?.position?.y || 0)}`);
+          } else if (digResult.reason === 'stuck_no_climb') {
+            const rconHost = process.env.RCON_HOST || 'minecraft-server';
+            const rconPort = parseInt(process.env.RCON_PORT, 10) || 25575;
+            const rconPass = process.env.RCON_PASSWORD || 'changeme';
+            const currentPos = bot.entity?.position;
+            const tx = Math.floor(currentPos?.x || 80);
+            const tz = Math.floor(currentPos?.z || 244);
+            logger.warn('AgentLoop', `DIG_UP: All climb methods failed at Y:${Math.round(currentPos?.y || 0)}, attempting RCON rescue to ${tx} 65 ${tz}`);
+            const rconResult = await rconTeleport(rconHost, rconPort, rconPass, bot.username, tx, 65, tz);
+            if (rconResult.success) {
+              actionSuccess = true;
+              logger.info('AgentLoop', `DIG_UP: RCON rescue teleport succeeded for ${bot.username}`);
+              eventBuffer.addEvent('digUp', { targetY, method: 'rcon_rescue', ...rconResult });
+            } else {
+              actionSuccess = false;
+              logger.warn('AgentLoop', `DIG_UP: RCON rescue also failed: ${rconResult.error}`);
+            }
           } else {
+            actionSuccess = false;
             logger.debug('AgentLoop', `DIG_UP failed: ${digResult.reason} (${digResult.blocksDug} blocks dug)`);
           }
           break;

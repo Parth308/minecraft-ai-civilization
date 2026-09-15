@@ -239,8 +239,8 @@ class MovementActuator {
   // Emergency survival: dig a 2-block hole and crouch when no shelter exists.
   /**
    * DIG_UP: Dig upward to escape underground dead-ends.
-   * Creates a 1x1 shaft going up until reaching surface or max height.
-   * Used when stuck underground with no tools/resources to progress.
+   * 4-climb-method cascade: baritone range1 → pathfinder → raw jump → staircase.
+   * Staircase creates horizontal space then uses baritone to walk up diagonally.
    * 
    * @param {number} targetY - Target Y coordinate to dig to (default: 65, surface + 5)
    * @param {number} maxBlocks - Maximum blocks to dig upward (default: 50)
@@ -260,91 +260,179 @@ class MovementActuator {
     const onGround = this.bot.entity.onGround;
     logger.info('Actuation:Movement',
       `DIG_UP DIAG: pos=(${bx},${by},${bz}) onGround=${onGround} below=${below?.name} Y+1=${at1?.name} Y+2=${at2?.name}`);
-    detailedLogger.logMovement(this.agentId, 'DIG_UP: Starting ascent', { from: botPos.y, to: targetY, below: below?.name, at1: at1?.name, at2: at2?.name, onGround });
 
     let blocksDug = 0;
     let stuckCount = 0;
+    let staircaseAttempts = 0;
 
     try {
       while (blocksDug < maxBlocks) {
-        const currentY = Math.floor(this.bot.entity?.position?.y || 0);
+        const cx = Math.floor(this.bot.entity?.position?.x || 0);
+        const cy = Math.floor(this.bot.entity?.position?.y || 0);
+        const cz = Math.floor(this.bot.entity?.position?.z || 0);
 
-        if (currentY >= targetY) {
-          logger.info('Actuation:Movement', `DIG_UP: Reached target Y:${currentY} after ${blocksDug} blocks`);
+        // Success conditions
+        if (cy >= targetY) {
+          logger.info('Actuation:Movement', `DIG_UP: Reached target Y:${cy} after ${blocksDug} blocks`);
           return { success: true, blocksDug, reason: 'reached_target' };
         }
-
-        if (currentY >= 60) {
-          const blockAbove = this.bot.blockAt(new Vec3(bx, currentY + 1, bz));
-          if (!blockAbove || blockAbove.type === 0 || ['air', 'cave_air', 'void_air'].includes(blockAbove.name)) {
-            logger.info('Actuation:Movement', `DIG_UP: Reached open air at Y:${currentY} after ${blocksDug} blocks`);
+        if (cy >= 60) {
+          const above = this.bot.blockAt(new Vec3(cx, cy + 1, cz));
+          if (!above || above.type === 0 || ['air', 'cave_air', 'void_air'].includes(above.name)) {
+            logger.info('Actuation:Movement', `DIG_UP: Reached open air at Y:${cy} after ${blocksDug} blocks`);
             return { success: true, blocksDug, reason: 'reached_surface' };
           }
         }
 
-        const blockAbove = this.bot.blockAt(new Vec3(bx, currentY + 1, bz));
+        // Dig solid blocks above
+        const blockAbove = this.bot.blockAt(new Vec3(cx, cy + 1, cz));
         if (!blockAbove) return { success: false, blocksDug, reason: 'no_block_above' };
-
         if (blockAbove.name === 'bedrock' || blockAbove.hardness < 0) {
-          logger.warn('Actuation:Movement', `DIG_UP: Hit unbreakable ${blockAbove.name} at Y:${currentY + 1}`);
+          logger.warn('Actuation:Movement', `DIG_UP: Hit unbreakable ${blockAbove.name} at Y:${cy + 1}`);
           return { success: false, blocksDug, reason: `unbreakable_${blockAbove.name}` };
         }
-
         const isAir = blockAbove.type === 0 || ['air', 'cave_air', 'void_air'].includes(blockAbove.name);
-
         if (!isAir) {
-          logger.info('Actuation:Movement', `DIG_UP: Digging ${blockAbove.name} at Y:${currentY + 1} (${blocksDug + 1}/${maxBlocks})`);
           await this.bot.dig(blockAbove);
           blocksDug++;
         }
 
-        const blockTwoUp = this.bot.blockAt(new Vec3(bx, currentY + 2, bz));
-        if (blockTwoUp && !(blockTwoUp.type === 0 || ['air', 'cave_air', 'void_air'].includes(blockTwoUp.name))) {
-          if (blockTwoUp.name !== 'bedrock' && blockTwoUp.hardness >= 0) {
-            logger.info('Actuation:Movement', `DIG_UP: Digging ceiling ${blockTwoUp.name} at Y:${currentY + 2} for headroom`);
-            await this.bot.dig(blockTwoUp);
+        // Clear Y+2 for headroom
+        const ceiling = this.bot.blockAt(new Vec3(cx, cy + 2, cz));
+        if (ceiling && ceiling.type !== 0 && !['air', 'cave_air', 'void_air'].includes(ceiling.name)) {
+          if (ceiling.name !== 'bedrock' && ceiling.hardness >= 0) {
+            await this.bot.dig(ceiling);
             blocksDug++;
           } else {
-            return { success: false, blocksDug, reason: `unbreakable_ceiling_${blockTwoUp.name}` };
+            return { success: false, blocksDug, reason: `unbreakable_ceiling_${ceiling.name}` };
           }
         }
 
-        if (this.bot.pathfinder?.setGoal) {
-          try { this.bot.pathfinder.setGoal(null); } catch {}
-          await this.bot.waitForTicks(2);
-        }
-
-        try { if (this.bot.ashfinder?.stop) this.bot.ashfinder.stop(); } catch {}
-        await this.bot.waitForTicks(2);
-
+        // === CLIMB METHOD 1: Baritone with range 1 (more forgiving) ===
+        await this._clearNav();
         if (this.bot.ashfinder && baritoneGoals) {
           try {
-            this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(bx, currentY + 2, bz), 0));
-            await this.bot.waitForTicks(40);
+            this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(cx, cy + 2, cz), 1));
+            await this.bot.waitForTicks(30);
+            await this._clearNav();
+            const newY = Math.floor(this.bot.entity?.position?.y || 0);
+            if (newY > cy) {
+              logger.info('Actuation:Movement', `DIG_UP: Baritone range1 climb OK Y:${cy}→${newY}`);
+              stuckCount = 0;
+              continue;
+            }
           } catch (e) {
-            logger.debug('Actuation:Movement', `DIG_UP baritone goto failed: ${e.message}`);
+            logger.debug('Actuation:Movement', `DIG_UP baritone range1 failed: ${e.message}`);
           }
-        } else if (this.bot.pathfinder?.setGoal) {
+        }
+
+        // === CLIMB METHOD 2: Pathfinder fallback ===
+        if (this.bot.pathfinder?.setGoal) {
           try {
-            this.bot.pathfinder.setGoal(new GoalBlock(bx, currentY + 2, bz));
-            await this.bot.waitForTicks(40);
-          } catch {}
-        }
-
-        try { if (this.bot.pathfinder?.setGoal) this.bot.pathfinder.setGoal(null); } catch {}
-
-        const newY = Math.floor(this.bot.entity?.position?.y || 0);
-        logger.info('Actuation:Movement', `DIG_UP: After climb attempt Y:${newY} (was ${currentY}) blocks_dug=${blocksDug}`);
-        if (newY <= currentY) {
-          stuckCount++;
-          if (stuckCount > 3) {
-            logger.warn('Actuation:Movement', `DIG_UP: Stuck at Y:${currentY} after ${stuckCount} attempts, ${blocksDug} blocks dug`);
-            return { success: false, blocksDug, reason: 'stuck_no_climb' };
+            this.bot.pathfinder.setGoal(new GoalBlock(cx, cy + 1, cz));
+            await this.bot.waitForTicks(30);
+            this.bot.pathfinder.setGoal(null);
+            const newY = Math.floor(this.bot.entity?.position?.y || 0);
+            if (newY > cy) {
+              logger.info('Actuation:Movement', `DIG_UP: Pathfinder climb OK Y:${cy}→${newY}`);
+              stuckCount = 0;
+              continue;
+            }
+          } catch (e) {
+            logger.debug('Actuation:Movement', `DIG_UP pathfinder failed: ${e.message}`);
           }
-          await this.bot.waitForTicks(10);
-        } else {
-          stuckCount = 0;
         }
+
+        // === CLIMB METHOD 3: Raw jump with control states ===
+        await this._clearNav();
+        this.bot.setControlState('jump', true);
+        this.bot.setControlState('forward', true);
+        await this.bot.waitForTicks(15);
+        this.bot.setControlState('jump', false);
+        this.bot.setControlState('forward', false);
+        await this.bot.waitForTicks(10);
+        let newY = Math.floor(this.bot.entity?.position?.y || 0);
+        if (newY > cy) {
+          logger.info('Actuation:Movement', `DIG_UP: Raw jump OK Y:${cy}→${newY}`);
+          stuckCount = 0;
+          continue;
+        }
+
+        // === CLIMB METHOD 4: Staircase mining (create horizontal space) ===
+        if (staircaseAttempts < 5) {
+          staircaseAttempts++;
+          const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          let staircased = false;
+
+          for (const [dx, dz] of sides) {
+            const sideX = cx + dx;
+            const sideZ = cz + dz;
+
+            // Dig side block to create horizontal step
+            const sideBlock = this.bot.blockAt(new Vec3(sideX, cy, sideZ));
+            if (!sideBlock || sideBlock.name === 'bedrock' || sideBlock.hardness < 0) continue;
+
+            if (sideBlock.type !== 0 && !['air', 'cave_air', 'void_air'].includes(sideBlock.name)) {
+              await this.bot.dig(sideBlock);
+              blocksDug++;
+            }
+
+            // Clear above side for headroom
+            const sideAbove = this.bot.blockAt(new Vec3(sideX, cy + 1, sideZ));
+            if (sideAbove && sideAbove.type !== 0 && !['air', 'cave_air', 'void_air'].includes(sideAbove.name)
+                && sideAbove.name !== 'bedrock' && sideAbove.hardness >= 0) {
+              await this.bot.dig(sideAbove);
+              blocksDug++;
+            }
+
+            // Walk to side position
+            await this._clearNav();
+            if (this.bot.ashfinder && baritoneGoals) {
+              try {
+                this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(sideX, cy, sideZ), 1));
+                await this.bot.waitForTicks(30);
+                await this._clearNav();
+              } catch {}
+            }
+
+            // Walk up from side (auto-step if possible)
+            if (this.bot.ashfinder && baritoneGoals) {
+              try {
+                this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(sideX, cy + 2, sideZ), 1));
+                await this.bot.waitForTicks(30);
+                await this._clearNav();
+              } catch {}
+            }
+
+            // Walk back to center column (now higher)
+            if (this.bot.ashfinder && baritoneGoals) {
+              try {
+                this.bot.ashfinder.goto(new baritoneGoals.GoalNear(new Vec3(cx, cy + 1, cz), 1));
+                await this.bot.waitForTicks(30);
+                await this._clearNav();
+              } catch {}
+            }
+
+            newY = Math.floor(this.bot.entity?.position?.y || 0);
+            if (newY > cy) {
+              logger.info('Actuation:Movement', `DIG_UP: Staircase OK Y:${cy}→${newY} via (${sideX},${sideZ})`);
+              staircased = true;
+              break;
+            }
+          }
+          if (staircased) {
+            stuckCount = 0;
+            continue;
+          }
+        }
+
+        // All 4 methods failed
+        stuckCount++;
+        if (stuckCount > 5) {
+          logger.warn('Actuation:Movement', `DIG_UP: All climb methods failed at Y:${cy} after ${stuckCount} attempts, ${blocksDug} blocks dug`);
+          return { success: false, blocksDug, reason: 'stuck_no_climb' };
+        }
+        await this.bot.waitForTicks(10);
       }
 
       return { success: false, blocksDug, reason: 'max_blocks_reached' };
@@ -352,6 +440,15 @@ class MovementActuator {
       logger.debug('Actuation:Movement', `DIG_UP failed after ${blocksDug} blocks: ${err.message}`);
       return { success: false, blocksDug, reason: err.message };
     }
+  }
+
+  /**
+   * Clear any active navigation (pathfinder + baritone) to prevent conflicts.
+   */
+  async _clearNav() {
+    try { if (this.bot.pathfinder?.setGoal) this.bot.pathfinder.setGoal(null); } catch {}
+    try { if (this.bot.ashfinder?.stop) this.bot.ashfinder.stop(); } catch {}
+    await this.bot.waitForTicks(3);
   }
 
   // Called from FLEE execution when night + no blocks + no nearby shelter.
