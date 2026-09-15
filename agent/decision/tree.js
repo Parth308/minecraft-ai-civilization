@@ -21,6 +21,7 @@ const evaluateVillageSeek = require('./rules/villageSeek');
 const evaluateLootStructure = require('./rules/lootStructure');
 const evaluateEnchant = require('./rules/enchant');
 const evaluateBreed = require('./rules/breed');
+const evaluateDigUp = require('./rules/digUp');
 const buildAffordances = require('../perception/affordances');
 const DynamicRuleEngine = require('./dynamicRules');
 const ConfidenceEvaluator = require('./confidence');
@@ -99,7 +100,8 @@ class DecisionTree {
       evaluateVillageSeek(senses, stats, persona, agentState),
       evaluateLootStructure(senses, stats),
       evaluateEnchant(senses, stats, persona, agentState),
-      evaluateBreed(senses, stats)
+      evaluateBreed(senses, stats),
+      evaluateDigUp(senses, stats, agentState)
     ];
 
     // Include dynamically learned rules
@@ -868,7 +870,7 @@ class DecisionTree {
     candidates.sort((a, b) => b.confidence - a.confidence);
     const penalizedTop = candidates[0];
 
-    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK', 'GUARD', 'SLEEP']);
+    const LOOPABLE_ACTIONS = new Set(['EXPLORE', 'WANDER', 'MINE', 'CRAFT', 'EAT', 'FLEE', 'EQUIP', 'TRADE', 'TALK', 'GUARD', 'SLEEP', 'DIG_UP']);
     const historyLen = this._actionHistory.length;
     const lastSix = this._actionHistory.slice(-6);
     const uniqueRecent = [...new Set(lastSix)];

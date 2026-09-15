@@ -1829,6 +1829,21 @@ function createAgent() {
           }
           break;
         }
+        case ACTIONS.DIG_UP:
+        case 'DIG_UP': {
+          const targetY = decision.meta?.targetY || 65;
+          const maxBlocks = 50;
+          logger.info('AgentLoop', `Executing DIG_UP: ascending from Y:${Math.round(bot.entity?.position?.y || 0)} to Y:${targetY}`);
+          const digResult = await withTimeout(movement.digUpToSurface(targetY, maxBlocks), 'digUpToSurface');
+          eventBuffer.addEvent('digUp', { targetY, ...digResult });
+          actionSuccess = digResult.success;
+          if (digResult.success) {
+            logger.info('AgentLoop', `DIG_UP complete: ${digResult.blocksDug} blocks dug, reached Y:${Math.round(bot.entity?.position?.y || 0)}`);
+          } else {
+            logger.debug('AgentLoop', `DIG_UP failed: ${digResult.reason} (${digResult.blocksDug} blocks dug)`);
+          }
+          break;
+        }
         case ACTIONS.IDLE:
         default:
           // Do nothing

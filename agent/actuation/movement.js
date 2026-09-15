@@ -237,6 +237,87 @@ class MovementActuator {
   }
 
   // Emergency survival: dig a 2-block hole and crouch when no shelter exists.
+  /**
+   * DIG_UP: Dig upward to escape underground dead-ends.
+   * Creates a 1x1 shaft going up until reaching surface or max height.
+   * Used when stuck underground with no tools/resources to progress.
+   * 
+   * @param {number} targetY - Target Y coordinate to dig to (default: 65, surface + 5)
+   * @param {number} maxBlocks - Maximum blocks to dig upward (default: 50)
+   * @returns {Promise<{success: boolean, blocksDug: number, reason: string}>}
+   */
+  async digUpToSurface(targetY = 65, maxBlocks = 50) {
+    const pos = this.bot.entity?.position;
+    if (!pos) return { success: false, blocksDug: 0, reason: 'no_position' };
+
+    logger.info('Actuation:Movement', `DIG_UP: Starting ascent from Y:${Math.round(pos.y)} to target Y:${targetY}`);
+    detailedLogger.logMovement(this.agentId, 'DIG_UP: Starting ascent', { from: pos.y, to: targetY });
+
+    let blocksDug = 0;
+    let currentY = Math.floor(pos.y);
+
+    try {
+      while (currentY < targetY && blocksDug < maxBlocks) {
+        if (currentY >= 60) {
+          const blockAbove = this.bot.blockAt(new Vec3(Math.floor(pos.x), currentY + 1, Math.floor(pos.z)));
+          if (!blockAbove || blockAbove.name === 'air' || blockAbove.name === 'cave_air' || blockAbove.name === 'void_air') {
+            logger.info('Actuation:Movement', `DIG_UP: Reached open air at Y:${currentY} after ${blocksDug} blocks`);
+            detailedLogger.logMovement(this.agentId, 'DIG_UP: Reached surface', { y: currentY, blocksDug });
+            return { success: true, blocksDug, reason: 'reached_surface' };
+          }
+        }
+
+        const blockAbove = this.bot.blockAt(new Vec3(Math.floor(pos.x), currentY + 1, Math.floor(pos.z)));
+        if (!blockAbove) {
+          logger.warn('Actuation:Movement', `DIG_UP: No block above at Y:${currentY + 1}`);
+          return { success: false, blocksDug, reason: 'no_block_above' };
+        }
+
+        if (blockAbove.name === 'bedrock' || blockAbove.hardness < 0) {
+          logger.warn('Actuation:Movement', `DIG_UP: Hit unbreakable block ${blockAbove.name} at Y:${currentY + 1}`);
+          detailedLogger.logMovement(this.agentId, 'DIG_UP: Hit unbreakable block', { block: blockAbove.name, y: currentY + 1 });
+          return { success: false, blocksDug, reason: `unbreakable_block_${blockAbove.name}` };
+        }
+
+        const botY = pos.y;
+        const blockY = currentY + 1;
+        if (blockY - botY > 1.5) {
+          this.bot.setControlState('jump', true);
+          await new Promise(r => setTimeout(r, 100));
+          this.bot.setControlState('jump', false);
+          await new Promise(r => setTimeout(r, 100));
+        }
+
+        logger.info('Actuation:Movement', `DIG_UP: Digging ${blockAbove.name} at Y:${currentY + 1}`);
+        await this.bot.dig(blockAbove);
+        blocksDug++;
+        currentY++;
+
+        await new Promise(r => setTimeout(r, 50));
+
+        const newPos = this.bot.entity?.position;
+        if (newPos) {
+          currentY = Math.floor(newPos.y);
+        }
+      }
+
+      if (blocksDug >= maxBlocks) {
+        logger.warn('Actuation:Movement', `DIG_UP: Hit max block limit (${maxBlocks})`);
+        return { success: false, blocksDug, reason: 'max_blocks_reached' };
+      }
+
+      if (currentY >= targetY) {
+        logger.info('Actuation:Movement', `DIG_UP: Reached target Y:${targetY} after ${blocksDug} blocks`);
+        return { success: true, blocksDug, reason: 'reached_target' };
+      }
+
+      return { success: false, blocksDug, reason: 'unknown_stop' };
+    } catch (err) {
+      logger.debug('Actuation:Movement', `DIG_UP failed after ${blocksDug} blocks: ${err.message}`);
+      return { success: false, blocksDug, reason: err.message };
+    }
+  }
+
   // Called from FLEE execution when night + no blocks + no nearby shelter.
   async emergencyDigIn() {
     const pos = this.bot.entity?.position;

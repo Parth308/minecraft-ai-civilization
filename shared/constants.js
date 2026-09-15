@@ -37,7 +37,8 @@ module.exports = {
     VILLAGE_SEEK: 'VILLAGE_SEEK',
     LOOT_STRUCTURE: 'LOOT_STRUCTURE',
     ENCHANT: 'ENCHANT',
-    BREED: 'BREED'
+    BREED: 'BREED',
+    DIG_UP: 'DIG_UP'
   },
   SCARCE_RESOURCES: {
     emerald: { scarcityWeight: 2.8, baseValue: 50 },
