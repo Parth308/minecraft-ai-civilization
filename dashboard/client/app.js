@@ -1266,6 +1266,7 @@
     if (!agent) return;
     try {
       const res = await fetch('/api/dashboard/memory/sections/' + encodeURIComponent(agent.username) + '/' + section);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       window._memoryCache = window._memoryCache || {};
       window._memoryCache[section] = data.content || data.raw || JSON.stringify(data, null, 2);
@@ -1279,6 +1280,7 @@
     if (!agent || !query) return;
     try {
       const res = await fetch('/api/dashboard/memory/query?agentId=' + encodeURIComponent(agent.username) + '&query=' + encodeURIComponent(query));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       window._memoryCache = window._memoryCache || {};
       window._memoryCache['search'] = JSON.stringify(data.results || data, null, 2);
