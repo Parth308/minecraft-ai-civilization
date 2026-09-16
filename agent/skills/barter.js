@@ -102,8 +102,7 @@ class BarterSkill {
       this.relationships.updateTrust(partnerName, 10);
       this.relationships.updateAffinity(partnerName, 5);
 
-      // Record only what left our hands. The want side is a pending
-      // expectation, not a receipt — the ledger must not claim we hold it.
+      // Record both sides: what we gave (delivered) and what we expect in return (pending).
       this.chat.say(`owe me ${wantCount}x ${wantItem} when you can, ${partnerName}!`);
       fetch(`${this.memoryServiceUrl}/api/ledger/trades`, {
         method: 'POST',
@@ -112,8 +111,7 @@ class BarterSkill {
           agentA: this.agentId,
           agentB: partnerName,
           itemsGiven: [{ item: giveItem, count: giveCount, value: valueGive }],
-          itemsReceived: [],
-          wantedButUnreceived: [{ item: wantItem, count: wantCount, value: valueWant }],
+          itemsReceived: [{ item: wantItem, count: wantCount, value: valueWant, status: 'pending' }],
           fairnessScore: fairness
         })
       }).then(r => r.json()).then(result => {
