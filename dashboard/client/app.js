@@ -968,7 +968,30 @@
         <div class="card"><div class="kpi-label">Semantic Hits</div><div class="kpi-value text-lime">${fmtInt(s.caches.semanticHits)}</div><div class="kpi-sub">$0 spent</div></div>
         <div class="card"><div class="kpi-label">Fallbacks</div><div class="kpi-value ${s.caches.fallbacks > 0 ? 'red' : ''}">${fmtInt(s.caches.fallbacks)}</div><div class="kpi-sub">provider unavailable</div></div>
         <div class="card"><div class="kpi-label">Broker Uptime</div><div class="kpi-value mono" style="font-size:18px">${t.startedAt ? new Date(t.startedAt).toLocaleString('en-US') : '—'}</div></div>
-      </div>`;
+      </div>
+
+      <div class="section-title">Local Fallback (agents never silent)</div>
+      <div class="grid-kpi">
+        <div class="card"><div class="kpi-label">Total Fallbacks</div><div class="kpi-value">${fmtInt(s.localFallback?.attempts || 0)}</div><div class="kpi-sub">all providers down</div></div>
+        <div class="card"><div class="kpi-label">Template Hits</div><div class="kpi-value text-lime">${fmtInt(s.localFallback?.templateHits || 0)}</div><div class="kpi-sub">&lt;1ms instant</div></div>
+        <div class="card"><div class="kpi-label">Learned Hits</div><div class="kpi-value text-lime">${fmtInt(s.localFallback?.learnedHits || 0)}</div><div class="kpi-sub">self-healed from SLM</div></div>
+        <div class="card"><div class="kpi-label">SLM Hits</div><div class="kpi-value">${fmtInt(s.localFallback?.slmHits || 0)}</div><div class="kpi-sub">${s.localFallback?.avgSlmLatencyMs ? fmtMs(s.localFallback.avgSlmLatencyMs) + ' avg' : '—'}</div></div>
+        <div class="card"><div class="kpi-label">SLM Timeouts</div><div class="kpi-value ${s.localFallback?.slmTimeouts > 0 ? 'red' : ''}">${fmtInt(s.localFallback?.slmTimeouts || 0)}</div><div class="kpi-sub">&gt;${5}s threshold</div></div>
+        <div class="card"><div class="kpi-label">Learned Pool</div><div class="kpi-value text-lime">${fmtInt(s.localFallback?.learned?.count || 0)}</div><div class="kpi-sub">/ 500 max</div></div>
+      </div>
+
+      ${s.localFallback?.learned?.topEntries?.length ? `
+      <div class="card section-pad">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Top Learned Responses</div>
+        <table><thead><tr><th>Intent</th><th>Response</th><th>Hits</th></tr></thead><tbody>
+          ${s.localFallback.learned.topEntries.map(e => `
+            <tr>
+              <td><span class="badge badge-info">${esc(e.intent)}</span></td>
+              <td style="font-size:12px">${esc(e.response)}</td>
+              <td class="num">${fmtInt(e.hits)}</td>
+            </tr>`).join('')}
+        </tbody></table>
+      </div>` : ''}`;
   }
 
   // ── Page: Chronicle ───────────────────────────────────────────────

@@ -223,6 +223,8 @@ class ProviderRouter {
       totals.savedUsd += s.savedUsd;
     }
 
+    const { getLocalFallbackStats } = require('./local-fallback');
+
     return {
       totals,
       providers,
@@ -233,6 +235,7 @@ class ProviderRouter {
         semanticHits: this.cacheStats.semanticHits,
         fallbacks: this.cacheStats.fallbacks
       },
+      localFallback: getLocalFallbackStats(),
       recentEscalations: this.recentEscalations.slice(-MAX_ESCALATION_LOG)
     };
   }
@@ -490,6 +493,8 @@ class ProviderRouter {
         const fb = {
           ...this.fallbackHeuristic(situationPayload),
           chatMessage: localResult.chatMessage,
+          relationshipDelta: localResult.relationshipDelta,
+          emotionDelta: localResult.emotionDelta,
           localFallback: true,
           localFallbackSource: localResult.source,
           localFallbackIntent: localResult.intent,
@@ -591,6 +596,8 @@ class ProviderRouter {
       const fb = {
         ...this.fallbackHeuristic(situationPayload),
         chatMessage: localResult.chatMessage,
+        relationshipDelta: localResult.relationshipDelta,
+        emotionDelta: localResult.emotionDelta,
         localFallback: true,
         localFallbackSource: localResult.source,
         localFallbackIntent: localResult.intent,
