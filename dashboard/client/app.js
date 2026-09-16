@@ -1232,12 +1232,18 @@
     const agent = getAgentByKey('_intelAgent');
     if (!agent) return '<div class="page-header"><div class="page-title">Skills & XP</div></div><div class="empty-state">No agents online</div>';
 
-    const skills = agent.skillXP || {};
-    const titles = agent.titles || [];
-    const profession = agent.profession || 'Unemployed';
+    const skillsData = agent.skills || {};
+    const skills = skillsData.skills || {};
+    const profession = skillsData.dominantSkill || 'Unemployed';
+    const professionTitle = skillsData.dominantTitle || '';
     const actionTally = agent.actionTally || {};
-    const maxXP = Math.max(1, ...Object.values(skills));
-    const skillColors = { mining: '#f59e0b', crafting: '#8b5cf6', farming: '#10b981', building: '#06b6d4', combat: '#ef4444', fishing: '#3b82f6', trading: '#ec4899', exploring: '#84cc16', cooking: '#f97316', forestry: '#22c55e' };
+    const maxXP = Math.max(1, ...Object.values(skills).map(s => s.xp || 0));
+    const skillColors = { mining: '#f59e0b', crafting: '#8b5cf6', farming: '#10b981', building: '#06b6d4', fighting: '#ef4444', fishing: '#3b82f6', trading: '#ec4899', exploring: '#84cc16', cooking: '#f97316', social: '#22c55e' };
+
+    const titles = [];
+    for (const [name, data] of Object.entries(skills)) {
+      if (data.title && data.xp >= 5) titles.push({ skill: name, title: data.title, level: data.level });
+    }
 
     return `
       <div class="page-header">
@@ -1251,7 +1257,7 @@
       </div>
 
       <div class="flex-wrap-8">
-        ${titles.length > 0 ? titles.map(t => `<span class="badge badge-warning" style="font-size:11px;padding:4px 10px">🏆 ${esc(t)}</span>`).join('') : '<span class="badge badge-neutral">No titles earned yet</span>'}
+        ${titles.length > 0 ? titles.map(t => `<span class="badge badge-warning" style="font-size:11px;padding:4px 10px">🏆 ${esc(t.title)}</span>`).join('') : '<span class="badge badge-neutral">No titles earned yet</span>'}
       </div>
 
       <div class="grid-2">
@@ -1259,8 +1265,9 @@
           <div class="section-header">📊 Skill Levels</div>
           ${Object.keys(skills).length === 0 ? '<div class="empty-state">No skills recorded yet</div>' : `
             <div class="flex-col-10">
-              ${Object.entries(skills).sort((a, b) => b[1] - a[1]).map(([skill, xp]) => {
-                const lvl = Math.floor(xp / 10) + 1;
+              ${Object.entries(skills).sort((a, b) => (b[1].xp || 0) - (a[1].xp || 0)).map(([skill, data]) => {
+                const xp = data.xp || 0;
+                const lvl = data.level || Math.floor(xp / 10) + 1;
                 const prog = (xp % 10) / 10 * 100;
                 const color = skillColors[skill] || '#94a3b8';
                 return `
@@ -1433,9 +1440,9 @@
     const agent = getAgentByKey('_intelAgent');
     if (!agent) return '<div class="page-header"><div class="page-title">Exploration</div></div><div class="empty-state">No agents online</div>';
 
-    const chunkMem = agent.chunkMemory || {};
+    const chunkMem = agent.exploration || agent.chunkMemory || {};
     const explored = chunkMem.exploredChunks || [];
-    const discoveries = chunkMem.discoveries || [];
+    const discoveries = chunkMem.recentDiscoveries || chunkMem.discoveries || [];
 
     const gridSize = 20;
     const cells = [];
@@ -1497,7 +1504,8 @@
   function renderDiscoveries() {
     const allDiscoveries = [];
     for (const agent of state.agents) {
-      const discs = agent.chunkMemory?.discoveries || [];
+      const exploration = agent.exploration || agent.chunkMemory || {};
+      const discs = exploration.recentDiscoveries || exploration.discoveries || [];
       for (const d of discs) {
         allDiscoveries.push({ ...d, agentId: agent.username });
       }
@@ -1562,19 +1570,25 @@
       <div class="card p-4">
         ${cachedTrades.length === 0 ? '<div class="empty-state">No trades recorded yet</div>' : `
           <div style="display:flex;flex-direction:column;gap:8px;max-height:600px;overflow-y:auto">
-            ${cachedTrades.slice().reverse().map(t => `
+            ${cachedTrades.slice().reverse().map(t => {
+              const giver = t.agentA || t.fromAgent || t.seller || '?';
+              const receiver = t.agentB || t.toAgent || t.buyer || '?';
+              const gives = Array.isArray(t.itemsGiven) ? t.itemsGiven : (t.itemsGiven ? [{item: t.itemsGiven, count: t.count || 1}] : (t.item ? [{item: t.item, count: t.quantity || 1}] : []));
+              const receives = Array.isArray(t.itemsReceived) ? t.itemsReceived : (t.itemsReceived ? [{item: t.itemsReceived, count: t.receiveCount || 1}] : []);
+              const giveStr = gives.map(g => `${g.item || '?'} ×${g.count || 1}`).join(', ');
+              const recvStr = receives.map(r => `${r.item || '?'} ×${r.count || 1}`).join(', ');
+              return `
               <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px">
                 <span style="font-size:11px;color:var(--text-faint);min-width:70px">${timeOf(t.timestamp)}</span>
-                <span class="badge badge-success text-xs">${esc(t.fromAgent || t.seller || '?')}</span>
+                <span class="badge badge-success text-xs">${esc(giver)}</span>
                 <span class="text-dim">→</span>
-                <span class="badge badge-success text-xs">${esc(t.toAgent || t.buyer || '?')}</span>
+                <span class="badge badge-success text-xs">${esc(receiver)}</span>
                 <div style="flex:1;font-size:12px;color:var(--text)">
-                  ${esc(t.item || t.giveItem || '?')} ×${t.quantity || t.giveCount || t.count || 1}
-                  ${t.receiveItem ? ` for ${esc(t.receiveItem)} ×${t.receiveCount || 1}` : ''}
+                  ${esc(giveStr || '?')}${recvStr ? ` for ${esc(recvStr)}` : ''}
                 </div>
-                ${t.settled ? '<span class="badge badge-success text-xs">settled</span>' : '<span class="badge badge-warning text-xs">pending</span>'}
-              </div>
-            `).join('')}
+                ${t.fairnessScore != null ? `<span class="text-xs text-dim">${t.fairnessScore.toFixed(2)}f</span>` : ''}
+              </div>`;
+            }).join('')}
           </div>`}
       </div>
     `;
@@ -1600,10 +1614,11 @@
               ${open.map(d => `
                 <div style="padding:8px 12px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:4px">
                   <div class="mini-row">
-                    <span class="text-base fw-600 text-main">${esc(d.debtor)} → ${esc(d.creditor)}</span>
-                    <span class="text-sm text-muted">${timeOf(d.timestamp)}</span>
+                    <span class="text-base fw-600 text-main">${esc(d.debtorId || d.debtor || '?')} → ${esc(d.creditorId || d.creditor || '?')}</span>
+                    <span class="text-sm text-muted">${timeOf(d.createdAt || d.timestamp)}</span>
                   </div>
-                  <div class="text-base text-dim">${esc(d.item || d.description || '?')} ×${d.quantity || d.count || 1}</div>
+                  <div class="text-base text-dim">${esc(d.item || d.description || '?')} ×${d.count || d.quantity || 1}</div>
+                  ${d.reason ? `<div class="text-xs text-dim" style="margin-top:2px;font-style:italic">"${esc(d.reason)}"</div>` : ''}
                 </div>
               `).join('')}
             </div>`}
@@ -1616,10 +1631,10 @@
               ${settled.slice().reverse().map(d => `
                 <div style="padding:8px 12px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:4px">
                   <div class="mini-row">
-                    <span class="text-base text-dim">${esc(d.debtor)} → ${esc(d.creditor)}</span>
-                    <span class="text-sm text-muted">${timeOf(d.settledAt || d.timestamp)}</span>
+                    <span class="text-base text-dim">${esc(d.debtorId || d.debtor || '?')} → ${esc(d.creditorId || d.creditor || '?')}</span>
+                    <span class="text-sm text-muted">${timeOf(d.settledAt || d.createdAt || d.timestamp)}</span>
                   </div>
-                  <div class="text-sm text-muted">${esc(d.item || d.description || '?')}</div>
+                  <div class="text-sm text-muted">${esc(d.item || d.description || '?')} ×${d.count || 1}</div>
                 </div>
               `).join('')}
             </div>`}
@@ -1706,10 +1721,10 @@
           <div style="display:flex;flex-direction:column;gap:6px;max-height:500px;overflow-y:auto">
             ${allTaxes.slice().reverse().map(t => `
               <div class="flex-center-12 card-inner">
-                <span class="badge badge-neutral text-xs">${esc(t.agentId || t.payer || '?')}</span>
-                <span class="text-base text-main">${esc(t.item || t.description || 'tax')} ×${t.quantity || t.amount || 1}</span>
+                <span class="badge badge-neutral text-xs">${esc(t.payer || t.agentId || '?')}</span>
+                <span class="text-base text-main">${esc((Array.isArray(t.items) ? t.items.join(', ') : t.items) || t.item || 'tax')} ×${t.taxAmount || t.amount || 1}</span>
+                ${t.partner ? `<span class="text-xs text-dim">→ ${esc(t.partner)}</span>` : ''}
                 <span style="font-size:11px;color:var(--text-faint);margin-left:auto">${timeOf(t.timestamp)}</span>
-                ${t.paid ? '<span class="badge badge-success text-xs">paid</span>' : '<span class="badge badge-warning text-xs">pending</span>'}
               </div>
             `).join('')}
           </div>`}
@@ -2102,10 +2117,10 @@
         fetch('/api/dashboard/deaths').catch(() => null),
         fetch('/api/dashboard/taxes').catch(() => null)
       ]);
-      if (tradesRes?.ok) window._tradesCache = await tradesRes.json();
-      if (debtsRes?.ok) window._debtsCache = await debtsRes.json();
-      if (deathsRes?.ok) window._deathsCache = await deathsRes.json();
-      if (taxesRes?.ok) window._taxesCache = await taxesRes.json();
+      if (tradesRes?.ok) { const d = await tradesRes.json(); window._tradesCache = Array.isArray(d) ? d : (d.trades || []); }
+      if (debtsRes?.ok) { const d = await debtsRes.json(); window._debtsCache = Array.isArray(d) ? d : (d.debts || []); }
+      if (deathsRes?.ok) { const d = await deathsRes.json(); window._deathsCache = Array.isArray(d) ? d : (d.deaths || []); }
+      if (taxesRes?.ok) { const d = await taxesRes.json(); window._taxesCache = Array.isArray(d) ? d : (d.taxes || []); }
     } catch (e) { /* ledger fetch failed, will retry */ }
   }
 
