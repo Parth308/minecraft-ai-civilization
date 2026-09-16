@@ -65,4 +65,13 @@ Thumbs.db
 tmp_*.sh
 tmp_*.py
 omo/
+.omo/
+.planning/
+.playwright-mcp/
 .opencode/
+
+# Local docs, screenshots & post drafts
+docs/
+screenshots/
+LINKEDIN_POST.md
+MEDIUM_ARTICLE.md
