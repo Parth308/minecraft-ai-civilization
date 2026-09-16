@@ -1,6 +1,6 @@
 'use strict';
 
-const { tryTemplate, classifyIntent, tryLearnedTemplate, learnTemplate, getLearnedStats } = require('./templates');
+const { tryTemplate, classifyIntent, tryLearnedTemplate, learnTemplate, getLearnedStats, validateSLMResponse, recordHeard } = require('./templates');
 const { querySLM } = require('./ollamaClient');
 const logger = require('../../shared/logger');
 
@@ -9,7 +9,7 @@ const SIMPLE_INTENTS = new Set([
   'compliment', 'agreement', 'refusal', 'status',
 ]);
 
-const SLM_TIMEOUT_MS = 5000;
+const SLM_TIMEOUT_MS = 3000;
 
 const stats = {
   attempts: 0,
@@ -20,6 +20,17 @@ const stats = {
   slmTimeouts: 0,
   totalSlmLatencyMs: 0,
 };
+
+let slmFatigue = 0;
+const SLM_FATIGUE_CEIL = 3;
+let slmFatigueRecoveryAt = 0;
+
+function _getFatigueCooldownMs() {
+  if (slmFatigue < SLM_FATIGUE_CEIL) return 0;
+  const rounds = Math.floor(slmFatigue / SLM_FATIGUE_CEIL);
+  const base = 3 * 60 * 1000;
+  return Math.min(base * Math.pow(2, rounds - 1), 60 * 60 * 1000);
+}
 
 function _deriveEmotionDelta(intent, trust, mood) {
   const delta = { anger: 0, happiness: 0, fatigue: 0 };
@@ -133,20 +144,11 @@ async function generateLocalChatResponse(payload) {
   const trust = payload.relationship?.trust ?? 50;
   const mood = payload.emotions?.mood ?? 0;
 
-  stats.attempts += 1;
-
-  if (SIMPLE_INTENTS.has(intent)) {
-    const tmpl = tryTemplate(payload);
-    stats.templateHits += 1;
-    return {
-      chatMessage: tmpl.chatMessage,
-      source: 'template',
-      latencyMs: Date.now() - t0,
-      intent,
-      relationshipDelta: _deriveRelationshipDelta(intent, trust, mood),
-      emotionDelta: _deriveEmotionDelta(intent, trust, mood),
-    };
+  if (payload.agentId && payload.speaker) {
+    recordHeard(payload.agentId, message);
   }
+
+  stats.attempts += 1;
 
   const learned = tryLearnedTemplate(intent, payload);
   if (learned) {
@@ -161,46 +163,39 @@ async function generateLocalChatResponse(payload) {
     };
   }
 
-  const templateResult = tryTemplate(payload);
+  const tmpl = tryTemplate(payload);
 
-  const slmPromise = querySLM(payload).catch(err => {
-    if (err.name === 'AbortError') stats.slmTimeouts += 1;
-    else stats.slmErrors += 1;
-    logger.debug('LocalFallback', `SLM error: ${err.message}`);
-    return null;
-  });
+  const now = Date.now();
+  const cooldownMs = _getFatigueCooldownMs();
+  const slmAvailable = slmFatigue < SLM_FATIGUE_CEIL || now > slmFatigueRecoveryAt;
 
-  const result = await Promise.race([
-    slmPromise.then(slmResult => {
-      if (slmResult && slmResult.chatMessage) {
-        return { chatMessage: slmResult.chatMessage, source: 'slm', latencyMs: slmResult.latencyMs };
+  if (slmAvailable) {
+    querySLM(payload).then(result => {
+      if (result && result.chatMessage) {
+        const validated = validateSLMResponse(result.chatMessage);
+        if (validated) {
+          slmFatigue = Math.max(0, slmFatigue - 1);
+          stats.slmHits += 1;
+          stats.totalSlmLatencyMs += result.latencyMs;
+          learnTemplate(intent, payload, validated);
+          logger.debug('LocalFallback', `SLM background learned for intent '${intent}'`);
+        } else {
+          slmFatigue += 1;
+        }
+      } else {
+        slmFatigue += 1;
       }
-      return null;
-    }),
-    new Promise(resolve => {
-      setTimeout(() => resolve(null), SLM_TIMEOUT_MS);
-    }),
-  ]);
-
-  if (result) {
-    stats.slmHits += 1;
-    stats.totalSlmLatencyMs += result.latencyMs;
-    learnTemplate(intent, payload, result.chatMessage);
-    logger.debug('LocalFallback', `SLM responded in ${result.latencyMs}ms for intent '${intent}' — learned`);
-
-    return {
-      chatMessage: result.chatMessage,
-      source: 'slm',
-      latencyMs: result.latencyMs,
-      intent,
-      relationshipDelta: _deriveRelationshipDelta(intent, trust, mood),
-      emotionDelta: _deriveEmotionDelta(intent, trust, mood),
-    };
+      if (slmFatigue >= SLM_FATIGUE_CEIL) {
+        const cd = _getFatigueCooldownMs();
+        slmFatigueRecoveryAt = Date.now() + cd;
+        logger.info('LocalFallback', `SLM fatigued (${slmFatigue} fails) — cooldown ${Math.round(cd / 1000)}s`);
+      }
+    }).catch(() => {});
   }
 
   stats.templateHits += 1;
   return {
-    chatMessage: templateResult.chatMessage,
+    chatMessage: tmpl.chatMessage,
     source: 'template',
     latencyMs: Date.now() - t0,
     intent,
@@ -215,6 +210,10 @@ function getLocalFallbackStats() {
     ...stats,
     avgSlmLatencyMs: stats.slmHits > 0 ? Math.round(stats.totalSlmLatencyMs / stats.slmHits) : 0,
     learned,
+    slmFatigue,
+    slmFatigueCeil: SLM_FATIGUE_CEIL,
+    slmFatigueRecoveryAt: slmFatigueRecoveryAt > Date.now() ? slmFatigueRecoveryAt : 0,
+    slmFatigueCooldownMs: _getFatigueCooldownMs(),
   };
 }
 

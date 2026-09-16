@@ -502,6 +502,9 @@ class ProviderRouter {
         this._logEscalation({
           agentId, taskType, source: 'local_fallback',
           action: fb.action, reason: fb.reason,
+          chatMessage: localResult.chatMessage,
+          localFallbackSource: localResult.source,
+          localFallbackIntent: localResult.intent,
           provider: null, model: null, cached: false, webKnowledgeUsed: false,
           inputTokens: 0, outputTokens: 0, costUsd: 0,
           latencyMs: localResult.latencyMs
@@ -605,6 +608,9 @@ class ProviderRouter {
       this._logEscalation({
         agentId, taskType, source: 'local_fallback',
         action: fb.action, reason: fb.reason,
+        chatMessage: localResult.chatMessage,
+        localFallbackSource: localResult.source,
+        localFallbackIntent: localResult.intent,
         provider: null, model: null, cached: false, webKnowledgeUsed: false,
         inputTokens: 0, outputTokens: 0, costUsd: 0,
         latencyMs: localResult.latencyMs,

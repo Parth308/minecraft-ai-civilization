@@ -239,7 +239,7 @@ class SocialDialogueEngine {
             await this.goalManager.joinSharedGoal(targetGoal.id);
             logger.info('SocialDialogue', `[SHARED GOAL RECRUITMENT] ${this.persona.agentId} joined "${targetGoal.description}" invited by ${sender}`);
             if (!response.chatMessage) {
-              response.chatMessage = `Count me in, ${sender}! I'll contribute to "${targetGoal.description}".`;
+              response.chatMessage = `I'm in, ${sender}!`;
             }
           }
         }

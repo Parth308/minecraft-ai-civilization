@@ -156,6 +156,11 @@
     }
     if (ev.source === 'cache') return `<span class="badge badge-cache">CACHE·${esc((ev.cacheType || '').toUpperCase())}</span>`;
     if (ev.source === 'fallback') return '<span class="badge badge-fallback">SAFETY</span>';
+    if (ev.source === 'local_fallback') {
+      const src = ev.localFallbackSource || 'template';
+      const srcLabel = src === 'slm' ? '🧠 SLM' : src === 'learned' ? '📚 Learned' : '📋 Template';
+      return `<span class="badge badge-fallback" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)">${srcLabel}</span>`;
+    }
     return '<span class="badge badge-tree" style="font-weight:600">⚙️ TREE ($0)</span>';
   }
 
@@ -895,7 +900,7 @@
               <td><b class="mono">${esc(e.action || (isChat ? 'TALK' : '—'))}</b></td>
               ${compact ? '' : `<td>${e.provider ? `<span class="text-amber">${esc(e.provider)}</span>` : '<span class="text-muted">—</span>'} ${e.model ? `<div class="text-sm text-muted">${esc(e.model.split('/').pop())}</div>` : ''}</td>`}
               <td style="font-size:12px;max-width:340px;color:var(--text-dim);word-break:break-word">
-                ${isChat ? `<span class="text-main">"${esc(e.reason || e.chatMessage || '')}"</span>` : esc(e.reason || '—')}
+                ${isChat ? `<span class="text-main">"${esc(e.chatMessage || e.reason || '')}"</span>` : esc(e.reason || '—')}
                 ${e.webKnowledgeUsed ? ' <span class="badge badge-cache" style="font-size:9.5px">🌐 Wiki</span>' : ''}
               </td>
               <td class="num">${e.source === 'llm' ? `${fmtInt(e.inputTokens)}/${fmtInt(e.outputTokens)}` : '—'}</td>
@@ -977,7 +982,8 @@
         <div class="card"><div class="kpi-label">Learned Hits</div><div class="kpi-value text-lime">${fmtInt(s.localFallback?.learnedHits || 0)}</div><div class="kpi-sub">self-healed from SLM</div></div>
         <div class="card"><div class="kpi-label">SLM Hits</div><div class="kpi-value">${fmtInt(s.localFallback?.slmHits || 0)}</div><div class="kpi-sub">${s.localFallback?.avgSlmLatencyMs ? fmtMs(s.localFallback.avgSlmLatencyMs) + ' avg' : '—'}</div></div>
         <div class="card"><div class="kpi-label">SLM Timeouts</div><div class="kpi-value ${s.localFallback?.slmTimeouts > 0 ? 'red' : ''}">${fmtInt(s.localFallback?.slmTimeouts || 0)}</div><div class="kpi-sub">&gt;${5}s threshold</div></div>
-        <div class="card"><div class="kpi-label">Learned Pool</div><div class="kpi-value text-lime">${fmtInt(s.localFallback?.learned?.count || 0)}</div><div class="kpi-sub">/ 500 max</div></div>
+        <div class="card"><div class="kpi-label">SLM Fatigue</div><div class="kpi-value ${s.localFallback?.slmFatigue >= (s.localFallback?.slmFatigueCeil || 5) ? 'red' : 'text-lime'}">${fmtInt(s.localFallback?.slmFatigue || 0)} / ${fmtInt(s.localFallback?.slmFatigueCeil || 5)}</div><div class="kpi-sub">${s.localFallback?.slmFatigueRecoveryAt ? 'cooldown until ' + new Date(s.localFallback.slmFatigueRecoveryAt).toLocaleTimeString() : 'SLM available'}</div></div>
+        <div class="card"><div class="kpi-label">Learned Pool</div><div class="kpi-value text-lime">${fmtInt(s.localFallback?.learned?.count || 0)}</div><div class="kpi-sub">/ 200 max</div></div>
       </div>
 
       ${s.localFallback?.learned?.topEntries?.length ? `

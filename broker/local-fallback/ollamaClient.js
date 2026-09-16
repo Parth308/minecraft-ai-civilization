@@ -12,7 +12,10 @@ const logger = require('../../shared/logger');
 
 const OLLAMA_URL = process.env.OLLAMA_SLM_URL || 'http://ollama-embeddings:11434';
 const MODEL = process.env.OLLAMA_SLM_MODEL || 'qwen2.5:0.5b';
-const TIMEOUT_MS = parseInt(process.env.OLLAMA_SLM_TIMEOUT || '8000', 10);
+const TIMEOUT_MS = parseInt(process.env.OLLAMA_SLM_TIMEOUT || '4000', 10);
+
+let slmInFlight = 0;
+const SLM_MAX_CONCURRENT = 1;
 
 /**
  * Generate a social chat response using the local 0.5B SLM.
@@ -48,6 +51,12 @@ ${payload.speaker || 'Someone'} says: "${payload.message || 'hey'}"
 Reply in 1 short sentence (under 15 words). Be in-character. No quotes, no JSON.`;
 
   try {
+    if (slmInFlight >= SLM_MAX_CONCURRENT) {
+      logger.debug('SLM', `Concurrency limit reached (${slmInFlight}/${SLM_MAX_CONCURRENT}) — skipping SLM`);
+      return null;
+    }
+    slmInFlight += 1;
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -103,6 +112,8 @@ Reply in 1 short sentence (under 15 words). Be in-character. No quotes, no JSON.
       logger.warn('SLM', `Ollama error: ${err.message}`);
     }
     return null;
+  } finally {
+    slmInFlight = Math.max(0, slmInFlight - 1);
   }
 }
 

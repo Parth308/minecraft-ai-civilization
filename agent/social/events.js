@@ -131,14 +131,14 @@ class SocialEvents {
     const threshold = 0.3 + risk;
     const attend = (socialScore / 100) > threshold;
 
-    // Build response message
+    const evtType = proposal.type || 'event';
+    const evtLocation = proposal.location || 'the area';
+
     const responses = {
       accept: [
         `I'll be there!`,
-        `Count me in for the ${proposal.type}.`,
         `Sounds good, I'll join.`,
-        `On my way!`,
-        `I'm in. See you at ${proposal.location}.`
+        `On my way!`
       ],
       decline: [
         `Can't make it right now, sorry.`,
@@ -218,12 +218,11 @@ class SocialEvents {
 
   // ── Generate attendance response message ─────────────────────────────
   generateAttendanceMessage(proposal, attending) {
+    const evtType = proposal.type || 'event';
     const yesResponses = [
-      `I'll be there! See you at ${proposal.location}.`,
-      `Count me in!`,
-      `On my way to ${proposal.location}.`,
-      `I'm joining the ${proposal.type}.`,
-      `Good idea, I'm in.`
+      `I'll be there!`,
+      `Sounds good, I'll join.`,
+      `On my way!`
     ];
 
     const noResponses = [
