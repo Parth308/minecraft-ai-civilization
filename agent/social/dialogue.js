@@ -188,6 +188,14 @@ class SocialDialogueEngine {
         if (response.relationshipDelta.affinity) this.relationships.updateAffinity(sender, response.relationshipDelta.affinity);
       }
 
+      // Apply emotion shifts (from local fallback or LLM)
+      if (response.emotionDelta) {
+        const emo = EmotionalState.forAgent(this.persona.agentId);
+        if (response.emotionDelta.anger) emo.feelToward(sender, 'anger', response.emotionDelta.anger * 0.05);
+        if (response.emotionDelta.happiness) emo.feelToward(sender, 'happiness', response.emotionDelta.happiness * 0.05);
+        if (response.emotionDelta.fatigue) emo.feelToward(sender, 'fatigue', response.emotionDelta.fatigue * 0.05);
+      }
+
       // Sealed-deal handshake: when the reply concludes a concrete exchange,
       // hand it to the barter actuator so talk becomes an actual world trade
       // instead of chat theater.
