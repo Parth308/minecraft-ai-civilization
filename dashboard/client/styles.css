@@ -62,13 +62,15 @@ body {
 .app {
   display: grid;
   grid-template-columns: 240px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -170,6 +172,8 @@ body {
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
+  overflow-y: auto;
+  height: 100vh;
 }
 
 .page-header { margin-bottom: 24px; }
@@ -269,6 +273,9 @@ tr:hover td { background: rgba(255,255,255,0.015); }
 .badge-offline  { background: var(--red-glow); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.3); }
 .badge-online   { background: var(--green-glow); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
 .badge-neutral  { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
+.badge-success  { background: var(--green-glow); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
+.badge-warning  { background: var(--amber-glow); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+.badge-error    { background: var(--red-glow); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.3); }
 
 /* ── Agent Cards & Cognition Hub ─────────────────────────────── */
 
@@ -1249,10 +1256,10 @@ tr:hover td { background: rgba(255,255,255,0.015); }
 }
 
 @media (max-width: 800px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; overflow: auto; }
   .grid-2 { grid-template-columns: 1fr; }
-  .app { grid-template-columns: 1fr; }
   .sidebar {
-    position: static; height: auto;
+    position: sticky; top: 0; height: auto;
     flex-direction: row; align-items: center;
     overflow-x: auto;
     border-right: none; border-bottom: 1px solid var(--border);
@@ -1260,5 +1267,5 @@ tr:hover td { background: rgba(255,255,255,0.015); }
   }
   .logo { padding: 0 12px 0 0; }
   .sidebar-footer { display: none; }
-  .main { padding: 16px; }
+  .main { padding: 16px; height: auto; overflow-y: visible; }
 }

@@ -171,7 +171,7 @@
           ${state.agents.map(a => `
             <button class="agent-sel-btn ${a.username === current ? 'active' : ''}"
               onclick="window.setIntelAgent('${esc(stateKey)}', '${esc(a.username)}')">
-              <span class="status-pill ${a.online ? 'ok' : 'err'}" class="inline-dot"></span>
+              <span class="status-pill ${a.online ? 'ok' : 'err'} inline-dot"></span>
               ${esc(a.username)}
             </button>
           `).join('')}
@@ -312,13 +312,13 @@
           <div class="kpi-value green">$0.00</div>
           <div class="kpi-sub">${s?.freeTierMode ? `100% Free Tier · ${fmtCost(t.savedUsd)} saved` : `${fmtCost(t.costUsd)} spend`}</div>
         </div>
-        <div class="card" class="cursor-pointer" onclick="window.spectateAgent('${esc(state.agents[0]?.username || 'Agent_Alpha')}')">
+        <div class="card cursor-pointer" onclick="window.spectateAgent('${esc(state.agents[0]?.username || 'Agent_Alpha')}')">
           <div class="kpi-label">3D World View</div>
           <div class="kpi-value" style="font-size:20px;display:flex;align-items:center;gap:6px">
             <span class="status-pill ${state.spectator?.online ? 'ok' : 'err'}"></span>
             <span class="text-main">${state.spectator?.online ? 'Live Stream' : 'Standby'}</span>
           </div>
-          <div class="kpi-sub" class="text-green">Click to watch 3D feed →</div>
+          <div class="kpi-sub text-green">Click to watch 3D feed →</div>
         </div>
       </div>
 
@@ -342,12 +342,12 @@
 
       <div class="grid-2">
         <div>
-          <div class="section-title" class="mt-0">Recent Escalations</div>
+          <div class="section-title mt-0">Recent Escalations</div>
           <div class="card" style="padding:6px 4px">${escalationsTable((s?.recentEscalations || []).slice(-8).reverse(), true)}</div>
         </div>
         <div>
-          <div class="section-title" class="mt-0">Global Chat</div>
-          <div class="card" class="flex-col-10">
+          <div class="section-title mt-0">Global Chat</div>
+          <div class="card flex-col-10">
             <div class="chat-feed" id="chat-feed" role="log">${chatFeed(state.chat.slice(-40))}</div>
             <form class="chat-input-row" id="chat-form" onsubmit="return false;">
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
@@ -355,11 +355,11 @@
             </form>
             <div style="display:flex;gap:5px;flex-wrap:wrap;font-size:11px;align-items:center">
               <span class="text-muted">⚡ Quick God-Mode:</span>
-              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!status')">!status</span>
-              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!come')">!come</span>
-              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!memories')">!memories</span>
-              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!quest Build a secure wooden shelter')">!quest Build Shelter</span>
-              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!quest Mine iron ore and craft armor')">!quest Mine Iron</span>
+              <span class="inv-chip cursor-pointer" onclick="window.insertChatCommand('!status')">!status</span>
+              <span class="inv-chip cursor-pointer" onclick="window.insertChatCommand('!come')">!come</span>
+              <span class="inv-chip cursor-pointer" onclick="window.insertChatCommand('!memories')">!memories</span>
+              <span class="inv-chip cursor-pointer" onclick="window.insertChatCommand('!quest Build a secure wooden shelter')">!quest Build Shelter</span>
+              <span class="inv-chip cursor-pointer" onclick="window.insertChatCommand('!quest Mine iron ore and craft armor')">!quest Mine Iron</span>
             </div>
           </div>
         </div>
@@ -397,7 +397,7 @@
               <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
               ${d ? sourceBadge(d) : ''}
             </div>
-            <div class="stat-strip" class="mt-0">
+            <div class="stat-strip mt-0">
               <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
               <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
             </div>
@@ -407,7 +407,7 @@
             </div>
             <div class="thought-bubble" style="margin-top:2px">
               <span class="thought-tag">💭 THOUGHT PROCESS</span>
-              <div class="thought-content" class="text-base">${esc(d?.reason || 'Navigating world…')}</div>
+              <div class="thought-content text-base">${esc(d?.reason || 'Navigating world…')}</div>
             </div>
           </div>
         `;
@@ -481,7 +481,7 @@
                     <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
                     ${d ? sourceBadge(d) : ''}
                   </div>
-                  <div class="stat-strip" class="mt-0">
+                  <div class="stat-strip mt-0">
                     <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
                     <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
                   </div>
@@ -491,13 +491,13 @@
                   </div>
                   <div class="thought-bubble" style="margin-top:2px">
                     <span class="thought-tag">💭 THOUGHT PROCESS</span>
-                    <div class="thought-content" class="text-base">${esc(d?.reason || 'Navigating world…')}</div>
+                    <div class="thought-content text-base">${esc(d?.reason || 'Navigating world…')}</div>
                   </div>
                 </div>
               ` : '<div class="empty-state">Waiting for target data…</div>'}
             </div>
 
-            <div class="subcard-title" class="mt-2">In-Game Chat &amp; Operator</div>
+            <div class="subcard-title mt-2">In-Game Chat &amp; Operator</div>
             <div class="chat-feed" id="world-chat-feed" style="max-height:160px" role="log">${chatFeed(state.chat.slice(-20))}</div>
             <form class="chat-input-row" id="chat-form" onsubmit="return false;">
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
@@ -522,8 +522,8 @@
                 <button class="btn btn-send" style="padding:2px 10px;font-size:11px" onclick="window.toggleReplayPlayback()">
                   ${replayState.isPlaying ? '⏸ Pause' : '▶ Play'}
                 </button>
-                <button class="btn btn-spectate" class="tag-badge" onclick="window.stepTimeline(-1)">◀ Prev</button>
-                <button class="btn btn-spectate" class="tag-badge" onclick="window.stepTimeline(1)">Next ▶</button>
+                <button class="btn btn-spectate tag-badge" onclick="window.stepTimeline(-1)">◀ Prev</button>
+                <button class="btn btn-spectate tag-badge" onclick="window.stepTimeline(1)">Next ▶</button>
                 <span class="num" style="color:var(--amber);font-weight:600">${replayState.events.length > 0 ? `Step ${replayState.currentIndex + 1}/${replayState.events.length}` : 'No events'}</span>
               </div>
             ` : '<span class="text-sm text-muted">Streaming real-time telemetry</span>'}
@@ -622,7 +622,7 @@
       : state.agents.filter(a => a.username === state.selectedAgent);
 
     return `
-      <div class="page-header" class="flex-between-end">
+      <div class="page-header flex-between-end">
         <div>
           <div class="page-title">Agents &amp; Cognition</div>
           <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered) · Live decision reasoning &amp; vitals</div>
@@ -633,7 +633,7 @@
           </button>
           ${state.agents.map(a => `
             <button class="btn btn-spectate" style="font-size:12px;padding:5px 12px;background:${state.selectedAgent === a.username ? 'rgba(16,185,129,0.25)' : 'var(--surface)'};border-color:${state.selectedAgent === a.username ? 'var(--green)' : 'var(--border)'}" onclick="window.setSelectedAgent('${esc(a.username)}')">
-              <span class="status-pill ${a.online ? 'ok' : 'err'}" class="inline-dot"></span>
+              <span class="status-pill ${a.online ? 'ok' : 'err'} inline-dot"></span>
               ${esc(a.username)}
             </button>
           `).join('')}
@@ -676,9 +676,9 @@
               <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
               <span class="agent-name">${esc(a.username)}</span>
               <span class="persona-badge" title="${esc(personaObj.seed || '')}">🧬 ${esc(personaTitle)}</span>
-              <span class="badge badge-neutral" class="text-sm" title="Civ Knowledge Privacy Mode">${privacyIcon} ${esc(privacyPref.toUpperCase())}</span>
+              <span class="badge badge-neutral text-sm" title="Civ Knowledge Privacy Mode">${privacyIcon} ${esc(privacyPref.toUpperCase())}</span>
               ${scarCount > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);font-size:11px" title="${esc(scarSummary)}">🩸 ${scarCount} SCAR${scarCount > 1 ? 'S' : ''}</span>` : ''}
-              ${temperament ? `<span class="badge badge-neutral" class="text-sm">🎭 ${esc(temperament)}</span>` : ''}
+              ${temperament ? `<span class="badge badge-neutral text-sm">🎭 ${esc(temperament)}</span>` : ''}
             </div>
             <div class="flex-center-8">
               <button class="btn-spectate" onclick="window.spectateAgent('${esc(a.username)}')">🎥 Spectate</button>
@@ -690,9 +690,9 @@
             <span class="meta-chip">📍 <b>${posStr}</b></span>
             <span class="meta-chip">🌲 <b>${esc(a.biome || 'Unknown')}</b></span>
             <span class="meta-chip">${a.isNight ? '🌙 Night' : '☀️ Day'}</span>
-            ${a.isRaining ? '<span class="meta-chip" class="text-amber">🌧 Raining</span>' : ''}
+            ${a.isRaining ? '<span class="meta-chip text-amber">🌧 Raining</span>' : ''}
             ${a.isInWater ? '<span class="meta-chip" style="color:#38bdf8">🌊 In Water</span>' : ''}
-            ${a.isOnFire ? '<span class="meta-chip" class="text-red">🔥 On Fire</span>' : ''}
+            ${a.isOnFire ? '<span class="meta-chip text-red">🔥 On Fire</span>' : ''}
             ${quirk ? `<span class="meta-chip" style="color:var(--lime);font-style:italic">✨ ${esc(quirk)}</span>` : ''}
           </div>
         </div>
@@ -722,7 +722,7 @@
               ${statMeter('Anger', '😠', Math.max(0, st.anger ?? 0), 100, (st.anger ?? 0) > 50 ? 'red' : 'neutral')}
             </div>
 
-            <div class="subcard-title" class="mt-2">Gear &amp; Inventory</div>
+            <div class="subcard-title mt-2">Gear &amp; Inventory</div>
             <div class="equip-strip">
               <span class="equip-slot" title="Main Hand">⚔️ ${esc(formatItemName(eq.mainHand))}</span>
               <span class="equip-slot" title="Armor">🛡️ ${esc(formatArmor(eq))}</span>
@@ -762,7 +762,7 @@
           <div class="agent-cognition-column">
             <div class="subcard-title" style="display:flex;justify-content:space-between;align-items:center;">
               <span>🧠 Cognitive Decision Engine</span>
-              ${d?.confidence != null ? `<span style="color:var(--text-dim);font-size:11px">Conf: <b class="num" class="text-main">${Math.round(d.confidence * 100)}%</b></span>` : ''}
+              ${d?.confidence != null ? `<span style="color:var(--text-dim);font-size:11px">Conf: <b class="num text-main">${Math.round(d.confidence * 100)}%</b></span>` : ''}
             </div>
 
             <div class="action-banner">
@@ -777,7 +777,7 @@
             <div class="thought-bubble">
               <div class="thought-header">
                 <span class="thought-tag">💭 THOUGHT &amp; REASONING</span>
-                ${d?.webKnowledgeUsed ? '<span class="badge badge-cache" class="text-xs">🌐 Web Knowledge</span>' : ''}
+                ${d?.webKnowledgeUsed ? '<span class="badge badge-cache text-xs">🌐 Web Knowledge</span>' : ''}
               </div>
               <div class="thought-content">${esc(d?.reason || 'Evaluating survival parameters and heuristic rules…')}</div>
               ${d?.chatMessage ? `<div class="thought-dialogue">💬 <i>"${esc(d.chatMessage)}"</i></div>` : ''}
@@ -821,7 +821,7 @@
     });
 
     return `
-      <div class="page-header" class="flex-between-end">
+      <div class="page-header flex-between-end">
         <div>
           <div class="page-title">Decisions &amp; Escalations</div>
           <div class="page-desc">Every LLM call, chat dialogue, cache hit and fallback routed by the broker (last 200)</div>
@@ -839,7 +839,7 @@
         </div>
       </div>
 
-      <div class="card" class="section-pad">
+      <div class="card section-pad">
         ${escalationsTable(filteredEscs, false)}
       </div>
 
@@ -855,7 +855,7 @@
               ? '<div class="empty-state">No local decisions yet…</div>'
               : a.recentDecisions.slice(-12).reverse().map(x => `
                 <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px">
-                  <span class="num" class="text-muted">${timeOf(x.ts)}</span>
+                  <span class="num text-muted">${timeOf(x.ts)}</span>
                   ${sourceBadge(x)}
                   <b class="mono">${esc(x.action)}</b>
                   ${x.confidence != null ? `<span class="text-muted">conf ${Number(x.confidence).toFixed(2)}</span>` : ''}
@@ -889,7 +889,7 @@
                               : '<span class="badge" style="background:rgba(217,119,6,0.15);color:#fbbf24;font-size:10px;border:1px solid rgba(217,119,6,0.3)">🧠 REASONING</span>';
             return `
             <tr>
-              <td class="num" class="text-muted">${timeOf(e.ts)}</td>
+              <td class="num text-muted">${timeOf(e.ts)}</td>
               <td><b>${esc(e.agentId)}</b></td>
               <td>${sourceBadge(e)} ${compact ? '' : intentLabel}</td>
               <td><b class="mono">${esc(e.action || (isChat ? 'TALK' : '—'))}</b></td>
@@ -923,12 +923,12 @@
       <div class="grid-kpi">
         <div class="card"><div class="kpi-label">Actual Spend</div><div class="kpi-value green">$0.00</div><div class="kpi-sub">100% Free Tier Active</div></div>
         <div class="card"><div class="kpi-label">Tokens Processed</div><div class="kpi-value">${fmtInt((t.inputTokens || 0) + (t.outputTokens || 0))}</div><div class="kpi-sub">${fmtInt(t.inputTokens)} in / ${fmtInt(t.outputTokens)} out</div></div>
-        <div class="card"><div class="kpi-label">Commercial Value Saved</div><div class="kpi-value" class="text-lime">${fmtCost(t.savedUsd)}</div><div class="kpi-sub">vs commercial list prices</div></div>
+        <div class="card"><div class="kpi-label">Commercial Value Saved</div><div class="kpi-value text-lime">${fmtCost(t.savedUsd)}</div><div class="kpi-sub">vs commercial list prices</div></div>
         <div class="card"><div class="kpi-label">Avg Latency</div><div class="kpi-value">${t.successes ? fmtMs(Math.round((Object.values(s.providers).reduce((x, p) => x + p.totalLatencyMs, 0)) / t.successes)) : '—'}</div></div>
       </div>
 
       <div class="section-title">Free Tier Providers</div>
-      <div class="card" class="section-pad">
+      <div class="card section-pad">
         <table>
           <thead><tr>
             <th>Provider &amp; Tier</th><th>Calls</th><th>OK / Fail</th><th>429 Hits</th>
@@ -964,8 +964,8 @@
 
       <div class="section-title">Cache Efficiency (free wins)</div>
       <div class="grid-kpi">
-        <div class="card"><div class="kpi-label">Exact Hits</div><div class="kpi-value" class="text-lime">${fmtInt(s.caches.exactHits)}</div><div class="kpi-sub">$0 spent</div></div>
-        <div class="card"><div class="kpi-label">Semantic Hits</div><div class="kpi-value" class="text-lime">${fmtInt(s.caches.semanticHits)}</div><div class="kpi-sub">$0 spent</div></div>
+        <div class="card"><div class="kpi-label">Exact Hits</div><div class="kpi-value text-lime">${fmtInt(s.caches.exactHits)}</div><div class="kpi-sub">$0 spent</div></div>
+        <div class="card"><div class="kpi-label">Semantic Hits</div><div class="kpi-value text-lime">${fmtInt(s.caches.semanticHits)}</div><div class="kpi-sub">$0 spent</div></div>
         <div class="card"><div class="kpi-label">Fallbacks</div><div class="kpi-value ${s.caches.fallbacks > 0 ? 'red' : ''}">${fmtInt(s.caches.fallbacks)}</div><div class="kpi-sub">provider unavailable</div></div>
         <div class="card"><div class="kpi-label">Broker Uptime</div><div class="kpi-value mono" style="font-size:18px">${t.startedAt ? new Date(t.startedAt).toLocaleString('en-US') : '—'}</div></div>
       </div>`;
@@ -1040,10 +1040,10 @@
 
       <!-- Knowledge Ledger: Shared & Unshared Lessons -->
       <div class="grid-2-gap">
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="flex-between-12">
             <div class="section-header">💡 Shared Knowledge Ledger (${shared.length})</div>
-            <span class="badge badge-success" class="text-xs">Public Wisdom</span>
+            <span class="badge badge-success text-xs">Public Wisdom</span>
           </div>
           ${shared.length === 0 ? '<div class="empty-state">No public lessons shared yet.</div>' : `
             <div class="scroll-col-sm">
@@ -1052,8 +1052,8 @@
                   <div class="mini-row">
                     <span style="font-weight:600;font-size:12px;color:var(--accent)">${esc(l.agentId)}</span>
                     <div style="display:flex;gap:4px">
-                      <span class="badge badge-warning" class="text-xs">Sev: ${(l.severity ?? 0.5).toFixed(1)}</span>
-                      <span class="badge badge-neutral" class="text-xs">Trust: ${(l.confidence ?? 0.8).toFixed(2)}</span>
+                      <span class="badge badge-warning text-xs">Sev: ${(l.severity ?? 0.5).toFixed(1)}</span>
+                      <span class="badge badge-neutral text-xs">Trust: ${(l.confidence ?? 0.8).toFixed(2)}</span>
                     </div>
                   </div>
                   <div style="font-size:12px;color:var(--text-dim);line-height:1.4">"${esc(l.lesson)}"</div>
@@ -1063,10 +1063,10 @@
           `}
         </div>
 
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="flex-between-12">
             <div class="section-header">🔒 Unshared / Gossip Lessons (${unshared.length})</div>
-            <span class="badge badge-warning" class="text-xs">Diagnostic</span>
+            <span class="badge badge-warning text-xs">Diagnostic</span>
           </div>
           ${unshared.length === 0 ? '<div class="empty-state">No private/unshared lessons tracked.</div>' : `
             <div class="scroll-col-sm">
@@ -1074,7 +1074,7 @@
                 <div style="background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08);border-radius:6px;padding:8px 12px">
                   <div class="mini-row">
                     <span style="font-weight:600;font-size:12px;color:var(--text-dim)">${esc(l.agentId)}</span>
-                    <span class="badge badge-danger" class="text-xs">${esc(l.status || 'private')}</span>
+                    <span class="badge badge-danger text-xs">${esc(l.status || 'private')}</span>
                   </div>
                   <div style="font-size:12px;color:var(--text-faint);line-height:1.4">"${esc(l.lesson)}"</div>
                 </div>
@@ -1093,7 +1093,7 @@
               <div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:10px 14px">
                 <div class="flex-between">
                   <span style="font-weight:700;font-size:13px;color:#fca5a5">${esc(d.agentId)} felled by: ${esc(d.deathCause)}</span>
-                  <span class="num" class="text-sm text-muted">${new Date(d.timestamp).toLocaleTimeString('en-US')}</span>
+                  <span class="num text-sm text-muted">${new Date(d.timestamp).toLocaleTimeString('en-US')}</span>
                 </div>
                 ${d.penalizedRules && d.penalizedRules.length > 0 ? `
                   <div style="margin-top:6px;font-size:11px;color:var(--text-dim)">
@@ -1112,7 +1112,7 @@
       <!-- Shared Projects & Factions -->
       ${renderProjectsAndFactions()}
 
-      <div class="card" class="p-4">
+      <div class="card p-4">
         <div class="section-header">📜 Historical Chronicle Log</div>
         ${cachedChronicle.length === 0 ? '<div class="empty-state">The world is young. No historical chronicle entries recorded yet…</div>' : `
           <div style="display:flex;flex-direction:column;gap:12px">
@@ -1126,12 +1126,12 @@
                       <span style="font-size:16px">${icon}</span>
                       <span style="font-weight:700;font-size:14px;color:var(--text-bright, #f1f5f9)">${esc(entry.headline)}</span>
                     </div>
-                    <span class="num" class="text-sm text-muted">${new Date(entry.timestamp).toLocaleTimeString('en-US')}</span>
+                    <span class="num text-sm text-muted">${new Date(entry.timestamp).toLocaleTimeString('en-US')}</span>
                   </div>
                   <div style="font-size:13px;color:var(--text-dim, #cbd5e1);line-height:1.45;margin-bottom:6px">${esc(entry.detail)}</div>
                   <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-faint)">
                     <span>Actors:</span>
-                    <span class="badge badge-neutral" class="text-xs">${esc(agents)}</span>
+                    <span class="badge badge-neutral text-xs">${esc(agents)}</span>
                     <span style="margin-left:auto;text-transform:uppercase;letter-spacing:.04em;font-size:10px;color:var(--text-faint)">${esc(entry.eventType || 'event')}</span>
                   </div>
                 </div>
@@ -1188,11 +1188,11 @@
         <div class="card-inner">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <span class="section-header-sm">🌟 ${esc(g.description)}</span>
-            <span class="badge ${g.status === 'active' ? 'badge-online' : 'badge-success'}" class="text-xs">${esc(g.status)}</span>
+            <span class="badge ${g.status === 'active' ? 'badge-online' : 'badge-success'} text-xs">${esc(g.status)}</span>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--text-dim)">
-            <span class="badge badge-neutral" class="text-xs">👥 ${(g.participants || []).length}/${g.requiredAgents ?? '?'} builders</span>
-            ${pct != null ? `<span class="badge badge-warning" class="text-xs">${pct}% supplied</span>` : ''}
+            <span class="badge badge-neutral text-xs">👥 ${(g.participants || []).length}/${g.requiredAgents ?? '?'} builders</span>
+            ${pct != null ? `<span class="badge badge-warning text-xs">${pct}% supplied</span>` : ''}
             <span style="margin-left:auto;color:var(--text-faint)">by ${esc(g.creator || g.creatorAgentId || '?')}</span>
           </div>
           ${pct != null ? `<div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--accent,#6366f1)"></div></div>` : ''}
@@ -1202,14 +1202,14 @@
       <div class="card-inner">
         <div class="flex-between">
           <span class="section-header-sm">🚩 ${esc(f.name)}</span>
-          <span class="badge badge-neutral" class="text-xs">${(f.members || []).length}/4</span>
+          <span class="badge badge-neutral text-xs">${(f.members || []).length}/4</span>
         </div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Members: ${esc((f.members || []).join(', '))}${f.charter ? ` — "${esc(f.charter)}"` : ''}</div>
       </div>`;
 
     return `
       <div class="grid-2-gap">
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">🏗️ Shared Projects (${activeGoals.length} active / ${doneGoals.length} done)</div>
           ${cachedSharedGoals.length === 0 ? '<div class="empty-state">No collaborative projects proposed yet.</div>' : `
             <div class="scroll-box">
@@ -1217,7 +1217,7 @@
               ${doneGoals.map(goalCard).join('')}
             </div>`}
         </div>
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">🚩 Factions (${cachedFactions.length})</div>
           ${cachedFactions.length === 0 ? '<div class="empty-state">No factions founded yet — trust someone first.</div>' : `
             <div class="scroll-box">${cachedFactions.map(factionCard).join('')}</div>`}
@@ -1255,7 +1255,7 @@
       </div>
 
       <div class="grid-2">
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">📊 Skill Levels</div>
           ${Object.keys(skills).length === 0 ? '<div class="empty-state">No skills recorded yet</div>' : `
             <div class="flex-col-10">
@@ -1277,14 +1277,14 @@
             </div>`}
         </div>
 
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">⚡ Action Tally</div>
           ${Object.keys(actionTally).length === 0 ? '<div class="empty-state">No actions recorded</div>' : `
             <div class="flex-col-6">
               ${Object.entries(actionTally).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([action, count]) => `
                 <div class="flex-between">
                   <span class="text-base text-dim">${esc(action)}</span>
-                  <span class="badge badge-neutral" class="text-xs">${count}</span>
+                  <span class="badge badge-neutral text-xs">${count}</span>
                 </div>
               `).join('')}
             </div>`}
@@ -1389,7 +1389,7 @@
       </div>
 
       <div class="grid-2">
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">📋 Known Recipes</div>
           ${knownRecipes.length === 0 ? '<div class="empty-state">No recipes learned yet</div>' : `
             <div class="scroll-col">
@@ -1405,7 +1405,7 @@
             </div>`}
         </div>
 
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">🌳 Tech Tree</div>
           ${Object.keys(techTree).length === 0 ? '<div class="empty-state">No tech tree data</div>' : `
             <div style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto">
@@ -1416,7 +1416,7 @@
                     ${(Array.isArray(items) ? items : []).map(item => {
                       const name = typeof item === 'string' ? item : item.name || item.item || '?';
                       const known = knownRecipes.some(r => (typeof r === 'string' ? r : r.name || r.item) === name);
-                      return `<span class="badge ${known ? 'badge-success' : 'badge-neutral'}" class="text-xs">${known ? '✓' : '○'} ${esc(name)}</span>`;
+                      return `<span class="badge ${known ? 'badge-success' : 'badge-neutral'} text-xs">${known ? '✓' : '○'} ${esc(name)}</span>`;
                     }).join('')}
                   </div>
                 </div>
@@ -1473,7 +1473,7 @@
         </div>
       </div>
 
-      <div class="card" class="p-4">
+      <div class="card p-4">
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
           <div class="flex-center-6"><div style="width:12px;height:12px;background:var(--green);border-radius:2px"></div><span class="text-sm text-dim">Explored</span></div>
           <div class="flex-center-6"><div style="width:12px;height:12px;background:var(--amber);border-radius:2px"></div><span class="text-sm text-dim">Discovery</span></div>
@@ -1517,27 +1517,27 @@
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px">
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">⛏️ Ore Summary</div>
           ${Object.keys(oreCounts).length === 0 ? '<div class="empty-state">No discoveries yet</div>' : `
             <div class="flex-col-6">
               ${Object.entries(oreCounts).sort((a, b) => b[1] - a[1]).map(([ore, count]) => `
                 <div class="flex-between">
                   <span class="text-base text-main">${esc(ore)}</span>
-                  <span class="badge badge-warning" class="text-xs">${count}</span>
+                  <span class="badge badge-warning text-xs">${count}</span>
                 </div>
               `).join('')}
             </div>`}
         </div>
 
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">📍 Discovery Log</div>
           ${allDiscoveries.length === 0 ? '<div class="empty-state">No discoveries recorded</div>' : `
             <div class="scroll-col">
               ${allDiscoveries.slice(0, 50).map(d => `
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:4px">
                   <span style="font-size:11px;color:var(--text-faint);min-width:60px">${timeOf(d.timestamp)}</span>
-                  <span class="badge badge-neutral" class="text-xs">${esc(d.agentId)}</span>
+                  <span class="badge badge-neutral text-xs">${esc(d.agentId)}</span>
                   <span style="font-size:12px;color:var(--amber)">${esc(d.ore || d.type || 'discovery')}</span>
                   <span style="font-size:11px;color:var(--text-dim);margin-left:auto">(${d.x || d.chunkX || '?'}, ${d.z || d.chunkZ || '?'})</span>
                 </div>
@@ -1559,20 +1559,20 @@
         <div class="page-desc">${cachedTrades.length} trades recorded</div>
       </div>
 
-      <div class="card" class="p-4">
+      <div class="card p-4">
         ${cachedTrades.length === 0 ? '<div class="empty-state">No trades recorded yet</div>' : `
           <div style="display:flex;flex-direction:column;gap:8px;max-height:600px;overflow-y:auto">
             ${cachedTrades.slice().reverse().map(t => `
               <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px">
                 <span style="font-size:11px;color:var(--text-faint);min-width:70px">${timeOf(t.timestamp)}</span>
-                <span class="badge badge-success" class="text-xs">${esc(t.fromAgent || t.seller || '?')}</span>
+                <span class="badge badge-success text-xs">${esc(t.fromAgent || t.seller || '?')}</span>
                 <span class="text-dim">→</span>
-                <span class="badge badge-success" class="text-xs">${esc(t.toAgent || t.buyer || '?')}</span>
+                <span class="badge badge-success text-xs">${esc(t.toAgent || t.buyer || '?')}</span>
                 <div style="flex:1;font-size:12px;color:var(--text)">
                   ${esc(t.item || t.giveItem || '?')} ×${t.quantity || t.giveCount || t.count || 1}
                   ${t.receiveItem ? ` for ${esc(t.receiveItem)} ×${t.receiveCount || 1}` : ''}
                 </div>
-                ${t.settled ? '<span class="badge badge-success" class="text-xs">settled</span>' : '<span class="badge badge-warning" class="text-xs">pending</span>'}
+                ${t.settled ? '<span class="badge badge-success text-xs">settled</span>' : '<span class="badge badge-warning text-xs">pending</span>'}
               </div>
             `).join('')}
           </div>`}
@@ -1639,7 +1639,8 @@
     }
     allRelationships.sort((a, b) => (b.trust || 0) - (a.trust || 0));
 
-    const trustColors = (t) => t >= 0.7 ? 'var(--green)' : t >= 0.4 ? 'var(--amber)' : 'var(--red)';
+    const trustColors = (t) => t >= 70 ? 'var(--green)' : t >= 40 ? 'var(--amber)' : 'var(--red)';
+    const affinityColors = (a) => a >= 70 ? 'var(--green)' : a >= 40 ? 'var(--cyan)' : 'var(--red)';
 
     return `
       <div class="page-header">
@@ -1647,23 +1648,35 @@
         <div class="page-desc">${allRelationships.length} relationships tracked</div>
       </div>
 
-      <div class="card" class="p-4">
+      <div class="card p-4">
         ${allRelationships.length === 0 ? '<div class="empty-state">No relationships formed yet — agents need to interact more</div>' : `
           <div style="display:flex;flex-direction:column;gap:6px;max-height:600px;overflow-y:auto">
-            ${allRelationships.map(r => `
+            ${allRelationships.map(r => {
+              const trust = r.trust ?? 50;
+              const affinity = r.affinity ?? 50;
+              return `
               <div class="flex-center-12 card-inner">
-                <span class="badge badge-neutral" class="text-xs-min">${esc(r.agentId)}</span>
+                <span class="badge badge-neutral text-xs-min">${esc(r.agentId)}</span>
                 <span class="text-dim">↔</span>
-                <span class="badge badge-neutral" class="text-xs-min">${esc(r.with)}</span>
-                <div style="flex:1;display:flex;align-items:center;gap:8px">
-                  <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
-                    <div style="height:100%;width:${Math.round((r.trust || 0) * 100)}%;background:${trustColors(r.trust || 0)};border-radius:3px"></div>
+                <span class="badge badge-neutral text-xs-min">${esc(r.with)}</span>
+                <div style="flex:1;display:flex;align-items:center;gap:12px">
+                  <div style="flex:1">
+                    <div style="font-size:9px;color:var(--text-dim);margin-bottom:2px">Trust</div>
+                    <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                      <div style="height:100%;width:${trust}%;background:${trustColors(trust)};border-radius:3px"></div>
+                    </div>
                   </div>
-                  <span style="font-size:11px;color:var(--text-dim);min-width:40px">${Math.round((r.trust || 0) * 100)}%</span>
+                  <span style="font-size:11px;color:var(--text-dim);min-width:32px">${trust}%</span>
+                  <div style="flex:1">
+                    <div style="font-size:9px;color:var(--text-dim);margin-bottom:2px">Affinity</div>
+                    <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
+                      <div style="height:100%;width:${affinity}%;background:${affinityColors(affinity)};border-radius:3px"></div>
+                    </div>
+                  </div>
+                  <span style="font-size:11px;color:var(--text-dim);min-width:32px">${affinity}%</span>
                 </div>
-                <span class="text-sm text-muted">${r.interactions || 0} interactions</span>
-              </div>
-            `).join('')}
+              </div>`;
+            }).join('')}
           </div>`}
       </div>
     `;
@@ -1687,16 +1700,16 @@
         </div>
       </div>
 
-      <div class="card" class="p-4">
+      <div class="card p-4">
         <div class="section-header">💰 Tax Obligations</div>
         ${allTaxes.length === 0 ? '<div class="empty-state">No tax obligations recorded — agents initiate taxes voluntarily</div>' : `
           <div style="display:flex;flex-direction:column;gap:6px;max-height:500px;overflow-y:auto">
             ${allTaxes.slice().reverse().map(t => `
               <div class="flex-center-12 card-inner">
-                <span class="badge badge-neutral" class="text-xs">${esc(t.agentId || t.payer || '?')}</span>
+                <span class="badge badge-neutral text-xs">${esc(t.agentId || t.payer || '?')}</span>
                 <span class="text-base text-main">${esc(t.item || t.description || 'tax')} ×${t.quantity || t.amount || 1}</span>
                 <span style="font-size:11px;color:var(--text-faint);margin-left:auto">${timeOf(t.timestamp)}</span>
-                ${t.paid ? '<span class="badge badge-success" class="text-xs">paid</span>' : '<span class="badge badge-warning" class="text-xs">pending</span>'}
+                ${t.paid ? '<span class="badge badge-success text-xs">paid</span>' : '<span class="badge badge-warning text-xs">pending</span>'}
               </div>
             `).join('')}
           </div>`}
@@ -1734,7 +1747,7 @@
           `).join('')}
         </div>
 
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">💀 Death History</div>
           ${allDeaths.length === 0 ? '<div class="empty-state">No deaths recorded</div>' : `
             <div class="scroll-col">
@@ -1789,7 +1802,7 @@
       </div>
 
       <div class="grid-2">
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">❤️ Vital Signs</div>
           ${statBar('Health', health, 20, 'var(--green)')}
           ${statBar('Hunger', hunger, 20, 'var(--amber)')}
@@ -1798,7 +1811,7 @@
           ${statBar('Fatigue', fatigue, 1, 'var(--cyan)')}
         </div>
 
-        <div class="card" class="p-4">
+        <div class="card p-4">
           <div class="section-header">📊 Lifetime Stats</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             ${Object.entries(stats).map(([key, val]) => `

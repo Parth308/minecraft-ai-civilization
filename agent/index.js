@@ -786,6 +786,7 @@ function createAgent() {
           agentState.exploration = chunkMemory.toContext();
           agentState.pendingInvestigation = deathInvestigator.getPendingInvestigation();
           agentState.pendingTaxObligations = taxCollector.getPendingObligations();
+          agentState.relationships = relationships.getAll();
           // ───────────────────────────────────────────────────────────────
 
           detailedLogger.logCognition(bot.username, `Tick Decision: ${decision.action}`, {
