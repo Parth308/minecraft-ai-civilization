@@ -1,0 +1,302 @@
+/**
+ * Template-based local fallback for social chat responses.
+ * Handles ~80% of simple exchanges instantly when all LLM providers are quarantined.
+ * Templates are indexed by (intent × trust-tier × mood-bucket) for fast lookup.
+ */
+
+'use strict';
+
+// ── Intent classification ────────────────────────────────────────────────────
+// Simple keyword/pattern matching — no LLM needed.
+const INTENT_PATTERNS = [
+  { intent: 'greeting',   patterns: /^(hi|hey|hello|yo|sup|greetings|howdy|what'?s up|wassup|heya|hiya)/i },
+  { intent: 'farewell',   patterns: /^(bye|goodbye|see ya|later|cya|gotta go|brb|gtg|night|adios)/i },
+  { intent: 'yes',        patterns: /^(yes|yeah|yep|yup|sure|ok|okay|alright|aye|affirmative|deal|agreed|sounds good|let'?s go)/i },
+  { intent: 'no',         patterns: /^(no|nah|nope|no way|pass|not really|negative|nay)/i },
+  { intent: 'thanks',     patterns: /^(thanks|thx|ty|appreciate|cheers|nice|cool|sweet|awesome)/i },
+  { intent: 'taunt',      patterns: /(stupid|idiot|noob|trash|terrible|worst|lame|suck|weak|pathetic)/i },
+  { intent: 'compliment',  patterns: /(nice|good|great|awesome|cool|impressive|well done|pro|based|respect)/i },
+  { intent: 'help',       patterns: /(help|need|stuck|lost|where|how|can you|could you)/i },
+  { intent: 'question',   patterns: /\?$/ },
+  { intent: 'threat',     patterns: /(kill|destroy|raid|attack|fight|war|burn|destroy)/i },
+  { intent: 'trade_offer', patterns: /(trade|swap|exchange|give|offer|sell|buy|deal)/i },
+  { intent: 'accusation', patterns: /(stole|steal|thief|took|took my|where.*iron|where.*diamond)/i },
+  { intent: 'gossip',     patterns: /(heard|rumor|apparently|someone|they say|people)/i },
+  { intent: 'location',   patterns: /(where are you|your base|coordinates|coords|where.*live|hideout)/i },
+  { intent: 'status',     patterns: /(how are you|you ok|how goes|how goes it|what'?s up with you|you good)/i },
+  { intent: 'agreement',  patterns: /(let'?s|we should|together|team up|join|collab)/i },
+  { intent: 'refusal',    patterns: /(no way|not happening|forget it|never|not a chance|over my dead)/i },
+  { intent: 'emote',      patterns: /(lol|haha|lmao|rofl|xd|😂|💀|bruh|oof|ugh)/i },
+];
+
+// ── Trust tiers ──────────────────────────────────────────────────────────────
+function getTrustTier(trust) {
+  if (trust < 30) return 'distrust';
+  if (trust < 60) return 'neutral';
+  return 'trusted';
+}
+
+// ── Mood buckets ─────────────────────────────────────────────────────────────
+function getMoodBucket(mood) {
+  if (mood > 0.2) return 'happy';
+  if (mood < -0.2) return 'angry';
+  return 'neutral';
+}
+
+// ── Template bank ────────────────────────────────────────────────────────────
+// Structure: templates[intent][trustTier][moodBucket] = string[]
+// Each template has {name} placeholders for the speaker's name.
+const TEMPLATES = {
+  greeting: {
+    trusted: {
+      happy: [
+        "hey {name}! been looking for you",
+        "{name}! finally, was starting to worry",
+        "yo {name}! good to see ya",
+        "oh hey {name}! perfect timing",
+        "{name}! been a minute, what you up to?",
+        "yooo {name}! let's gooo",
+      ],
+      neutral: [
+        "hey {name}",
+        "oh hey {name}",
+        "yo {name}, what's up",
+        "hey {name}, good to see ya",
+        "{name}! sup",
+      ],
+      angry: [
+        "...hey {name}",
+        "oh. it's you {name}.",
+        "*sigh* hey {name}",
+        "what do you want {name}",
+      ],
+    },
+    neutral: {
+      happy: [
+        "hey {name}!",
+        "yo {name}! what's good",
+        "oh hey {name}, nice to see ya",
+        "hiya {name}!",
+      ],
+      neutral: [
+        "hey {name}",
+        "yo {name}",
+        "sup {name}",
+        "oh hey",
+        "hi {name}",
+      ],
+      angry: [
+        "what",
+        "yeah what do you want",
+        "...hey",
+        "hm?",
+      ],
+    },
+    distrust: {
+      happy: [
+        "oh hey {name}... what's up",
+        "hey {name}. you need something?",
+      ],
+      neutral: [
+        "...what",
+        "yeah?",
+        "hm? oh hey {name}",
+        "you want something?",
+      ],
+      angry: [
+        "what do you want",
+        "...",
+        "leave me alone {name}",
+      ],
+    },
+  },
+
+  farewell: {
+    trusted: {
+      happy: ["see ya {name}!", "later! stay safe out there", "catch ya later {name}", "byeee!"],
+      neutral: ["later {name}", "see ya", "catch ya later", "gotta go, bye"],
+      angry: ["finally. bye", "whatever. later"],
+    },
+    neutral: {
+      happy: ["see ya!", "later!", "bye!"],
+      neutral: ["bye", "later", "see ya", "cya"],
+      angry: ["bye", "whatever"],
+    },
+    distrust: {
+      happy: ["uh... bye", "ok then. later"],
+      neutral: ["bye", "later"],
+      angry: ["good riddance", "finally"],
+    },
+  },
+
+  yes: {
+    trusted:  { happy: ["deal!", "let's go!", "awesome, let's do it", "yes!"], neutral: ["sure thing", "yep", "ok", "alright", "sounds good"], angry: ["fine. whatever", "sure i guess"] },
+    neutral:  { happy: ["sure!", "yep!", "let's go"], neutral: ["sure", "yep", "ok", "alright", "yeah"], angry: ["...fine", "i guess"] },
+    distrust: { happy: ["...sure", "ok i guess"], neutral: ["sure", "ok", "fine"], angry: ["...whatever", "fine"] },
+  },
+
+  no: {
+    trusted:  { happy: ["nah not feeling it", "maybe later", "pass for now"], neutral: ["nah", "nope", "not right now", "pass"], angry: ["no. absolutely not", "hell no", "not a chance"] },
+    neutral:  { happy: ["nah sorry", "maybe later"], neutral: ["nah", "nope", "pass", "no"], angry: ["no way", "not happening", "forget it"] },
+    distrust: { happy: ["nah", "not really"], neutral: ["no", "nah", "pass"], angry: ["no.", "not a chance", "absolutely not"] },
+  },
+
+  thanks: {
+    trusted:  { happy: ["anytime!", "of course!", "you got it!", "no problem!"], neutral: ["np", "sure", "no worries", "anytime"], angry: ["...whatever", "yeah ok"] },
+    neutral:  { happy: ["np!", "no problem!", "sure thing"], neutral: ["np", "sure", "no worries", "yw"], angry: ["whatever", "ok"] },
+    distrust: { happy: ["...sure", "ok"], neutral: ["np", "sure"], angry: ["hm", "whatever"] },
+  },
+
+  taunt: {
+    trusted:  { happy: ["lol ok tough guy", "says you haha", "bro what"], neutral: ["excuse me?", "wow rude", "ok then"], angry: ["watch it", "say that again", "you want problems?"] },
+    neutral:  { happy: ["lol nice try", "haha ok"], neutral: ["rude", "ok wow", "harsh"], angry: ["say that again. i dare you", "watch your mouth", "you wanna go?"] },
+    distrust: { happy: ["ok tough guy", "sure buddy"], neutral: ["wow", "ok then", "rude"], angry: ["careful", "keep talking", "you'll regret that"] },
+  },
+
+  compliment: {
+    trusted:  { happy: ["aww thanks {name}!", "you're the best!", "right back at ya!", "heh thanks"], neutral: ["thanks", "appreciate it", "not bad yourself"], angry: ["...thanks i guess", "hm. ok"] },
+    neutral:  { happy: ["thanks!", "appreciate that!", "you too!"], neutral: ["thanks", "appreciate it", "cool"], angry: ["...ok thanks"] },
+    distrust: { happy: ["oh uh thanks", "...thanks"], neutral: ["thanks", "ok"], angry: ["hm", "...whatever"] },
+  },
+
+  help: {
+    trusted:  { happy: ["on my way!", "sure what do you need?", "let's go help {name}!", "what's up, need help?"], neutral: ["what do you need?", "sure, what's up?", "how can I help?"], angry: ["...what do you need", "fine, what is it"] },
+    neutral:  { happy: ["sure what's up?", "need help?"], neutral: ["what do you need?", "sure", "what's up?"], angry: ["what", "what do you want"] },
+    distrust: { happy: ["...what do you need?", "sure I guess"], neutral: ["what?", "what do you need"], angry: ["no", "figure it out yourself"] },
+  },
+
+  question: {
+    trusted:  { happy: ["good question! let me think...", "hmm I think so?", "oh yeah definitely"], neutral: ["hmm", "good question", "not sure actually", "let me check"], angry: ["idk look it up", "how should I know"] },
+    neutral:  { happy: ["hmm let me think", "good question"], neutral: ["hmm", "not sure", "maybe?", "idk"], angry: ["idk", "google it"] },
+    distrust: { happy: ["um I think so?", "...maybe"], neutral: ["idk", "not sure", "maybe"], angry: ["how should I know", "figure it out"] },
+  },
+
+  threat: {
+    trusted:  { happy: ["lol you wouldn't", "try me"], neutral: ["whoa calm down", "let's not do that"], angry: ["you want war? you got it", "bring it"] },
+    neutral:  { happy: ["ok tough guy", "sure buddy"], neutral: ["back off", "don't try me", "let's keep it civil"], angry: ["you want problems? you got em", "say that again"] },
+    distrust: { happy: ["try it", "sure buddy"], neutral: ["stay away from me", "don't test me"], angry: ["i will END you", "you're dead to me"] },
+  },
+
+  trade_offer: {
+    trusted:  { happy: ["sure! what you got?", "let's trade!", "deal! what are we swapping?"], neutral: ["what's your offer?", "depends what you got", "maybe, what do you have?"], angry: ["not interested", "no trades right now"] },
+    neutral:  { happy: ["sure what you got?", "maybe! what's the deal?"], neutral: ["what's the offer?", "depends", "maybe"], angry: ["not right now", "pass"] },
+    distrust: { happy: ["...what's the catch?", "sure I guess"], neutral: ["what do you want?", "maybe"], angry: ["no thanks", "not interested"] },
+  },
+
+  accusation: {
+    trusted:  { happy: ["what?? no way!", "bro I would never!", "you're joking right?"], neutral: ["I didn't do that", "that wasn't me", "what are you talking about?"], angry: ["how dare you!", "prove it", "I didn't steal anything!"] },
+    neutral:  { happy: ["wait what? no!", "I didn't do that"], neutral: ["wasn't me", "I didn't steal anything", "that's not true"], angry: ["prove it or shut up", "don't accuse me", "I did NOT"] },
+    distrust: { happy: ["what? no...", "that's crazy"], neutral: ["prove it", "wasn't me", "I don't know what you're talking about"], angry: ["you got no proof", "shut up", "I didn't do anything"] },
+  },
+
+  gossip: {
+    trusted:  { happy: ["omg really?!", "no way tell me more!", "spill the tea!"], neutral: ["hmm interesting", "oh really?", "is that so?"], angry: ["who said that?", "don't believe everything you hear"] },
+    neutral:  { happy: ["oh really?", "no way!", "interesting..."], neutral: ["hmm", "oh?", "is that so?"], angry: ["whatever", "don't care"] },
+    distrust: { happy: ["oh?", "...really"], neutral: ["hmm", "ok"], angry: ["don't care", "whatever"] },
+  },
+
+  location: {
+    trusted:  { happy: ["come find me! I'm near the river", "I'll ping you my coords", "follow the torches!"], neutral: ["I'm around", "not too far from base", "exploring nearby"], angry: ["none of your business", "why do you want to know?"] },
+    neutral:  { happy: ["I'm around somewhere", "near the forest"], neutral: ["exploring", "around", "not sure where exactly"], angry: ["why?", "none of your business"] },
+    distrust: { happy: ["um... somewhere safe", "haha good question"], neutral: ["not telling", "around", "why do you ask?"], angry: ["NONE of your business", "you'll never find me"] },
+  },
+
+  status: {
+    trusted:  { happy: ["great! been productive today", "doing good, just found iron!", "living the dream"], neutral: ["hanging in there", "not bad", "surviving"], angry: ["could be better", "not great honestly", "ugh long day"] },
+    neutral:  { happy: ["doing good!", "can't complain", "pretty good"], neutral: ["alright", "not bad", "hanging in there"], angry: ["not great", "whatever", "been better"] },
+    distrust: { happy: ["fine", "ok"], neutral: ["alright", "fine", "why?"], angry: ["none of your business", "why do you care"] },
+  },
+
+  agreement: {
+    trusted:  { happy: ["let's do it!", "yes! together!", "in!", "count me in!"], neutral: ["sure", "ok", "sounds like a plan"], angry: ["...fine", "sure whatever"] },
+    neutral:  { happy: ["sure let's go!", "in!"], neutral: ["sure", "ok", "maybe"], angry: ["...I guess", "fine"] },
+    distrust: { happy: ["...sure I guess", "ok"], neutral: ["maybe", "depends"], angry: ["no", "not happening"] },
+  },
+
+  emote: {
+    trusted:  { happy: ["haha yeah", "lol", "bruh", "💀", "based"], neutral: ["lol", "haha", "bruh", "oof"], angry: ["bruh", "ugh", "oof"] },
+    neutral:  { happy: ["lol", "haha", "nice"], neutral: ["lol", "haha", "oof", "bruh"], angry: ["ugh", "bruh"] },
+    distrust: { happy: ["heh", "lol"], neutral: ["hm", "ok", "lol"], angry: ["ugh", "..."] },
+  },
+
+  refusal: {
+    trusted:  { happy: ["no way jose", "hard pass", "not happening"], neutral: ["nah", "nope", "not happening"], angry: ["ABSOLUTELY NOT", "over my dead body", "NEVER"] },
+    neutral:  { happy: ["no way", "hard pass"], neutral: ["nah", "nope", "pass", "not happening"], angry: ["NO", "forget it", "not a chance"] },
+    distrust: { happy: ["nah", "no way"], neutral: ["no", "pass", "not happening"], angry: ["absolutely NOT", "over my dead body"] },
+  },
+};
+
+// ── Fallback catch-all templates (when no intent matches) ────────────────────
+const CATCH_ALL = {
+  trusted: {
+    happy: ["hm let me think about that", "interesting...", "oh?", "tell me more"],
+    neutral: ["hm", "oh", "interesting", "ok", "I see"],
+    angry: ["hm.", "ok.", "...whatever"],
+  },
+  neutral: {
+    happy: ["hm?", "oh interesting", "huh"],
+    neutral: ["hm", "ok", "oh", "...", "I see"],
+    angry: ["hm", "ok", "..."],
+  },
+  distrust: {
+    happy: ["hm?", "...ok", "interesting"],
+    neutral: ["hm", "ok", "...", "what"],
+    angry: ["...", "hm", "ok"],
+  },
+};
+
+// ── Intent classifier ────────────────────────────────────────────────────────
+function classifyIntent(message) {
+  if (!message || typeof message !== 'string') return 'status';
+  const trimmed = message.trim();
+  for (const { intent, patterns } of INTENT_PATTERNS) {
+    if (patterns.test(trimmed)) return intent;
+  }
+  return 'status'; // default fallback for unrecognized messages
+}
+
+// ── Template selector ────────────────────────────────────────────────────────
+function pickTemplate(intent, trust, mood, speakerName) {
+  const tier = getTrustTier(trust);
+  const bucket = getMoodBucket(mood);
+
+  const pool =
+    TEMPLATES[intent]?.[tier]?.[bucket] ||
+    TEMPLATES[intent]?.[tier]?.neutral ||
+    TEMPLATES[intent]?.neutral?.[bucket] ||
+    TEMPLATES[intent]?.neutral?.neutral ||
+    CATCH_ALL[tier]?.[bucket] ||
+    CATCH_ALL.neutral.neutral;
+
+  const template = pool[Math.floor(Math.random() * pool.length)];
+  return template.replace(/\{name\}/g, speakerName || 'friend');
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Try to generate a template-based response for a social chat message.
+ * @param {object} payload - The social chat payload from the agent
+ * @param {string} payload.message - The incoming message text
+ * @param {string} payload.speaker - Who sent the message
+ * @param {object} payload.relationship - { trust, affinity }
+ * @param {object} payload.emotions - { mood, emotions, feelings }
+ * @returns {{ chatMessage: string, confidence: number, intent: string } | null}
+ */
+function tryTemplate(payload) {
+  const message = payload.message || '';
+  const speaker = payload.speaker || 'Someone';
+  const trust = payload.relationship?.trust ?? 50;
+  const mood = payload.emotions?.mood ?? 0;
+
+  const intent = classifyIntent(message);
+  const chatMessage = pickTemplate(intent, trust, mood, speaker);
+
+  // Confidence: high for clear intents, lower for catch-all
+  const hasPattern = INTENT_PATTERNS.some(p => p.patterns.test(message));
+  const confidence = hasPattern ? 0.9 : 0.5;
+
+  return { chatMessage, confidence, intent };
+}
+
+module.exports = { tryTemplate, classifyIntent, getTrustTier, getMoodBucket };

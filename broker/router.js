@@ -32,6 +32,7 @@ const config = require('./config');
 const logger = require('../shared/logger');
 const fs = require('fs');
 const path = require('path');
+const { generateLocalChatResponse } = require('./local-fallback');
 
 /**
  * Free Tier & Benchmark Rates (USD per 1M tokens)
@@ -481,8 +482,28 @@ class ProviderRouter {
     const available = this.getPreferredProviders(taskType, criticality);
 
     if (available.length === 0) {
-      logger.warn('Router', `No unblocked LLM providers available for task '${taskType}'! Using fallback.`);
+      logger.warn('Router', `No unblocked LLM providers available for task '${taskType}'! Using local fallback.`);
       this.cacheStats.fallbacks += 1;
+
+      if (taskType === 'SOCIAL_CHAT') {
+        const localResult = await generateLocalChatResponse(situationPayload);
+        const fb = {
+          ...this.fallbackHeuristic(situationPayload),
+          chatMessage: localResult.chatMessage,
+          localFallback: true,
+          localFallbackSource: localResult.source,
+          localFallbackIntent: localResult.intent,
+        };
+        this._logEscalation({
+          agentId, taskType, source: 'local_fallback',
+          action: fb.action, reason: fb.reason,
+          provider: null, model: null, cached: false, webKnowledgeUsed: false,
+          inputTokens: 0, outputTokens: 0, costUsd: 0,
+          latencyMs: localResult.latencyMs
+        });
+        return fb;
+      }
+
       const fb = this.fallbackHeuristic(situationPayload);
       this._logEscalation({
         agentId, taskType, source: 'fallback',
@@ -564,6 +585,27 @@ class ProviderRouter {
 
     logger.warn('Router', `All preferred providers failed for task '${taskType}'. Falling back.`);
     this.cacheStats.fallbacks += 1;
+
+    if (taskType === 'SOCIAL_CHAT') {
+      const localResult = await generateLocalChatResponse(situationPayload);
+      const fb = {
+        ...this.fallbackHeuristic(situationPayload),
+        chatMessage: localResult.chatMessage,
+        localFallback: true,
+        localFallbackSource: localResult.source,
+        localFallbackIntent: localResult.intent,
+      };
+      this._logEscalation({
+        agentId, taskType, source: 'local_fallback',
+        action: fb.action, reason: fb.reason,
+        provider: null, model: null, cached: false, webKnowledgeUsed: false,
+        inputTokens: 0, outputTokens: 0, costUsd: 0,
+        latencyMs: localResult.latencyMs,
+        error: lastError ? lastError.message : 'all providers failed'
+      });
+      return fb;
+    }
+
     const fb = this.fallbackHeuristic(situationPayload);
     this._logEscalation({
       agentId, taskType, source: 'fallback',
