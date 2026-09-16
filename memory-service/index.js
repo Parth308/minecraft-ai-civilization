@@ -384,6 +384,9 @@ app.post('/api/ledger/factions', (req, res) => {
   if (!name || !founderId) {
     return res.status(400).json({ error: 'name and founderId required' });
   }
+  if (!/^Agent_[A-Z][a-zA-Z]+$/.test(founderId)) {
+    return res.status(400).json({ error: `Invalid founderId: '${founderId}'` });
+  }
   const result = ledger.createFaction(name, founderId, charter);
   res.json(result);
 });
@@ -392,6 +395,9 @@ app.post('/api/ledger/factions/join', (req, res) => {
   const { factionId, agentId } = req.body;
   if (!factionId || !agentId) {
     return res.status(400).json({ error: 'factionId and agentId required' });
+  }
+  if (!/^Agent_[A-Z][a-zA-Z]+$/.test(agentId)) {
+    return res.status(400).json({ error: `Invalid agentId: '${agentId}'` });
   }
   const result = ledger.joinFaction(factionId, agentId);
   res.json(result);

@@ -475,7 +475,12 @@ class CivilizationLedger {
     return data.debts.filter(d => d.status === 'open' && (d.creditorId === agentId || d.debtorId === agentId));
   }
 
+  _isValidAgentId(id) {
+    return typeof id === 'string' && /^Agent_[A-Z][a-zA-Z]+$/.test(id);
+  }
+
   createFaction(name, founderId, charter = '') {
+    if (!this._isValidAgentId(founderId)) return { saved: false, reason: `Invalid agent ID: '${founderId}'` };
     const data = this.getLedger();
     if (!Array.isArray(data.factions)) data.factions = [];
     const existing = data.factions.find(f => f.members.includes(founderId));
@@ -497,6 +502,7 @@ class CivilizationLedger {
   }
 
   joinFaction(factionId, agentId) {
+    if (!this._isValidAgentId(agentId)) return { saved: false, reason: `Invalid agent ID: '${agentId}'` };
     const data = this.getLedger();
     if (!Array.isArray(data.factions)) data.factions = [];
     const faction = data.factions.find(f => f.id === factionId);
