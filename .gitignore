@@ -49,6 +49,8 @@ backups/
 
 # Private Agent Docs (internal ops manual)
 AGENTS.md
+CODEBASE_AUDIT_AND_ARCHITECTURE.md
+audit-report.md
 
 # OS generated files
 .DS_Store
