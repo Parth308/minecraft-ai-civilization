@@ -2,6 +2,7 @@
 
 const { tryTemplate, classifyIntent, tryLearnedTemplate, learnTemplate, getLearnedStats, validateSLMResponse, recordHeard } = require('./templates');
 const { querySLM } = require('./ollamaClient');
+const factory = require('./template-factory');
 const logger = require('../../shared/logger');
 
 const SIMPLE_INTENTS = new Set([
@@ -140,12 +141,17 @@ function _deriveRelationshipDelta(intent, trust, mood) {
 async function generateLocalChatResponse(payload) {
   const t0 = Date.now();
   const message = payload.message || '';
-  const intent = classifyIntent(message);
+  const agentId = payload.agentId || null;
+  const intent = classifyIntent(message, agentId);
   const trust = payload.relationship?.trust ?? 50;
   const mood = payload.emotions?.mood ?? 0;
 
   if (payload.agentId && payload.speaker) {
     recordHeard(payload.agentId, message);
+  }
+
+  if (payload.speaker) {
+    factory.recordChat(message, payload.speaker, intent);
   }
 
   stats.attempts += 1;
@@ -156,6 +162,19 @@ async function generateLocalChatResponse(payload) {
     return {
       chatMessage: learned,
       source: 'learned',
+      latencyMs: Date.now() - t0,
+      intent,
+      relationshipDelta: _deriveRelationshipDelta(intent, trust, mood),
+      emotionDelta: _deriveEmotionDelta(intent, trust, mood),
+    };
+  }
+
+  const smart = factory.pickSmartTemplate(intent);
+  if (smart) {
+    stats.smartHits = (stats.smartHits || 0) + 1;
+    return {
+      chatMessage: smart,
+      source: 'smart_template',
       latencyMs: Date.now() - t0,
       intent,
       relationshipDelta: _deriveRelationshipDelta(intent, trust, mood),
@@ -206,15 +225,19 @@ async function generateLocalChatResponse(payload) {
 
 function getLocalFallbackStats() {
   const learned = getLearnedStats();
+  const smartStats = factory.getSmartTemplateStats();
   return {
     ...stats,
     avgSlmLatencyMs: stats.slmHits > 0 ? Math.round(stats.totalSlmLatencyMs / stats.slmHits) : 0,
     learned,
+    smart: smartStats,
     slmFatigue,
     slmFatigueCeil: SLM_FATIGUE_CEIL,
     slmFatigueRecoveryAt: slmFatigueRecoveryAt > Date.now() ? slmFatigueRecoveryAt : 0,
     slmFatigueCooldownMs: _getFatigueCooldownMs(),
   };
 }
+
+factory.startFactory();
 
 module.exports = { generateLocalChatResponse, getLocalFallbackStats };

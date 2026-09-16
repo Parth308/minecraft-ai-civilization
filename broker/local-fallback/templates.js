@@ -30,6 +30,29 @@ const INTENT_PATTERNS = [
 ];
 
 const ANTI_REPEAT = new Map();
+const INTENT_HISTORY = new Map();
+const INTENT_HISTORY_WINDOW = 6;
+const STATUS_SPIRAL_THRESHOLD = 3;
+
+function _recentIntents(agentId) {
+  if (!INTENT_HISTORY.has(agentId)) INTENT_HISTORY.set(agentId, []);
+  return INTENT_HISTORY.get(agentId);
+}
+
+function _recordIntent(agentId, intent) {
+  if (!agentId) return;
+  const ring = _recentIntents(agentId);
+  ring.push(intent);
+  if (ring.length > INTENT_HISTORY_WINDOW) ring.shift();
+}
+
+function _detectStatusSpiral(agentId) {
+  if (!agentId) return false;
+  const recent = _recentIntents(agentId);
+  if (recent.length < STATUS_SPIRAL_THRESHOLD) return false;
+  const lastN = recent.slice(-STATUS_SPIRAL_THRESHOLD);
+  return lastN.every(i => i === 'status');
+}
 
 function getTrustTier(trust) {
   if (trust < 30) return 'distrust';
@@ -185,13 +208,24 @@ function _isEcho(agentId, response) {
   return false;
 }
 
-function classifyIntent(message) {
+const STATUS_SPIRAL_REDIRECTS = ['greeting', 'agreement', 'question', 'emote', 'compliment'];
+
+function classifyIntent(message, agentId) {
   if (!message || typeof message !== 'string') return 'status';
   const trimmed = message.trim();
+  let detected = 'status';
   for (const { intent, patterns } of INTENT_PATTERNS) {
-    if (patterns.test(trimmed)) return intent;
+    if (patterns.test(trimmed)) { detected = intent; break; }
   }
-  return 'status';
+
+  if (detected === 'status' && _detectStatusSpiral(agentId)) {
+    const redirect = STATUS_SPIRAL_REDIRECTS[Math.floor(Math.random() * STATUS_SPIRAL_REDIRECTS.length)];
+    if (agentId) _recordIntent(agentId, redirect);
+    return redirect;
+  }
+
+  if (agentId) _recordIntent(agentId, detected);
+  return detected;
 }
 
 function _recentResponses(agentId) {
@@ -429,7 +463,7 @@ function tryTemplate(payload) {
   const agentId = payload.agentId || null;
   const trust = payload.relationship?.trust ?? 50;
   const mood = payload.emotions?.mood ?? 0;
-  const intent = classifyIntent(message);
+  const intent = classifyIntent(message, agentId);
   const chatMessage = pickTemplate(intent, trust, mood, speaker, agentId);
   const hasPattern = INTENT_PATTERNS.some(p => p.patterns.test(message));
   const confidence = hasPattern ? 0.9 : 0.5;
