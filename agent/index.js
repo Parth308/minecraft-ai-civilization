@@ -94,6 +94,7 @@ const agentState = {
   isOnFire: false,
   recentChat: [],
   recentDecisions: [],
+  craftedItems: [],
   uptime: 0,
   startedAt: new Date().toISOString()
 };
@@ -772,6 +773,11 @@ function createAgent() {
           agentState.skills      = skillTracker.toContext();
           agentState.inventory   = inventory.listInventory();
           agentState.equipment   = senses.getEquipmentSummary();
+          agentState.craftingChain = {
+            craftableNow: getCurrentCraftableOptions(senses),
+            nextObjective: nextCraftingObjective(senses, agentState.craftedItems || []),
+            knownRecipes: (agentState.craftedItems || [])
+          };
           agentState.biome       = senses.getBiome();
           agentState.timeOfDay   = senses.getTimeOfDay();
           agentState.isNight     = senses.isNight();
@@ -1032,6 +1038,8 @@ function createAgent() {
             }
             if (success) {
               eventBuffer.addEvent('craftItem', { item, count });
+              if (!agentState.craftedItems) agentState.craftedItems = [];
+              for (let i = 0; i < count; i++) agentState.craftedItems.push(item);
               EmotionalState.forAgent(bot.username).appraise('craft_success', {}, persona?.traits || {});
               BeliefNetwork.forAgent(bot.username).learnFrom('craft_success', {});
               persona.recoverTraits('completed_craft');

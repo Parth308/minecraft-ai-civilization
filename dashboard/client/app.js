@@ -1379,53 +1379,60 @@
     if (!agent) return '<div class="page-header"><div class="page-title">Crafting Chain</div></div><div class="empty-state">No agents online</div>';
 
     const crafting = agent.craftingChain || {};
+    const craftableNow = crafting.craftableNow || [];
+    const nextObjective = crafting.nextObjective || null;
     const knownRecipes = crafting.knownRecipes || [];
-    const techTree = crafting.techTree || {};
+    const inventory = agent.inventory || [];
 
-    const TIER_ICONS = { basic: '🪵', tools: '⛏️', weapons: '⚔️', armor: '🛡️', food: '🍖', advanced: '💎', redstone: '⚡', potions: '🧪' };
+    const TIER_ICONS = { 0: '🪵', 1: '⛏️', 2: '⚔️', 3: '🛡️', 4: '💎', 5: '⚡' };
 
     return `
       <div class="page-header">
         <div class="flex-between-end">
           <div>
             <div class="page-title">Crafting Chain</div>
-            <div class="page-desc">${esc(agent.username)} — ${knownRecipes.length} known recipes</div>
+            <div class="page-desc">${esc(agent.username)} — ${knownRecipes.length} items crafted · ${craftableNow.length} craftable now</div>
           </div>
           ${renderAgentSelector('_intelAgent', 'Agent:')}
         </div>
       </div>
 
+      ${nextObjective ? `
+        <div class="card p-4" style="border-left:4px solid var(--accent)">
+          <div class="section-header">🎯 Next Objective</div>
+          <div class="text-base text-main fw-600">${esc(nextObjective.objective)}</div>
+          ${nextObjective.chain && nextObjective.chain.length > 0 ? `
+            <div class="text-sm text-dim" style="margin-top:4px">Chain: ${nextObjective.chain.map(c => esc(typeof c === 'string' ? c : c.item || c.id || '?')).join(' → ')}</div>
+          ` : ''}
+        </div>
+      ` : ''}
+
       <div class="grid-2">
         <div class="card p-4">
-          <div class="section-header">📋 Known Recipes</div>
-          ${knownRecipes.length === 0 ? '<div class="empty-state">No recipes learned yet</div>' : `
+          <div class="section-header">🔨 Craftable Now (${craftableNow.length})</div>
+          ${craftableNow.length === 0 ? '<div class="empty-state">No items craftable with current inventory</div>' : `
             <div class="scroll-col">
-              ${knownRecipes.map(r => {
-                const name = typeof r === 'string' ? r : r.name || r.item || JSON.stringify(r);
-                const tier = typeof r === 'object' ? (r.tier || 'basic') : 'basic';
-                return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:4px">
+              ${craftableNow.map(r => {
+                const name = typeof r === 'string' ? r : r.id || r.name || '?';
+                const tier = typeof r === 'object' ? (r.tier || 0) : 0;
+                const ings = Array.isArray(r.ingredients) ? r.ingredients.join(', ') : '';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.15);border-radius:4px">
                   <span>${TIER_ICONS[tier] || '📦'}</span>
-                  <span class="text-base text-main">${esc(name)}</span>
-                  <span class="badge badge-neutral" style="font-size:9px;margin-left:auto">${esc(tier)}</span>
+                  <span class="text-base text-main">${esc(String(name).replace(/_/g, ' '))}</span>
+                  ${ings ? `<span class="text-xs text-dim" style="margin-left:auto">${esc(ings)}</span>` : ''}
                 </div>`;
               }).join('')}
             </div>`}
         </div>
 
         <div class="card p-4">
-          <div class="section-header">🌳 Tech Tree</div>
-          ${Object.keys(techTree).length === 0 ? '<div class="empty-state">No tech tree data</div>' : `
-            <div style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto">
-              ${Object.entries(techTree).map(([tier, items]) => `
-                <div style="margin-bottom:8px">
-                  <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${TIER_ICONS[tier] || '📦'} ${esc(tier)}</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:4px">
-                    ${(Array.isArray(items) ? items : []).map(item => {
-                      const name = typeof item === 'string' ? item : item.name || item.item || '?';
-                      const known = knownRecipes.some(r => (typeof r === 'string' ? r : r.name || r.item) === name);
-                      return `<span class="badge ${known ? 'badge-success' : 'badge-neutral'} text-xs">${known ? '✓' : '○'} ${esc(name)}</span>`;
-                    }).join('')}
-                  </div>
+          <div class="section-header">📋 Crafted Items (${knownRecipes.length})</div>
+          ${knownRecipes.length === 0 ? '<div class="empty-state">No items crafted yet</div>' : `
+            <div class="scroll-col">
+              ${Object.entries(knownRecipes.reduce((acc, item) => { acc[item] = (acc[item] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]).map(([item, count]) => `
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:4px">
+                  <span class="text-base text-main">${esc(String(item).replace(/_/g, ' '))}</span>
+                  ${count > 1 ? `<span class="badge badge-neutral text-xs">×${count}</span>` : ''}
                 </div>
               `).join('')}
             </div>`}
