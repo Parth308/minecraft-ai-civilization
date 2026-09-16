@@ -112,6 +112,25 @@
     return `$${(usd / 1000).toFixed(1)}k`;
   };
   const fmtMs = ms => (ms == null ? '—' : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`);
+
+  const skeleton = (lines = 3, widths = []) => {
+    return lines <= 0 ? '' :
+      Array.from({ length: lines }, (_, i) => {
+        const w = widths[i % widths.length] || (60 + Math.random() * 30);
+        return `<div class="skeleton skeleton-line" style="width:${w}%"></div>`;
+      }).join('');
+  };
+
+  const skeletonCard = () => `
+    <div class="card-inner">
+      ${skeleton(1, [40])}
+      ${skeleton(2, [90, 70])}
+    </div>`;
+
+  const skeletonGrid = (count = 4) => `
+    <div class="grid-2 gap-4">
+      ${Array.from({ length: count }, () => skeletonCard()).join('')}
+    </div>`;
   const timeOf = iso => {
     try { return new Date(iso).toLocaleTimeString('en-US', { hour12: false }); } catch { return ''; }
   };
@@ -152,7 +171,7 @@
           ${state.agents.map(a => `
             <button class="agent-sel-btn ${a.username === current ? 'active' : ''}"
               onclick="window.setIntelAgent('${esc(stateKey)}', '${esc(a.username)}')">
-              <span class="status-pill ${a.online ? 'ok' : 'err'}" style="display:inline-block;width:6px;height:6px"></span>
+              <span class="status-pill ${a.online ? 'ok' : 'err'}" class="inline-dot"></span>
               ${esc(a.username)}
             </button>
           `).join('')}
@@ -293,13 +312,13 @@
           <div class="kpi-value green">$0.00</div>
           <div class="kpi-sub">${s?.freeTierMode ? `100% Free Tier · ${fmtCost(t.savedUsd)} saved` : `${fmtCost(t.costUsd)} spend`}</div>
         </div>
-        <div class="card" style="cursor:pointer" onclick="window.spectateAgent('${esc(state.agents[0]?.username || 'Agent_Alpha')}')">
+        <div class="card" class="cursor-pointer" onclick="window.spectateAgent('${esc(state.agents[0]?.username || 'Agent_Alpha')}')">
           <div class="kpi-label">3D World View</div>
           <div class="kpi-value" style="font-size:20px;display:flex;align-items:center;gap:6px">
             <span class="status-pill ${state.spectator?.online ? 'ok' : 'err'}"></span>
-            <span style="color:var(--text)">${state.spectator?.online ? 'Live Stream' : 'Standby'}</span>
+            <span class="text-main">${state.spectator?.online ? 'Live Stream' : 'Standby'}</span>
           </div>
-          <div class="kpi-sub" style="color:var(--green)">Click to watch 3D feed →</div>
+          <div class="kpi-sub" class="text-green">Click to watch 3D feed →</div>
         </div>
       </div>
 
@@ -323,24 +342,24 @@
 
       <div class="grid-2">
         <div>
-          <div class="section-title" style="margin-top:0">Recent Escalations</div>
+          <div class="section-title" class="mt-0">Recent Escalations</div>
           <div class="card" style="padding:6px 4px">${escalationsTable((s?.recentEscalations || []).slice(-8).reverse(), true)}</div>
         </div>
         <div>
-          <div class="section-title" style="margin-top:0">Global Chat</div>
-          <div class="card" style="display:flex;flex-direction:column;gap:10px">
+          <div class="section-title" class="mt-0">Global Chat</div>
+          <div class="card" class="flex-col-10">
             <div class="chat-feed" id="chat-feed" role="log">${chatFeed(state.chat.slice(-40))}</div>
             <form class="chat-input-row" id="chat-form" onsubmit="return false;">
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
               <button class="btn btn-send" id="chat-send-btn" type="button">Send</button>
             </form>
             <div style="display:flex;gap:5px;flex-wrap:wrap;font-size:11px;align-items:center">
-              <span style="color:var(--text-faint)">⚡ Quick God-Mode:</span>
-              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!status')">!status</span>
-              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!come')">!come</span>
-              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!memories')">!memories</span>
-              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!quest Build a secure wooden shelter')">!quest Build Shelter</span>
-              <span class="inv-chip" style="cursor:pointer" onclick="window.insertChatCommand('!quest Mine iron ore and craft armor')">!quest Mine Iron</span>
+              <span class="text-muted">⚡ Quick God-Mode:</span>
+              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!status')">!status</span>
+              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!come')">!come</span>
+              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!memories')">!memories</span>
+              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!quest Build a secure wooden shelter')">!quest Build Shelter</span>
+              <span class="inv-chip" class="cursor-pointer" onclick="window.insertChatCommand('!quest Mine iron ore and craft armor')">!quest Mine Iron</span>
             </div>
           </div>
         </div>
@@ -365,20 +384,20 @@
       if (overlay) {
         overlay.innerHTML = `
           <span class="status-pill ${online ? 'ok' : 'err'}"></span>
-          <span>Tracking: <b style="color:var(--green)">${esc(currentTarget)}</b></span>
-          <span style="color:var(--text-faint)">|</span>
+          <span>Tracking: <b class="text-green">${esc(currentTarget)}</b></span>
+          <span class="text-muted">|</span>
           <span class="num">${posStr}</span>
         `;
       }
       const telemetryBox = document.getElementById('world-telemetry-content');
       if (telemetryBox && targetAgent) {
         telemetryBox.innerHTML = `
-          <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="flex-col-8">
             <div class="action-banner">
               <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
               ${d ? sourceBadge(d) : ''}
             </div>
-            <div class="stat-strip" style="margin-top:0">
+            <div class="stat-strip" class="mt-0">
               <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
               <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
             </div>
@@ -388,7 +407,7 @@
             </div>
             <div class="thought-bubble" style="margin-top:2px">
               <span class="thought-tag">💭 THOUGHT PROCESS</span>
-              <div class="thought-content" style="font-size:12px">${esc(d?.reason || 'Navigating world…')}</div>
+              <div class="thought-content" class="text-base">${esc(d?.reason || 'Navigating world…')}</div>
             </div>
           </div>
         `;
@@ -426,7 +445,7 @@
             `).join('')}
           </div>
 
-          <div style="display:flex;align-items:center;gap:8px">
+          <div class="flex-center-8">
             <span class="badge ${online ? 'badge-online' : 'badge-offline'}">${online ? 'SPECTATOR READY' : 'SPECTATOR CONNECTING'}</span>
             <button class="btn btn-spectate ${state.flyMode ? 'fly-active' : ''}" onclick="window.toggleFlyMode()" id="fly-toggle-btn">
               ${state.flyMode ? '✈ Flying — ESC to exit' : '🕊 Free Fly'}
@@ -441,8 +460,8 @@
           <div class="world-stream-card">
             <div class="world-stream-overlay" id="world-stream-overlay-box">
               <span class="status-pill ${online ? 'ok' : 'err'}"></span>
-              <span>Tracking: <b style="color:var(--green)">${esc(currentTarget)}</b></span>
-              <span style="color:var(--text-faint)">|</span>
+              <span>Tracking: <b class="text-green">${esc(currentTarget)}</b></span>
+              <span class="text-muted">|</span>
               <span class="num">${posStr}</span>
             </div>
             <iframe id="world-stream-frame" src="/viewer/" class="world-iframe" title="Minecraft 3D World View"></iframe>
@@ -457,12 +476,12 @@
             <div class="subcard-title">Target Telemetry · ${esc(currentTarget)}</div>
             <div id="world-telemetry-content">
               ${targetAgent ? `
-                <div style="display:flex;flex-direction:column;gap:8px">
+                <div class="flex-col-8">
                   <div class="action-banner">
                     <span class="action-icon-pill">${actionIcon} <b class="action-name">${esc(actionName)}</b></span>
                     ${d ? sourceBadge(d) : ''}
                   </div>
-                  <div class="stat-strip" style="margin-top:0">
+                  <div class="stat-strip" class="mt-0">
                     <span>Biome: <b>${esc(targetAgent.biome || '—')}</b></span>
                     <span>Time: <b>${targetAgent.isNight ? '🌙 Night' : '☀️ Day'}</b></span>
                   </div>
@@ -472,13 +491,13 @@
                   </div>
                   <div class="thought-bubble" style="margin-top:2px">
                     <span class="thought-tag">💭 THOUGHT PROCESS</span>
-                    <div class="thought-content" style="font-size:12px">${esc(d?.reason || 'Navigating world…')}</div>
+                    <div class="thought-content" class="text-base">${esc(d?.reason || 'Navigating world…')}</div>
                   </div>
                 </div>
               ` : '<div class="empty-state">Waiting for target data…</div>'}
             </div>
 
-            <div class="subcard-title" style="margin-top:6px">In-Game Chat &amp; Operator</div>
+            <div class="subcard-title" class="mt-2">In-Game Chat &amp; Operator</div>
             <div class="chat-feed" id="world-chat-feed" style="max-height:160px" role="log">${chatFeed(state.chat.slice(-20))}</div>
             <form class="chat-input-row" id="chat-form" onsubmit="return false;">
               <input class="chat-input" id="chat-input" type="text" placeholder="Send as [Operator]..." maxlength="256" autocomplete="off" />
@@ -503,11 +522,11 @@
                 <button class="btn btn-send" style="padding:2px 10px;font-size:11px" onclick="window.toggleReplayPlayback()">
                   ${replayState.isPlaying ? '⏸ Pause' : '▶ Play'}
                 </button>
-                <button class="btn btn-spectate" style="padding:2px 8px;font-size:11px" onclick="window.stepTimeline(-1)">◀ Prev</button>
-                <button class="btn btn-spectate" style="padding:2px 8px;font-size:11px" onclick="window.stepTimeline(1)">Next ▶</button>
+                <button class="btn btn-spectate" class="tag-badge" onclick="window.stepTimeline(-1)">◀ Prev</button>
+                <button class="btn btn-spectate" class="tag-badge" onclick="window.stepTimeline(1)">Next ▶</button>
                 <span class="num" style="color:var(--amber);font-weight:600">${replayState.events.length > 0 ? `Step ${replayState.currentIndex + 1}/${replayState.events.length}` : 'No events'}</span>
               </div>
-            ` : '<span style="font-size:11px;color:var(--text-faint)">Streaming real-time telemetry</span>'}
+            ` : '<span class="text-sm text-muted">Streaming real-time telemetry</span>'}
           </div>
 
           ${replayState.active ? `
@@ -603,7 +622,7 @@
       : state.agents.filter(a => a.username === state.selectedAgent);
 
     return `
-      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+      <div class="page-header" class="flex-between-end">
         <div>
           <div class="page-title">Agents &amp; Cognition</div>
           <div class="page-desc">${onlineAgents().length} online · ${state.agents.length} registered (auto-discovered) · Live decision reasoning &amp; vitals</div>
@@ -614,7 +633,7 @@
           </button>
           ${state.agents.map(a => `
             <button class="btn btn-spectate" style="font-size:12px;padding:5px 12px;background:${state.selectedAgent === a.username ? 'rgba(16,185,129,0.25)' : 'var(--surface)'};border-color:${state.selectedAgent === a.username ? 'var(--green)' : 'var(--border)'}" onclick="window.setSelectedAgent('${esc(a.username)}')">
-              <span class="status-pill ${a.online ? 'ok' : 'err'}" style="display:inline-block;width:6px;height:6px"></span>
+              <span class="status-pill ${a.online ? 'ok' : 'err'}" class="inline-dot"></span>
               ${esc(a.username)}
             </button>
           `).join('')}
@@ -657,11 +676,11 @@
               <span class="status-pill ${a.online ? 'ok' : 'err'}"></span>
               <span class="agent-name">${esc(a.username)}</span>
               <span class="persona-badge" title="${esc(personaObj.seed || '')}">🧬 ${esc(personaTitle)}</span>
-              <span class="badge badge-neutral" style="font-size:11px" title="Civ Knowledge Privacy Mode">${privacyIcon} ${esc(privacyPref.toUpperCase())}</span>
+              <span class="badge badge-neutral" class="text-sm" title="Civ Knowledge Privacy Mode">${privacyIcon} ${esc(privacyPref.toUpperCase())}</span>
               ${scarCount > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);font-size:11px" title="${esc(scarSummary)}">🩸 ${scarCount} SCAR${scarCount > 1 ? 'S' : ''}</span>` : ''}
-              ${temperament ? `<span class="badge badge-neutral" style="font-size:11px">🎭 ${esc(temperament)}</span>` : ''}
+              ${temperament ? `<span class="badge badge-neutral" class="text-sm">🎭 ${esc(temperament)}</span>` : ''}
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
+            <div class="flex-center-8">
               <button class="btn-spectate" onclick="window.spectateAgent('${esc(a.username)}')">🎥 Spectate</button>
               <span class="badge ${a.online ? 'badge-online' : 'badge-offline'}">${a.online ? 'ONLINE' : 'OFFLINE'}</span>
             </div>
@@ -671,9 +690,9 @@
             <span class="meta-chip">📍 <b>${posStr}</b></span>
             <span class="meta-chip">🌲 <b>${esc(a.biome || 'Unknown')}</b></span>
             <span class="meta-chip">${a.isNight ? '🌙 Night' : '☀️ Day'}</span>
-            ${a.isRaining ? '<span class="meta-chip" style="color:var(--amber)">🌧 Raining</span>' : ''}
+            ${a.isRaining ? '<span class="meta-chip" class="text-amber">🌧 Raining</span>' : ''}
             ${a.isInWater ? '<span class="meta-chip" style="color:#38bdf8">🌊 In Water</span>' : ''}
-            ${a.isOnFire ? '<span class="meta-chip" style="color:var(--red)">🔥 On Fire</span>' : ''}
+            ${a.isOnFire ? '<span class="meta-chip" class="text-red">🔥 On Fire</span>' : ''}
             ${quirk ? `<span class="meta-chip" style="color:var(--lime);font-style:italic">✨ ${esc(quirk)}</span>` : ''}
           </div>
         </div>
@@ -703,7 +722,7 @@
               ${statMeter('Anger', '😠', Math.max(0, st.anger ?? 0), 100, (st.anger ?? 0) > 50 ? 'red' : 'neutral')}
             </div>
 
-            <div class="subcard-title" style="margin-top:6px">Gear &amp; Inventory</div>
+            <div class="subcard-title" class="mt-2">Gear &amp; Inventory</div>
             <div class="equip-strip">
               <span class="equip-slot" title="Main Hand">⚔️ ${esc(formatItemName(eq.mainHand))}</span>
               <span class="equip-slot" title="Armor">🛡️ ${esc(formatArmor(eq))}</span>
@@ -729,7 +748,7 @@
                   <div>
                     <div style="display:flex;justify-content:space-between;color:var(--text-dim);text-transform:capitalize;margin-bottom:2px">
                       <span>${t}</span>
-                      <b style="color:var(--text)">${v}%</b>
+                      <b class="text-main">${v}%</b>
                     </div>
                     <input type="range" min="0.05" max="0.95" step="0.05" value="${tr[t] ?? 0.5}"
                       style="width:100%;accent-color:var(--green);cursor:pointer"
@@ -743,7 +762,7 @@
           <div class="agent-cognition-column">
             <div class="subcard-title" style="display:flex;justify-content:space-between;align-items:center;">
               <span>🧠 Cognitive Decision Engine</span>
-              ${d?.confidence != null ? `<span style="color:var(--text-dim);font-size:11px">Conf: <b class="num" style="color:var(--text)">${Math.round(d.confidence * 100)}%</b></span>` : ''}
+              ${d?.confidence != null ? `<span style="color:var(--text-dim);font-size:11px">Conf: <b class="num" class="text-main">${Math.round(d.confidence * 100)}%</b></span>` : ''}
             </div>
 
             <div class="action-banner">
@@ -758,7 +777,7 @@
             <div class="thought-bubble">
               <div class="thought-header">
                 <span class="thought-tag">💭 THOUGHT &amp; REASONING</span>
-                ${d?.webKnowledgeUsed ? '<span class="badge badge-cache" style="font-size:10px">🌐 Web Knowledge</span>' : ''}
+                ${d?.webKnowledgeUsed ? '<span class="badge badge-cache" class="text-xs">🌐 Web Knowledge</span>' : ''}
               </div>
               <div class="thought-content">${esc(d?.reason || 'Evaluating survival parameters and heuristic rules…')}</div>
               ${d?.chatMessage ? `<div class="thought-dialogue">💬 <i>"${esc(d.chatMessage)}"</i></div>` : ''}
@@ -802,7 +821,7 @@
     });
 
     return `
-      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+      <div class="page-header" class="flex-between-end">
         <div>
           <div class="page-title">Decisions &amp; Escalations</div>
           <div class="page-desc">Every LLM call, chat dialogue, cache hit and fallback routed by the broker (last 200)</div>
@@ -820,7 +839,7 @@
         </div>
       </div>
 
-      <div class="card" style="padding:6px 4px;margin-bottom:16px">
+      <div class="card" class="section-pad">
         ${escalationsTable(filteredEscs, false)}
       </div>
 
@@ -836,10 +855,10 @@
               ? '<div class="empty-state">No local decisions yet…</div>'
               : a.recentDecisions.slice(-12).reverse().map(x => `
                 <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px">
-                  <span class="num" style="color:var(--text-faint)">${timeOf(x.ts)}</span>
+                  <span class="num" class="text-muted">${timeOf(x.ts)}</span>
                   ${sourceBadge(x)}
                   <b class="mono">${esc(x.action)}</b>
-                  ${x.confidence != null ? `<span style="color:var(--text-faint)">conf ${Number(x.confidence).toFixed(2)}</span>` : ''}
+                  ${x.confidence != null ? `<span class="text-muted">conf ${Number(x.confidence).toFixed(2)}</span>` : ''}
                   <span style="color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(x.reason || '')}</span>
                 </div>`).join('')}
           </div>`).join('')}
@@ -870,13 +889,13 @@
                               : '<span class="badge" style="background:rgba(217,119,6,0.15);color:#fbbf24;font-size:10px;border:1px solid rgba(217,119,6,0.3)">🧠 REASONING</span>';
             return `
             <tr>
-              <td class="num" style="color:var(--text-faint)">${timeOf(e.ts)}</td>
+              <td class="num" class="text-muted">${timeOf(e.ts)}</td>
               <td><b>${esc(e.agentId)}</b></td>
               <td>${sourceBadge(e)} ${compact ? '' : intentLabel}</td>
               <td><b class="mono">${esc(e.action || (isChat ? 'TALK' : '—'))}</b></td>
-              ${compact ? '' : `<td>${e.provider ? `<span style="color:var(--amber)">${esc(e.provider)}</span>` : '<span style="color:var(--text-faint)">—</span>'} ${e.model ? `<div style="color:var(--text-faint);font-size:11px">${esc(e.model.split('/').pop())}</div>` : ''}</td>`}
+              ${compact ? '' : `<td>${e.provider ? `<span class="text-amber">${esc(e.provider)}</span>` : '<span class="text-muted">—</span>'} ${e.model ? `<div class="text-sm text-muted">${esc(e.model.split('/').pop())}</div>` : ''}</td>`}
               <td style="font-size:12px;max-width:340px;color:var(--text-dim);word-break:break-word">
-                ${isChat ? `<span style="color:var(--text)">"${esc(e.reason || e.chatMessage || '')}"</span>` : esc(e.reason || '—')}
+                ${isChat ? `<span class="text-main">"${esc(e.reason || e.chatMessage || '')}"</span>` : esc(e.reason || '—')}
                 ${e.webKnowledgeUsed ? ' <span class="badge badge-cache" style="font-size:9.5px">🌐 Wiki</span>' : ''}
               </td>
               <td class="num">${e.source === 'llm' ? `${fmtInt(e.inputTokens)}/${fmtInt(e.outputTokens)}` : '—'}</td>
@@ -904,12 +923,12 @@
       <div class="grid-kpi">
         <div class="card"><div class="kpi-label">Actual Spend</div><div class="kpi-value green">$0.00</div><div class="kpi-sub">100% Free Tier Active</div></div>
         <div class="card"><div class="kpi-label">Tokens Processed</div><div class="kpi-value">${fmtInt((t.inputTokens || 0) + (t.outputTokens || 0))}</div><div class="kpi-sub">${fmtInt(t.inputTokens)} in / ${fmtInt(t.outputTokens)} out</div></div>
-        <div class="card"><div class="kpi-label">Commercial Value Saved</div><div class="kpi-value" style="color:var(--lime)">${fmtCost(t.savedUsd)}</div><div class="kpi-sub">vs commercial list prices</div></div>
+        <div class="card"><div class="kpi-label">Commercial Value Saved</div><div class="kpi-value" class="text-lime">${fmtCost(t.savedUsd)}</div><div class="kpi-sub">vs commercial list prices</div></div>
         <div class="card"><div class="kpi-label">Avg Latency</div><div class="kpi-value">${t.successes ? fmtMs(Math.round((Object.values(s.providers).reduce((x, p) => x + p.totalLatencyMs, 0)) / t.successes)) : '—'}</div></div>
       </div>
 
       <div class="section-title">Free Tier Providers</div>
-      <div class="card" style="padding:6px 4px;margin-bottom:16px">
+      <div class="card" class="section-pad">
         <table>
           <thead><tr>
             <th>Provider &amp; Tier</th><th>Calls</th><th>OK / Fail</th><th>429 Hits</th>
@@ -925,11 +944,11 @@
                     <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${esc(p.tier || '')}</div>
                   </td>
                   <td class="num">${fmtInt(p.calls)}</td>
-                  <td class="num"><span style="color:var(--green)">${fmtInt(p.successes)}</span> / <span style="color:var(--red)">${fmtInt(p.failures)}</span></td>
+                  <td class="num"><span class="text-green">${fmtInt(p.successes)}</span> / <span class="text-red">${fmtInt(p.failures)}</span></td>
                   <td class="num" style="color:${p.rateLimited > 0 ? 'var(--red)' : 'inherit'}">${fmtInt(p.rateLimited)}</td>
                   <td class="num">${fmtInt(p.inputTokens)}</td>
                   <td class="num">${fmtInt(p.outputTokens)}</td>
-                  <td class="num"><span class="green">$0.00</span> <span style="color:var(--text-faint);font-size:11px">(${fmtCost(p.savedUsd)} saved)</span></td>
+                  <td class="num"><span class="green">$0.00</span> <span class="text-sm text-muted">(${fmtCost(p.savedUsd)} saved)</span></td>
                   <td class="num">${p.avgLatencyMs != null ? fmtMs(p.avgLatencyMs) : '—'}</td>
                   <td>${r?.blocked
                     ? (r.quarantinedByBreaker
@@ -945,8 +964,8 @@
 
       <div class="section-title">Cache Efficiency (free wins)</div>
       <div class="grid-kpi">
-        <div class="card"><div class="kpi-label">Exact Hits</div><div class="kpi-value" style="color:var(--lime)">${fmtInt(s.caches.exactHits)}</div><div class="kpi-sub">$0 spent</div></div>
-        <div class="card"><div class="kpi-label">Semantic Hits</div><div class="kpi-value" style="color:var(--lime)">${fmtInt(s.caches.semanticHits)}</div><div class="kpi-sub">$0 spent</div></div>
+        <div class="card"><div class="kpi-label">Exact Hits</div><div class="kpi-value" class="text-lime">${fmtInt(s.caches.exactHits)}</div><div class="kpi-sub">$0 spent</div></div>
+        <div class="card"><div class="kpi-label">Semantic Hits</div><div class="kpi-value" class="text-lime">${fmtInt(s.caches.semanticHits)}</div><div class="kpi-sub">$0 spent</div></div>
         <div class="card"><div class="kpi-label">Fallbacks</div><div class="kpi-value ${s.caches.fallbacks > 0 ? 'red' : ''}">${fmtInt(s.caches.fallbacks)}</div><div class="kpi-sub">provider unavailable</div></div>
         <div class="card"><div class="kpi-label">Broker Uptime</div><div class="kpi-value mono" style="font-size:18px">${t.startedAt ? new Date(t.startedAt).toLocaleString('en-US') : '—'}</div></div>
       </div>`;
@@ -1020,21 +1039,21 @@
       </div>
 
       <!-- Knowledge Ledger: Shared & Unshared Lessons -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card" style="padding:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div style="font-weight:700;font-size:14px;color:var(--text-bright)">💡 Shared Knowledge Ledger (${shared.length})</div>
-            <span class="badge badge-success" style="font-size:10px">Public Wisdom</span>
+      <div class="grid-2-gap">
+        <div class="card" class="p-4">
+          <div class="flex-between-12">
+            <div class="section-header">💡 Shared Knowledge Ledger (${shared.length})</div>
+            <span class="badge badge-success" class="text-xs">Public Wisdom</span>
           </div>
           ${shared.length === 0 ? '<div class="empty-state">No public lessons shared yet.</div>' : `
-            <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+            <div class="scroll-col-sm">
               ${shared.map(l => `
                 <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:8px 12px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                  <div class="mini-row">
                     <span style="font-weight:600;font-size:12px;color:var(--accent)">${esc(l.agentId)}</span>
                     <div style="display:flex;gap:4px">
-                      <span class="badge badge-warning" style="font-size:9px">Sev: ${(l.severity ?? 0.5).toFixed(1)}</span>
-                      <span class="badge badge-neutral" style="font-size:9px">Trust: ${(l.confidence ?? 0.8).toFixed(2)}</span>
+                      <span class="badge badge-warning" class="text-xs">Sev: ${(l.severity ?? 0.5).toFixed(1)}</span>
+                      <span class="badge badge-neutral" class="text-xs">Trust: ${(l.confidence ?? 0.8).toFixed(2)}</span>
                     </div>
                   </div>
                   <div style="font-size:12px;color:var(--text-dim);line-height:1.4">"${esc(l.lesson)}"</div>
@@ -1044,18 +1063,18 @@
           `}
         </div>
 
-        <div class="card" style="padding:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div style="font-weight:700;font-size:14px;color:var(--text-bright)">🔒 Unshared / Gossip Lessons (${unshared.length})</div>
-            <span class="badge badge-warning" style="font-size:10px">Diagnostic</span>
+        <div class="card" class="p-4">
+          <div class="flex-between-12">
+            <div class="section-header">🔒 Unshared / Gossip Lessons (${unshared.length})</div>
+            <span class="badge badge-warning" class="text-xs">Diagnostic</span>
           </div>
           ${unshared.length === 0 ? '<div class="empty-state">No private/unshared lessons tracked.</div>' : `
-            <div style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+            <div class="scroll-col-sm">
               ${unshared.map(l => `
                 <div style="background:rgba(255,255,255,0.02);border:1px dashed rgba(255,255,255,0.08);border-radius:6px;padding:8px 12px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                  <div class="mini-row">
                     <span style="font-weight:600;font-size:12px;color:var(--text-dim)">${esc(l.agentId)}</span>
-                    <span class="badge badge-danger" style="font-size:9px">${esc(l.status || 'private')}</span>
+                    <span class="badge badge-danger" class="text-xs">${esc(l.status || 'private')}</span>
                   </div>
                   <div style="font-size:12px;color:var(--text-faint);line-height:1.4">"${esc(l.lesson)}"</div>
                 </div>
@@ -1068,13 +1087,13 @@
       <!-- Casualties & Death Scars -->
       ${cachedDeaths.length > 0 ? `
         <div class="card" style="padding:16px;margin-bottom:16px;border-left:4px solid var(--danger, #ef4444)">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">💀 Hazard Casualties &amp; Penalized Decision Chains</div>
-          <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="section-header">💀 Hazard Casualties &amp; Penalized Decision Chains</div>
+          <div class="flex-col-8">
             ${cachedDeaths.map(d => `
               <div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:10px 14px">
-                <div style="display:flex;align-items:center;justify-content:space-between">
+                <div class="flex-between">
                   <span style="font-weight:700;font-size:13px;color:#fca5a5">${esc(d.agentId)} felled by: ${esc(d.deathCause)}</span>
-                  <span class="num" style="font-size:11px;color:var(--text-faint)">${new Date(d.timestamp).toLocaleTimeString('en-US')}</span>
+                  <span class="num" class="text-sm text-muted">${new Date(d.timestamp).toLocaleTimeString('en-US')}</span>
                 </div>
                 ${d.penalizedRules && d.penalizedRules.length > 0 ? `
                   <div style="margin-top:6px;font-size:11px;color:var(--text-dim)">
@@ -1093,8 +1112,8 @@
       <!-- Shared Projects & Factions -->
       ${renderProjectsAndFactions()}
 
-      <div class="card" style="padding:16px">
-        <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📜 Historical Chronicle Log</div>
+      <div class="card" class="p-4">
+        <div class="section-header">📜 Historical Chronicle Log</div>
         ${cachedChronicle.length === 0 ? '<div class="empty-state">The world is young. No historical chronicle entries recorded yet…</div>' : `
           <div style="display:flex;flex-direction:column;gap:12px">
             ${cachedChronicle.map(entry => {
@@ -1102,17 +1121,17 @@
               const agents = Array.isArray(entry.relatedAgents) ? entry.relatedAgents.join(', ') : (entry.relatedAgents || 'Civilization');
               return `
                 <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-left:4px solid var(--accent, #6366f1);border-radius:6px;padding:12px 16px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                    <div style="display:flex;align-items:center;gap:8px">
+                  <div class="mini-row">
+                    <div class="flex-center-8">
                       <span style="font-size:16px">${icon}</span>
                       <span style="font-weight:700;font-size:14px;color:var(--text-bright, #f1f5f9)">${esc(entry.headline)}</span>
                     </div>
-                    <span class="num" style="font-size:11px;color:var(--text-faint)">${new Date(entry.timestamp).toLocaleTimeString('en-US')}</span>
+                    <span class="num" class="text-sm text-muted">${new Date(entry.timestamp).toLocaleTimeString('en-US')}</span>
                   </div>
                   <div style="font-size:13px;color:var(--text-dim, #cbd5e1);line-height:1.45;margin-bottom:6px">${esc(entry.detail)}</div>
                   <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-faint)">
                     <span>Actors:</span>
-                    <span class="badge badge-neutral" style="font-size:10px">${esc(agents)}</span>
+                    <span class="badge badge-neutral" class="text-xs">${esc(agents)}</span>
                     <span style="margin-left:auto;text-transform:uppercase;letter-spacing:.04em;font-size:10px;color:var(--text-faint)">${esc(entry.eventType || 'event')}</span>
                   </div>
                 </div>
@@ -1139,13 +1158,13 @@
       <div class="card" style="padding:16px;margin-bottom:16px;border-top:3px solid var(--accent, #6366f1)">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px">
           <div style="font-weight:800;font-size:18px;color:var(--text-bright)">📰 The Daily Cobblestone</div>
-          <span style="font-size:11px;color:var(--text-faint)">Trades ${cachedTrades.length} · IOUs open ${openDebts} / settled ${settledDebts} · Fallen ${deathsToday}</span>
+          <span class="text-sm text-muted">Trades ${cachedTrades.length} · IOUs open ${openDebts} / settled ${settledDebts} · Fallen ${deathsToday}</span>
         </div>
         <div style="font-size:11px;color:var(--text-faint);margin-bottom:12px">All the news fit to smelt — civilization headlines, newest days first.</div>
         ${days.length === 0 ? '<div class="empty-state">No editions yet — history awaits its first headline.</div>' : days.map(day => `
           <div style="margin-bottom:14px">
             <div style="font-weight:700;font-size:12px;color:var(--accent);border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:4px;margin-bottom:8px">${esc(day)}</div>
-            <div style="display:flex;flex-direction:column;gap:6px">
+            <div class="flex-col-6">
               ${(byDay[day] || []).slice(0, 12).map(e => `
                 <div style="display:flex;gap:8px;align-items:baseline">
                   <span style="font-size:10px;color:var(--text-faint);min-width:52px">${new Date(e.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1166,42 +1185,42 @@
       const totalGiven = contribs.reduce((s, c) => s + (c.count || 0), 0);
       const pct = totalNeeded ? Math.min(100, Math.round(totalGiven / totalNeeded * 100)) : null;
       return `
-        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px 14px;margin-bottom:8px">
+        <div class="card-inner">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-weight:700;font-size:13px;color:var(--text-bright)">🌟 ${esc(g.description)}</span>
-            <span class="badge ${g.status === 'active' ? 'badge-online' : 'badge-success'}" style="font-size:9px">${esc(g.status)}</span>
+            <span class="section-header-sm">🌟 ${esc(g.description)}</span>
+            <span class="badge ${g.status === 'active' ? 'badge-online' : 'badge-success'}" class="text-xs">${esc(g.status)}</span>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--text-dim)">
-            <span class="badge badge-neutral" style="font-size:9px">👥 ${(g.participants || []).length}/${g.requiredAgents ?? '?'} builders</span>
-            ${pct != null ? `<span class="badge badge-warning" style="font-size:9px">${pct}% supplied</span>` : ''}
+            <span class="badge badge-neutral" class="text-xs">👥 ${(g.participants || []).length}/${g.requiredAgents ?? '?'} builders</span>
+            ${pct != null ? `<span class="badge badge-warning" class="text-xs">${pct}% supplied</span>` : ''}
             <span style="margin-left:auto;color:var(--text-faint)">by ${esc(g.creator || g.creatorAgentId || '?')}</span>
           </div>
           ${pct != null ? `<div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--accent,#6366f1)"></div></div>` : ''}
         </div>`;
     };
     const factionCard = f => `
-      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px 14px;margin-bottom:8px">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <span style="font-weight:700;font-size:13px;color:var(--text-bright)">🚩 ${esc(f.name)}</span>
-          <span class="badge badge-neutral" style="font-size:9px">${(f.members || []).length}/4</span>
+      <div class="card-inner">
+        <div class="flex-between">
+          <span class="section-header-sm">🚩 ${esc(f.name)}</span>
+          <span class="badge badge-neutral" class="text-xs">${(f.members || []).length}/4</span>
         </div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Members: ${esc((f.members || []).join(', '))}${f.charter ? ` — "${esc(f.charter)}"` : ''}</div>
       </div>`;
 
     return `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🏗️ Shared Projects (${activeGoals.length} active / ${doneGoals.length} done)</div>
+      <div class="grid-2-gap">
+        <div class="card" class="p-4">
+          <div class="section-header">🏗️ Shared Projects (${activeGoals.length} active / ${doneGoals.length} done)</div>
           ${cachedSharedGoals.length === 0 ? '<div class="empty-state">No collaborative projects proposed yet.</div>' : `
-            <div style="max-height:320px;overflow-y:auto">
+            <div class="scroll-box">
               ${activeGoals.map(goalCard).join('')}
               ${doneGoals.map(goalCard).join('')}
             </div>`}
         </div>
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🚩 Factions (${cachedFactions.length})</div>
+        <div class="card" class="p-4">
+          <div class="section-header">🚩 Factions (${cachedFactions.length})</div>
           ${cachedFactions.length === 0 ? '<div class="empty-state">No factions founded yet — trust someone first.</div>' : `
-            <div style="max-height:320px;overflow-y:auto">${cachedFactions.map(factionCard).join('')}</div>`}
+            <div class="scroll-box">${cachedFactions.map(factionCard).join('')}</div>`}
         </div>
       </div>
     `;
@@ -1222,7 +1241,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Skills & XP</div>
             <div class="page-desc">${esc(agent.username)} — Profession: <strong>${esc(profession)}</strong></div>
@@ -1231,24 +1250,24 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="flex-wrap-8">
         ${titles.length > 0 ? titles.map(t => `<span class="badge badge-warning" style="font-size:11px;padding:4px 10px">🏆 ${esc(t)}</span>`).join('') : '<span class="badge badge-neutral">No titles earned yet</span>'}
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📊 Skill Levels</div>
+      <div class="grid-2">
+        <div class="card" class="p-4">
+          <div class="section-header">📊 Skill Levels</div>
           ${Object.keys(skills).length === 0 ? '<div class="empty-state">No skills recorded yet</div>' : `
-            <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="flex-col-10">
               ${Object.entries(skills).sort((a, b) => b[1] - a[1]).map(([skill, xp]) => {
                 const lvl = Math.floor(xp / 10) + 1;
                 const prog = (xp % 10) / 10 * 100;
                 const color = skillColors[skill] || '#94a3b8';
                 return `
                   <div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                      <span style="font-size:12px;font-weight:600;color:var(--text)">${esc(skill)}</span>
-                      <span style="font-size:11px;color:var(--text-dim)">Lv ${lvl} · ${xp} XP</span>
+                    <div class="mini-row">
+                      <span class="text-base fw-600 text-main">${esc(skill)}</span>
+                      <span class="text-sm text-dim">Lv ${lvl} · ${xp} XP</span>
                     </div>
                     <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
                       <div style="height:100%;width:${prog}%;background:${color};border-radius:3px"></div>
@@ -1258,14 +1277,14 @@
             </div>`}
         </div>
 
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">⚡ Action Tally</div>
+        <div class="card" class="p-4">
+          <div class="section-header">⚡ Action Tally</div>
           ${Object.keys(actionTally).length === 0 ? '<div class="empty-state">No actions recorded</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px">
+            <div class="flex-col-6">
               ${Object.entries(actionTally).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([action, count]) => `
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                  <span style="font-size:12px;color:var(--text-dim)">${esc(action)}</span>
-                  <span class="badge badge-neutral" style="font-size:10px">${count}</span>
+                <div class="flex-between">
+                  <span class="text-base text-dim">${esc(action)}</span>
+                  <span class="badge badge-neutral" class="text-xs">${count}</span>
                 </div>
               `).join('')}
             </div>`}
@@ -1285,7 +1304,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Memory Browser</div>
             <div class="page-desc">${agent ? esc(agent.username) : 'Select an agent'}</div>
@@ -1294,7 +1313,7 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="flex-wrap-8">
         ${sections.map(s => `
           <button onclick="window.selectMemorySection('${s}')" class="badge ${s === activeSection ? 'badge-success' : 'badge-neutral'}" style="cursor:pointer;padding:6px 12px;font-size:12px;border:none">${esc(s)}</button>
         `).join('')}
@@ -1309,7 +1328,7 @@
       </div>
 
       <div class="card" style="padding:16px;min-height:300px">
-        <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📄 ${esc(activeSection)} 
+        <div class="section-header">📄 ${esc(activeSection)} 
           <span style="font-weight:400;font-size:12px;color:var(--text-faint)">(${(cachedMemory[activeSection] || '').split('\\n').length} lines)</span>
         </div>
         <pre style="background:var(--surface-2);border-radius:var(--r-sm);padding:12px;font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre-wrap;color:var(--text-dim);max-height:500px;overflow-y:auto;font-family:var(--font)">${esc(cachedMemory[activeSection] || 'Loading...')}</pre>
@@ -1360,7 +1379,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Crafting Chain</div>
             <div class="page-desc">${esc(agent.username)} — ${knownRecipes.length} known recipes</div>
@@ -1369,25 +1388,25 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📋 Known Recipes</div>
+      <div class="grid-2">
+        <div class="card" class="p-4">
+          <div class="section-header">📋 Known Recipes</div>
           ${knownRecipes.length === 0 ? '<div class="empty-state">No recipes learned yet</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+            <div class="scroll-col">
               ${knownRecipes.map(r => {
                 const name = typeof r === 'string' ? r : r.name || r.item || JSON.stringify(r);
                 const tier = typeof r === 'object' ? (r.tier || 'basic') : 'basic';
                 return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:4px">
                   <span>${TIER_ICONS[tier] || '📦'}</span>
-                  <span style="font-size:12px;color:var(--text)">${esc(name)}</span>
+                  <span class="text-base text-main">${esc(name)}</span>
                   <span class="badge badge-neutral" style="font-size:9px;margin-left:auto">${esc(tier)}</span>
                 </div>`;
               }).join('')}
             </div>`}
         </div>
 
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🌳 Tech Tree</div>
+        <div class="card" class="p-4">
+          <div class="section-header">🌳 Tech Tree</div>
           ${Object.keys(techTree).length === 0 ? '<div class="empty-state">No tech tree data</div>' : `
             <div style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto">
               ${Object.entries(techTree).map(([tier, items]) => `
@@ -1397,7 +1416,7 @@
                     ${(Array.isArray(items) ? items : []).map(item => {
                       const name = typeof item === 'string' ? item : item.name || item.item || '?';
                       const known = knownRecipes.some(r => (typeof r === 'string' ? r : r.name || r.item) === name);
-                      return `<span class="badge ${known ? 'badge-success' : 'badge-neutral'}" style="font-size:10px">${known ? '✓' : '○'} ${esc(name)}</span>`;
+                      return `<span class="badge ${known ? 'badge-success' : 'badge-neutral'}" class="text-xs">${known ? '✓' : '○'} ${esc(name)}</span>`;
                     }).join('')}
                   </div>
                 </div>
@@ -1445,7 +1464,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Exploration Map</div>
             <div class="page-desc">${esc(agent.username)} — ${explored.length} chunks explored</div>
@@ -1454,11 +1473,11 @@
         </div>
       </div>
 
-      <div class="card" style="padding:16px">
+      <div class="card" class="p-4">
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;background:var(--green);border-radius:2px"></div><span style="font-size:11px;color:var(--text-dim)">Explored</span></div>
-          <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;background:var(--amber);border-radius:2px"></div><span style="font-size:11px;color:var(--text-dim)">Discovery</span></div>
-          <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;background:var(--surface-3);border-radius:2px"></div><span style="font-size:11px;color:var(--text-dim)">Unexplored</span></div>
+          <div class="flex-center-6"><div style="width:12px;height:12px;background:var(--green);border-radius:2px"></div><span class="text-sm text-dim">Explored</span></div>
+          <div class="flex-center-6"><div style="width:12px;height:12px;background:var(--amber);border-radius:2px"></div><span class="text-sm text-dim">Discovery</span></div>
+          <div class="flex-center-6"><div style="width:12px;height:12px;background:var(--surface-3);border-radius:2px"></div><span class="text-sm text-dim">Unexplored</span></div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(${rangeX}, ${cellSize}px);gap:1px;background:var(--surface-2);padding:4px;border-radius:var(--r-sm)">
           ${cells.map(c => {
@@ -1498,27 +1517,27 @@
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px">
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">⛏️ Ore Summary</div>
+        <div class="card" class="p-4">
+          <div class="section-header">⛏️ Ore Summary</div>
           ${Object.keys(oreCounts).length === 0 ? '<div class="empty-state">No discoveries yet</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px">
+            <div class="flex-col-6">
               ${Object.entries(oreCounts).sort((a, b) => b[1] - a[1]).map(([ore, count]) => `
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                  <span style="font-size:12px;color:var(--text)">${esc(ore)}</span>
-                  <span class="badge badge-warning" style="font-size:10px">${count}</span>
+                <div class="flex-between">
+                  <span class="text-base text-main">${esc(ore)}</span>
+                  <span class="badge badge-warning" class="text-xs">${count}</span>
                 </div>
               `).join('')}
             </div>`}
         </div>
 
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📍 Discovery Log</div>
+        <div class="card" class="p-4">
+          <div class="section-header">📍 Discovery Log</div>
           ${allDiscoveries.length === 0 ? '<div class="empty-state">No discoveries recorded</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+            <div class="scroll-col">
               ${allDiscoveries.slice(0, 50).map(d => `
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:4px">
                   <span style="font-size:11px;color:var(--text-faint);min-width:60px">${timeOf(d.timestamp)}</span>
-                  <span class="badge badge-neutral" style="font-size:10px">${esc(d.agentId)}</span>
+                  <span class="badge badge-neutral" class="text-xs">${esc(d.agentId)}</span>
                   <span style="font-size:12px;color:var(--amber)">${esc(d.ore || d.type || 'discovery')}</span>
                   <span style="font-size:11px;color:var(--text-dim);margin-left:auto">(${d.x || d.chunkX || '?'}, ${d.z || d.chunkZ || '?'})</span>
                 </div>
@@ -1540,20 +1559,20 @@
         <div class="page-desc">${cachedTrades.length} trades recorded</div>
       </div>
 
-      <div class="card" style="padding:16px">
+      <div class="card" class="p-4">
         ${cachedTrades.length === 0 ? '<div class="empty-state">No trades recorded yet</div>' : `
           <div style="display:flex;flex-direction:column;gap:8px;max-height:600px;overflow-y:auto">
             ${cachedTrades.slice().reverse().map(t => `
               <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px">
                 <span style="font-size:11px;color:var(--text-faint);min-width:70px">${timeOf(t.timestamp)}</span>
-                <span class="badge badge-success" style="font-size:10px">${esc(t.fromAgent || t.seller || '?')}</span>
-                <span style="color:var(--text-dim)">→</span>
-                <span class="badge badge-success" style="font-size:10px">${esc(t.toAgent || t.buyer || '?')}</span>
+                <span class="badge badge-success" class="text-xs">${esc(t.fromAgent || t.seller || '?')}</span>
+                <span class="text-dim">→</span>
+                <span class="badge badge-success" class="text-xs">${esc(t.toAgent || t.buyer || '?')}</span>
                 <div style="flex:1;font-size:12px;color:var(--text)">
                   ${esc(t.item || t.giveItem || '?')} ×${t.quantity || t.giveCount || t.count || 1}
                   ${t.receiveItem ? ` for ${esc(t.receiveItem)} ×${t.receiveCount || 1}` : ''}
                 </div>
-                ${t.settled ? '<span class="badge badge-success" style="font-size:9px">settled</span>' : '<span class="badge badge-warning" style="font-size:9px">pending</span>'}
+                ${t.settled ? '<span class="badge badge-success" class="text-xs">settled</span>' : '<span class="badge badge-warning" class="text-xs">pending</span>'}
               </div>
             `).join('')}
           </div>`}
@@ -1573,34 +1592,34 @@
         <div class="page-desc">${open.length} open · ${settled.length} settled</div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="grid-2">
         <div class="card" style="padding:16px;border-left:4px solid var(--amber)">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🔓 Open Debts (${open.length})</div>
+          <div class="section-header">🔓 Open Debts (${open.length})</div>
           ${open.length === 0 ? '<div class="empty-state">No open debts</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+            <div class="scroll-col">
               ${open.map(d => `
                 <div style="padding:8px 12px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.2);border-radius:4px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:12px;font-weight:600;color:var(--text)">${esc(d.debtor)} → ${esc(d.creditor)}</span>
-                    <span style="font-size:11px;color:var(--text-faint)">${timeOf(d.timestamp)}</span>
+                  <div class="mini-row">
+                    <span class="text-base fw-600 text-main">${esc(d.debtor)} → ${esc(d.creditor)}</span>
+                    <span class="text-sm text-muted">${timeOf(d.timestamp)}</span>
                   </div>
-                  <div style="font-size:12px;color:var(--text-dim)">${esc(d.item || d.description || '?')} ×${d.quantity || d.count || 1}</div>
+                  <div class="text-base text-dim">${esc(d.item || d.description || '?')} ×${d.quantity || d.count || 1}</div>
                 </div>
               `).join('')}
             </div>`}
         </div>
 
         <div class="card" style="padding:16px;border-left:4px solid var(--green)">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">✅ Settled (${settled.length})</div>
+          <div class="section-header">✅ Settled (${settled.length})</div>
           ${settled.length === 0 ? '<div class="empty-state">No settled debts</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+            <div class="scroll-col">
               ${settled.slice().reverse().map(d => `
                 <div style="padding:8px 12px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:4px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:12px;color:var(--text-dim)">${esc(d.debtor)} → ${esc(d.creditor)}</span>
-                    <span style="font-size:11px;color:var(--text-faint)">${timeOf(d.settledAt || d.timestamp)}</span>
+                  <div class="mini-row">
+                    <span class="text-base text-dim">${esc(d.debtor)} → ${esc(d.creditor)}</span>
+                    <span class="text-sm text-muted">${timeOf(d.settledAt || d.timestamp)}</span>
                   </div>
-                  <div style="font-size:11px;color:var(--text-faint)">${esc(d.item || d.description || '?')}</div>
+                  <div class="text-sm text-muted">${esc(d.item || d.description || '?')}</div>
                 </div>
               `).join('')}
             </div>`}
@@ -1628,21 +1647,21 @@
         <div class="page-desc">${allRelationships.length} relationships tracked</div>
       </div>
 
-      <div class="card" style="padding:16px">
+      <div class="card" class="p-4">
         ${allRelationships.length === 0 ? '<div class="empty-state">No relationships formed yet — agents need to interact more</div>' : `
           <div style="display:flex;flex-direction:column;gap:6px;max-height:600px;overflow-y:auto">
             ${allRelationships.map(r => `
-              <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px">
-                <span class="badge badge-neutral" style="font-size:10px;min-width:80px">${esc(r.agentId)}</span>
-                <span style="color:var(--text-dim)">↔</span>
-                <span class="badge badge-neutral" style="font-size:10px;min-width:80px">${esc(r.with)}</span>
+              <div class="flex-center-12 card-inner">
+                <span class="badge badge-neutral" class="text-xs-min">${esc(r.agentId)}</span>
+                <span class="text-dim">↔</span>
+                <span class="badge badge-neutral" class="text-xs-min">${esc(r.with)}</span>
                 <div style="flex:1;display:flex;align-items:center;gap:8px">
                   <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden">
                     <div style="height:100%;width:${Math.round((r.trust || 0) * 100)}%;background:${trustColors(r.trust || 0)};border-radius:3px"></div>
                   </div>
                   <span style="font-size:11px;color:var(--text-dim);min-width:40px">${Math.round((r.trust || 0) * 100)}%</span>
                 </div>
-                <span style="font-size:11px;color:var(--text-faint)">${r.interactions || 0} interactions</span>
+                <span class="text-sm text-muted">${r.interactions || 0} interactions</span>
               </div>
             `).join('')}
           </div>`}
@@ -1659,7 +1678,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Tax Dashboard</div>
             <div class="page-desc">${agent ? esc(agent.username) : 'All agents'} — ${allTaxes.length} total obligations</div>
@@ -1668,16 +1687,16 @@
         </div>
       </div>
 
-      <div class="card" style="padding:16px">
-        <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">💰 Tax Obligations</div>
+      <div class="card" class="p-4">
+        <div class="section-header">💰 Tax Obligations</div>
         ${allTaxes.length === 0 ? '<div class="empty-state">No tax obligations recorded — agents initiate taxes voluntarily</div>' : `
           <div style="display:flex;flex-direction:column;gap:6px;max-height:500px;overflow-y:auto">
             ${allTaxes.slice().reverse().map(t => `
-              <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:6px">
-                <span class="badge badge-neutral" style="font-size:10px">${esc(t.agentId || t.payer || '?')}</span>
-                <span style="font-size:12px;color:var(--text)">${esc(t.item || t.description || 'tax')} ×${t.quantity || t.amount || 1}</span>
+              <div class="flex-center-12 card-inner">
+                <span class="badge badge-neutral" class="text-xs">${esc(t.agentId || t.payer || '?')}</span>
+                <span class="text-base text-main">${esc(t.item || t.description || 'tax')} ×${t.quantity || t.amount || 1}</span>
                 <span style="font-size:11px;color:var(--text-faint);margin-left:auto">${timeOf(t.timestamp)}</span>
-                ${t.paid ? '<span class="badge badge-success" style="font-size:9px">paid</span>' : '<span class="badge badge-warning" style="font-size:9px">pending</span>'}
+                ${t.paid ? '<span class="badge badge-success" class="text-xs">paid</span>' : '<span class="badge badge-warning" class="text-xs">pending</span>'}
               </div>
             `).join('')}
           </div>`}
@@ -1694,7 +1713,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Death Investigations</div>
             <div class="page-desc">${allDeaths.length} deaths recorded · ${pending.length} pending</div>
@@ -1703,27 +1722,27 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="grid-2">
         <div class="card" style="padding:16px;border-left:4px solid var(--red)">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">🔍 Pending Investigation</div>
+          <div class="section-header">🔍 Pending Investigation</div>
           ${pending.length === 0 ? '<div class="empty-state">No pending investigations</div>' : pending.map(p => `
             <div style="padding:10px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:6px">
-              <div style="font-size:12px;font-weight:600;color:var(--text)">${esc(p.victim || p.agentId || '?')}</div>
+              <div class="text-base fw-600 text-main">${esc(p.victim || p.agentId || '?')}</div>
               <div style="font-size:12px;color:var(--text-dim);margin-top:4px">Cause: ${esc(p.cause || p.deathCause || 'unknown')}</div>
               <div style="font-size:11px;color:var(--text-faint);margin-top:4px">${esc(p.description || 'Investigation in progress...')}</div>
             </div>
           `).join('')}
         </div>
 
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">💀 Death History</div>
+        <div class="card" class="p-4">
+          <div class="section-header">💀 Death History</div>
           ${allDeaths.length === 0 ? '<div class="empty-state">No deaths recorded</div>' : `
-            <div style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto">
+            <div class="scroll-col">
               ${allDeaths.slice().reverse().map(d => `
                 <div style="padding:8px 12px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.15);border-radius:4px">
                   <div style="display:flex;justify-content:space-between">
                     <span style="font-size:12px;font-weight:600;color:#fca5a5">${esc(d.agentId)}</span>
-                    <span style="font-size:11px;color:var(--text-faint)">${timeOf(d.timestamp)}</span>
+                    <span class="text-sm text-muted">${timeOf(d.timestamp)}</span>
                   </div>
                   <div style="font-size:12px;color:var(--text-dim);margin-top:2px">Killed by: ${esc(d.deathCause || d.cause || 'unknown')}</div>
                 </div>
@@ -1749,9 +1768,9 @@
 
     const statBar = (label, val, max, color) => `
       <div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:12px;color:var(--text)">${label}</span>
-          <span style="font-size:11px;color:var(--text-dim)">${typeof max === 'number' && max <= 1 ? Math.round(val * 100) + '%' : val}/${max}</span>
+        <div class="mini-row">
+          <span class="text-base text-main">${label}</span>
+          <span class="text-sm text-dim">${typeof max === 'number' && max <= 1 ? Math.round(val * 100) + '%' : val}/${max}</span>
         </div>
         <div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden">
           <div style="height:100%;width:${Math.min(100, (val / max) * 100)}%;background:${color};border-radius:4px;transition:width 0.3s"></div>
@@ -1760,7 +1779,7 @@
 
     return `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+        <div class="flex-between-end">
           <div>
             <div class="page-title">Stats History</div>
             <div class="page-desc">${esc(agent.username)} — Current vital signs</div>
@@ -1769,9 +1788,9 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:16px">❤️ Vital Signs</div>
+      <div class="grid-2">
+        <div class="card" class="p-4">
+          <div class="section-header">❤️ Vital Signs</div>
           ${statBar('Health', health, 20, 'var(--green)')}
           ${statBar('Hunger', hunger, 20, 'var(--amber)')}
           ${statBar('Anger', anger, 1, 'var(--red)')}
@@ -1779,8 +1798,8 @@
           ${statBar('Fatigue', fatigue, 1, 'var(--cyan)')}
         </div>
 
-        <div class="card" style="padding:16px">
-          <div style="font-weight:700;font-size:14px;color:var(--text-bright);margin-bottom:12px">📊 Lifetime Stats</div>
+        <div class="card" class="p-4">
+          <div class="section-header">📊 Lifetime Stats</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
             ${Object.entries(stats).map(([key, val]) => `
               <div style="text-align:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:6px">
