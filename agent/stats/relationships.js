@@ -20,22 +20,38 @@ class RelationshipTracker {
         this._loaded = true;
         return;
       }
-      const lines = content.split('\n').filter(l => l.startsWith('|'));
-      const dataLines = lines.filter(l => !l.startsWith('|---') && !l.startsWith('| name'));
-      for (const line of dataLines) {
-        const cols = line.split('|').map(c => c.trim()).filter(Boolean);
-        if (cols.length < 4) continue;
-        const [name, trustStr, affinityStr, lastStr] = cols;
-        const trust = parseInt(trustStr, 10);
-        const affinity = parseInt(affinityStr, 10);
-        const lastInteraction = parseInt(lastStr, 10);
-        if (isNaN(trust) || isNaN(affinity)) continue;
-        this.relationships.set(name, {
-          trust: Math.max(0, Math.min(100, trust)),
-          affinity: Math.max(0, Math.min(100, affinity)),
-          lastInteraction: isNaN(lastInteraction) ? Date.now() : lastInteraction
-        });
+
+      const lines = content.split('\n').filter(l => l.trim());
+
+      for (const line of lines) {
+        if (line.startsWith('|') && !line.startsWith('|---') && !line.startsWith('| name')) {
+          const cols = line.split('|').map(c => c.trim()).filter(Boolean);
+          if (cols.length < 4) continue;
+          const [name, trustStr, affinityStr, lastStr] = cols;
+          const trust = parseInt(trustStr, 10);
+          const affinity = parseInt(affinityStr, 10);
+          const lastInteraction = parseInt(lastStr, 10);
+          if (isNaN(trust) || isNaN(affinity)) continue;
+          this.relationships.set(name, {
+            trust: Math.max(0, Math.min(100, trust)),
+            affinity: Math.max(0, Math.min(100, affinity)),
+            lastInteraction: isNaN(lastInteraction) ? Date.now() : lastInteraction
+          });
+        } else if (line.startsWith('- [trust]')) {
+          const match = line.match(/^- \[trust\]\s+(\S+):\s*trust=(\d+),\s*affinity=(?:(\d+)|last=(\d+))/);
+          if (!match) continue;
+          const [, name, trustStr, affinityStr, lastStr] = match;
+          const trust = parseInt(trustStr, 10);
+          const affinity = affinityStr ? parseInt(affinityStr, 10) : 50;
+          if (isNaN(trust)) continue;
+          this.relationships.set(name, {
+            trust: Math.max(0, Math.min(100, trust)),
+            affinity: Math.max(0, Math.min(100, affinity)),
+            lastInteraction: Date.now()
+          });
+        }
       }
+
       this._loaded = true;
       logger.info('Relationship', `Loaded ${this.relationships.size} relationships from memory`);
     } catch (err) {
@@ -52,14 +68,11 @@ class RelationshipTracker {
   async saveToMemory() {
     if (!this.memoryClient || !this._dirty || !this._loaded) return;
     try {
-      const lines = [
-        '| name | trust | affinity | lastInteraction |',
-        '|---|---|---|---|'
-      ];
+      const trustEntries = [];
       for (const [name, rel] of this.relationships.entries()) {
-        lines.push(`| ${name} | ${rel.trust} | ${rel.affinity} | ${rel.lastInteraction} |`);
+        trustEntries.push(`- [trust] ${name}: trust=${rel.trust}, affinity=${rel.affinity}, last=${rel.lastInteraction}`);
       }
-      const content = lines.join('\n') + '\n';
+      const content = trustEntries.join('\n') + '\n';
       await this.memoryClient.saveSection('relationships', content);
       this._dirty = false;
     } catch (err) {
