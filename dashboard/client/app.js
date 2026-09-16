@@ -162,7 +162,14 @@
 
   window.setIntelAgent = function(stateKey, name) {
     state[stateKey] = name;
-    render();
+    if (stateKey === '_intelAgent' && state.page === 'memory') {
+      window._memoryCache = {};
+      window._memoryLoadedAgent = name;
+      const section = window._memorySection || 'profile';
+      window.selectMemorySection(section);
+    } else {
+      render();
+    }
   };
 
   function getAgentByKey(stateKey) {
@@ -239,6 +246,16 @@
       btn.setAttribute('aria-current', btn.dataset.page === page ? 'page' : 'false');
     });
     render();
+    if (page === 'memory') {
+      const agent = getAgentByKey('_intelAgent');
+      const agentName = agent?.username || '';
+      if (agentName && window._memoryLoadedAgent !== agentName) {
+        window._memoryLoadedAgent = agentName;
+        window._memoryCache = {};
+        const section = window._memorySection || 'profile';
+        window.selectMemorySection(section);
+      }
+    }
   }
 
   // ── Page: Overview ────────────────────────────────────────────────
@@ -1302,7 +1319,7 @@
 
   window.selectMemorySection = async (section) => {
     window._memorySection = section;
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    const agent = getAgentByKey('_intelAgent');
     if (!agent) return;
     try {
       const res = await fetch('/api/dashboard/memory/sections/' + encodeURIComponent(agent.username) + '/' + section);
@@ -1316,7 +1333,7 @@
 
   window.searchMemory = async (query) => {
     window._memorySearch = query;
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    const agent = getAgentByKey('_intelAgent');
     if (!agent || !query) return;
     try {
       const res = await fetch('/api/dashboard/memory/query?agentId=' + encodeURIComponent(agent.username) + '&query=' + encodeURIComponent(query));
