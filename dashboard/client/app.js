@@ -142,6 +142,34 @@
 
   const SOURCE_LABEL = { tree: 'Tree', llm: 'LLM', cache: 'Cache', fallback: 'Fallback' };
 
+  // ── Agent Selector Component ──────────────────────────────────────
+  function renderAgentSelector(stateKey, label) {
+    const current = state[stateKey] || state.agents[0]?.username || '';
+    return `
+      <div class="agent-selector-wrap">
+        <span class="agent-selector-label">${esc(label)}</span>
+        <div class="agent-selector-btns">
+          ${state.agents.map(a => `
+            <button class="agent-sel-btn ${a.username === current ? 'active' : ''}"
+              onclick="window.setIntelAgent('${esc(stateKey)}', '${esc(a.username)}')">
+              <span class="status-pill ${a.online ? 'ok' : 'err'}" style="display:inline-block;width:6px;height:6px"></span>
+              ${esc(a.username)}
+            </button>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  window.setIntelAgent = function(stateKey, name) {
+    state[stateKey] = name;
+    render();
+  };
+
+  function getAgentByKey(stateKey) {
+    const target = state[stateKey] || state.agents[0]?.username || '';
+    return state.agents.find(a => a.username === target) || state.agents[0] || null;
+  }
+
   // ── Derived metrics ───────────────────────────────────────────────
   function decisionSplit() {
     const counts = { tree: 0, llm: 0, cache: 0, fallback: 0 };
@@ -1164,7 +1192,8 @@
 
   // ── Page: Skills & XP ───────────────────────────────────────────
   function renderSkills() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._intelAgent) state._intelAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_intelAgent');
     if (!agent) return '<div class="page-header"><div class="page-title">Skills & XP</div></div><div class="empty-state">No agents online</div>';
 
     const skills = agent.skillXP || {};
@@ -1176,8 +1205,13 @@
 
     return `
       <div class="page-header">
-        <div class="page-title">Skills & XP</div>
-        <div class="page-desc">${esc(agent.username)} — Profession: <strong>${esc(profession)}</strong></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Skills & XP</div>
+            <div class="page-desc">${esc(agent.username)} — Profession: <strong>${esc(profession)}</strong></div>
+          </div>
+          ${renderAgentSelector('_intelAgent', 'Agent:')}
+        </div>
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
@@ -1225,7 +1259,8 @@
 
   // ── Page: Memory Browser ────────────────────────────────────────
   function renderMemory() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._intelAgent) state._intelAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_intelAgent');
     const sections = ['profile', 'relationships', 'events', 'skills', 'recent'];
     const cachedMemory = window._memoryCache || {};
     const searchQuery = window._memorySearch || '';
@@ -1233,8 +1268,13 @@
 
     return `
       <div class="page-header">
-        <div class="page-title">Memory Browser</div>
-        <div class="page-desc">${agent ? esc(agent.username) : 'Select an agent'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Memory Browser</div>
+            <div class="page-desc">${agent ? esc(agent.username) : 'Select an agent'}</div>
+          </div>
+          ${renderAgentSelector('_intelAgent', 'Agent:')}
+        </div>
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
@@ -1291,7 +1331,8 @@
 
   // ── Page: Crafting Chain ────────────────────────────────────────
   function renderCrafting() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._intelAgent) state._intelAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_intelAgent');
     if (!agent) return '<div class="page-header"><div class="page-title">Crafting Chain</div></div><div class="empty-state">No agents online</div>';
 
     const crafting = agent.craftingChain || {};
@@ -1302,8 +1343,13 @@
 
     return `
       <div class="page-header">
-        <div class="page-title">Crafting Chain</div>
-        <div class="page-desc">${esc(agent.username)} — ${knownRecipes.length} known recipes</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Crafting Chain</div>
+            <div class="page-desc">${esc(agent.username)} — ${knownRecipes.length} known recipes</div>
+          </div>
+          ${renderAgentSelector('_intelAgent', 'Agent:')}
+        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -1347,7 +1393,8 @@
 
   // ── Page: Exploration Map ───────────────────────────────────────
   function renderExploration() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._intelAgent) state._intelAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_intelAgent');
     if (!agent) return '<div class="page-header"><div class="page-title">Exploration</div></div><div class="empty-state">No agents online</div>';
 
     const chunkMem = agent.chunkMemory || {};
@@ -1381,8 +1428,13 @@
 
     return `
       <div class="page-header">
-        <div class="page-title">Exploration Map</div>
-        <div class="page-desc">${esc(agent.username)} — ${explored.length} chunks explored</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Exploration Map</div>
+            <div class="page-desc">${esc(agent.username)} — ${explored.length} chunks explored</div>
+          </div>
+          ${renderAgentSelector('_intelAgent', 'Agent:')}
+        </div>
       </div>
 
       <div class="card" style="padding:16px">
@@ -1583,14 +1635,20 @@
 
   // ── Page: Taxes ─────────────────────────────────────────────────
   function renderTaxes() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._systemAgent) state._systemAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_systemAgent');
     const allTaxes = window._taxesCache || [];
     const agentTaxes = agent ? allTaxes.filter(t => t.agentId === agent.username || t.payer === agent.username) : allTaxes;
 
     return `
       <div class="page-header">
-        <div class="page-title">Tax Dashboard</div>
-        <div class="page-desc">${agent ? esc(agent.username) : 'All agents'} — ${allTaxes.length} total obligations</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Tax Dashboard</div>
+            <div class="page-desc">${agent ? esc(agent.username) : 'All agents'} — ${allTaxes.length} total obligations</div>
+          </div>
+          ${renderAgentSelector('_systemAgent', 'Agent:')}
+        </div>
       </div>
 
       <div class="card" style="padding:16px">
@@ -1612,14 +1670,20 @@
 
   // ── Page: Investigations ────────────────────────────────────────
   function renderInvestigations() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._systemAgent) state._systemAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_systemAgent');
     const allDeaths = window._deathsCache || [];
     const pending = agent?.pendingInvestigation ? [agent.pendingInvestigation] : [];
 
     return `
       <div class="page-header">
-        <div class="page-title">Death Investigations</div>
-        <div class="page-desc">${allDeaths.length} deaths recorded · ${pending.length} pending</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Death Investigations</div>
+            <div class="page-desc">${allDeaths.length} deaths recorded · ${pending.length} pending</div>
+          </div>
+          ${renderAgentSelector('_systemAgent', 'Agent:')}
+        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -1655,7 +1719,8 @@
 
   // ── Page: Stats History ─────────────────────────────────────────
   function renderStats() {
-    const agent = state.agents.find(a => a.username === state.spectateTarget) || state.agents[0];
+    if (!state._systemAgent) state._systemAgent = state.agents[0]?.username || '';
+    const agent = getAgentByKey('_systemAgent');
     if (!agent) return '<div class="page-header"><div class="page-title">Stats History</div></div><div class="empty-state">No agents online</div>';
 
     const stats = agent.stats || {};
@@ -1678,8 +1743,13 @@
 
     return `
       <div class="page-header">
-        <div class="page-title">Stats History</div>
-        <div class="page-desc">${esc(agent.username)} — Current vital signs</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="page-title">Stats History</div>
+            <div class="page-desc">${esc(agent.username)} — Current vital signs</div>
+          </div>
+          ${renderAgentSelector('_systemAgent', 'Agent:')}
+        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">

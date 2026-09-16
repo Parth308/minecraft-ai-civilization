@@ -955,6 +955,54 @@ tr:hover td { background: rgba(255,255,255,0.015); }
   padding: 18px;
 }
 
+/* Agent Selector */
+.agent-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-selector-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+}
+
+.agent-selector-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.agent-sel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all var(--dur) ease;
+}
+
+.agent-sel-btn:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.agent-sel-btn.active {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--green);
+  border-color: rgba(16, 185, 129, 0.4);
+  font-weight: 700;
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 1100px) {
   .app { grid-template-columns: 70px 1fr; }
