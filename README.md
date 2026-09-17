@@ -5,6 +5,8 @@
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-Paper%201.20.4-blue.svg)](https://papermc.io/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Orchestrated-2496ED.svg)](https://www.docker.com/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Medium Article](https://img.shields.io/badge/Medium-Read%20the%20Story-black?logo=medium)](https://medium.com/@parthmongia2005/i-built-a-minecraft-server-where-ai-agents-live-die-and-learn-heres-what-happened-2b86844bbdf2)
+[![Portfolio](https://img.shields.io/badge/Portfolio-parthmongia.dev-blue?logo=google-chrome&logoColor=white)](https://parthmongia.dev)
 
 ---
 
@@ -73,11 +75,18 @@ Shared Civilization Ledger (factions, trades, debts, deaths, lessons, chronicle)
 - **Vector Store**: Ollama `nomic-embed-text` (768d), LRU cache 2000, semantic search for memory recall.
 - **Shared Civilization Ledger**: `ledger.json` — factions, trades, debts, deaths, lessons, chronicle, territory claims.
 
-### Social & Emergent Behaviors
-- **Deception & Bluffing**: Bots can lie about base coordinates, feign surrender, bluff about phantom allies.
+### Social & Emergent Civilization Layer
+- **Deception & Bluffing**: Bots can lie about base coordinates, feign surrender, and bluff about phantom allies.
 - **Emergent Factions**: Founded by trade-trust pairs (max 4 members), persisted in ledger, alliances announced in chat.
-- **Debts/IOUs**: Auto-settle when debtor delivers item via recorded trade. Chronicle logged.
-- **Death Consequences**: Deterministic severity-0.9 lesson posted to ledger (no LLM dependency), 10min throttle, amnesia + rule penalties + places-memory "Died here".
+- **Debts & IOUs**: Auto-settle when debtor delivers items via recorded trade. Chronicle logged.
+- **Faith, Scriptures & Sacred Rites**: Bots develop religious devotions, track pantheons, preserve holy scriptures, revere sacred coordinates, and engage in collective rites.
+- **Judicial System, Court Dockets & Exile**: Open accusations with evidence tallies, trial proceedings, and community power to legally exile rogue agents.
+- **Private Property, Theft & Burglary**: Territory and container claims, trespassing logs (`accessLog`), opportunistic burglary (`steal.js`), and bystanders catching thieves in the act (`stealDetection.js`).
+- **Labor Economy, Job Boards & Shops**: Task bounties, wage payouts, and player-run merchant stalls with dynamic supply/demand pricing memory.
+- **Democratic Elections & Tax Collectors**: Settlement-wide elections for Village Chief, granting executive powers to enact decrees and dispatch tax collectors to fund public works.
+- **Dynamic Profession Specialization**: Bots organically claim vocational roles (e.g. *Blacksmith*, *Miner*, *Farmer*, *Guard*, *Builder*) when their dominant actions exhibit focus (≥40% over 40 samples).
+- **Memorials & Monuments**: Autonomous memorial construction—bots erect torch monuments and memorials at historic death sites.
+- **Death Consequences & Amnesia**: Deterministic severity-0.9 lesson posted to ledger (no LLM dependency), 10min throttle, amnesia + rule penalties + places-memory "Died here".
 - **Per-pair Dialogue Recall**: `sharedHistoryWithSpeaker` semantic query before every reply.
 - **World Knowledge Pool**: Ore discoveries POSTed automatically, injected as hints in decisions.
 
@@ -292,7 +301,15 @@ curl -X POST http://localhost:3002/api/memory/consolidate \
 
 ---
 
-## 11. License & Legal Disclaimer
+## 11. Author & Story
+
+- **Built by:** Parth ([@Parth308](https://github.com/Parth308))
+- **Portfolio:** [parthmongia.dev](https://parthmongia.dev)
+- **Deep-Dive Story:** [I Built a Minecraft Server Where AI Agents Live, Die, and Learn — Here's What Happened](https://medium.com/@parthmongia2005/i-built-a-minecraft-server-where-ai-agents-live-die-and-learn-heres-what-happened-2b86844bbdf2) on Medium.
+
+---
+
+## 12. License & Legal Disclaimer
 
 ### License
 

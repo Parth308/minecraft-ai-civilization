@@ -15,7 +15,7 @@
     "ai",
     "bot"
   ],
-  "author": "",
+  "author": "Parth <parthmongia2005@gmail.com> (https://parthmongia.dev)",
   "license": "GPL-3.0",
   "dependencies": {
     "dotenv": "^16.4.5",
