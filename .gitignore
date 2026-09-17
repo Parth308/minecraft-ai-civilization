@@ -38,6 +38,7 @@ logs_dump_new/
 minecraft-server/
 
 # Memory Service Data (runtime state, not source)
+memory-service/store/agents/
 memory-service/store/civilization/ledger.json
 memory-service/store/civilization/society.json
 memory-service/store/world_discoveries.json
