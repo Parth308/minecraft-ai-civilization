@@ -3,7 +3,7 @@ const logger = require('../../shared/logger');
 async function queryQwenLocal(apiKey, prompt, options = {}) {
   const baseUrl = (apiKey && apiKey.startsWith('http') ? apiKey : null)
     || process.env.QWENLOCAL_BASE_URL
-    || 'http://10.10.2.10:8080/v1';
+    || 'http://localhost:8080/v1';
   const model = process.env.QWENLOCAL_MODEL || '/mnt/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf';
   logger.info('QwenLocalProvider', `Querying QwenLocal with model: ${model}...`);
   const t0 = Date.now();

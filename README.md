@@ -4,7 +4,7 @@
 [![Node.js Version](https://img.shields.io/badge/Node.js-20.x-green.svg)](https://nodejs.org/)
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-Paper%201.20.4-blue.svg)](https://papermc.io/)
 [![Docker Compose](https://img.shields.io/badge/Docker-Orchestrated-2496ED.svg)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 ---
 
@@ -292,6 +292,14 @@ curl -X POST http://localhost:3002/api/memory/consolidate \
 
 ---
 
-## 11. License
+## 11. License & Legal Disclaimer
 
-MIT License — see [LICENSE](LICENSE) file.
+### License
+
+This simulation software is licensed under the **GNU General Public License v3.0 (GPL-3.0)** — see the [LICENSE](LICENSE) file for complete terms and conditions.
+
+### Mojang Brand & EULA Disclaimer
+
+> **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
+>
+> Minecraft is a registered trademark of Mojang Synergies AB / Microsoft. This repository is an autonomous AI agent research project and is neither affiliated with nor endorsed by Mojang or Microsoft. In accordance with Mojang's Brand and Commercial Usage Guidelines, users running the dedicated Paper Minecraft server container acknowledge and agree to Mojang's [Minecraft End User License Agreement (EULA)](https://aka.ms/MinecraftEULA).

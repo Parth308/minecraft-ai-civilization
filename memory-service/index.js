@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const { initializeAgentMemoryFiles, getAgentDirectory, getSectionFilePath, parseSectionFile, writeSectionFile, updatePersonaProfile, SECTIONS } = require('./sections/schema');
+const { isValidAgentId, initializeAgentMemoryFiles, getAgentDirectory, getSectionFilePath, parseSectionFile, writeSectionFile, updatePersonaProfile, SECTIONS } = require('./sections/schema');
 const EventRouter = require('./router');
 const MemoryCompactor = require('./sections/compactor');
 const MemoryScheduler = require('./scheduler');
@@ -12,6 +12,14 @@ const logger = require('../shared/logger');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Sanitize :agentId route parameters to block path traversal attempts early
+app.param('agentId', (req, res, next, id) => {
+  if (!isValidAgentId(id)) {
+    return res.status(400).json({ error: `Invalid agentId: "${id}". Must match ^[A-Za-z0-9_-]{1,64}$` });
+  }
+  next();
+});
 
 const router = new EventRouter();
 const compactor = new MemoryCompactor();
@@ -578,6 +586,16 @@ app.get('/api/rules/adjust/:agentId', (req, res) => {
   // Clear returned adjustments to prevent double-application
   pendingRuleAdjustments.set(agentId, []);
   res.json({ agentId, count: list.length, adjustments: list });
+});
+
+// Global error handler for path traversal / validation errors
+app.use((err, req, res, next) => {
+  if (err && err.message && (err.message.includes('Invalid agentId') || err.message.includes('Path traversal') || err.message.includes('Invalid sectionName'))) {
+    logger.warn('MemoryService', `Rejected malicious or malformed request: ${err.message}`);
+    return res.status(400).json({ error: err.message });
+  }
+  logger.error('MemoryService', `Unhandled error: ${err ? err.message : 'Unknown'}`, { stack: err?.stack });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(config.port, () => {

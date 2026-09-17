@@ -5,8 +5,20 @@ const logger = require('../../shared/logger');
 
 const SECTIONS = ['profile', 'relationships', 'events', 'skills', 'recent'];
 
+function isValidAgentId(agentId) {
+  return typeof agentId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(agentId);
+}
+
 function getAgentDirectory(agentId) {
+  if (!isValidAgentId(agentId)) {
+    throw new Error(`Invalid agentId: "${agentId}". Must match ^[A-Za-z0-9_-]{1,64}$`);
+  }
   const dir = path.join(config.baseStorePath, agentId);
+  const resolved = path.resolve(dir);
+  const base = path.resolve(config.baseStorePath);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    throw new Error(`Path traversal attempt detected for agentId: "${agentId}"`);
+  }
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -14,6 +26,9 @@ function getAgentDirectory(agentId) {
 }
 
 function getSectionFilePath(agentId, sectionName) {
+  if (!SECTIONS.includes(sectionName)) {
+    throw new Error(`Invalid sectionName: "${sectionName}". Valid: ${SECTIONS.join(', ')}`);
+  }
   const dir = getAgentDirectory(agentId);
   return path.join(dir, `${sectionName}.md`);
 }
@@ -156,6 +171,7 @@ function writeSectionFile(filePath, frontmatter, entries) {
 
 module.exports = {
   SECTIONS,
+  isValidAgentId,
   getAgentDirectory,
   getSectionFilePath,
   initializeAgentMemoryFiles,

@@ -28,7 +28,7 @@
         polluting the log file.
 #>
 param(
-    [string]$Server = "user@100.65.166.23",
+    [string]$Server = $(if ($env:VPS_SERVER) { $env:VPS_SERVER } else { "user@your-vps-ip" }),
     [int]$Tail = 8000,
     [string]$OutDir = ""
 )

@@ -51,6 +51,7 @@ backups/
 AGENTS.md
 CODEBASE_AUDIT_AND_ARCHITECTURE.md
 audit-report.md
+PUBLIC_RELEASE_AUDIT.md
 
 # OS generated files
 .DS_Store
