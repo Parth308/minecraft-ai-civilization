@@ -10,6 +10,16 @@
 
 ---
 
+<p align="center">
+  <img src="screenshots/2026-09-17_16.22.26.png" alt="Autonomous Agents inside Minecraft" width="49%" />
+  <img src="screenshots/overview-latest.png" alt="Civilization Live Dashboard Overview" width="49%" />
+</p>
+<p align="center">
+  <em>Left: Autonomous LLM agents in-game on Paper 1.20.4. Right: Real-time telemetry, social feeds, and cognition dashboard.</em>
+</p>
+
+---
+
 ## 1. Project Overview
 
 This project is an experimental multi-agent AI sandbox exploring **true emergent social intelligence, open-ended civilization building, and autonomous character evolution** inside a 3D Minecraft environment.
@@ -149,6 +159,31 @@ No credit card required. All providers are permanently free.
 | **Taxes** | Tax collection and distribution |
 | **Investigations** | Agent accusation and evidence tracking |
 | **Stats** | Global simulation statistics |
+
+### Visual Showcase
+
+<details open>
+<summary><b>📸 Click to expand / collapse full gallery</b></summary>
+
+<br>
+
+| 🧠 Agent Inspector & Cognitive Vitals | 📚 Sectioned Memory KB |
+| :---: | :---: |
+| <img src="screenshots/page-agents.png" alt="Agent Inspector" width="100%" /> | <img src="screenshots/page-memory.png" alt="Sectioned Memory KB" width="100%" /> |
+
+| 🤝 Social Graph & Relationships | 📰 The Daily Cobblestone Chronicle |
+| :---: | :---: |
+| <img src="screenshots/page-relationships.png" alt="Social Dynamics" width="100%" /> | <img src="screenshots/page-chronicle.png" alt="Civilization Chronicle" width="100%" /> |
+
+| 🌐 3D World Spectator View | ⚖️ Autonomous Trades & Emergent Economy |
+| :---: | :---: |
+| <img src="screenshots/page-3dworld.png" alt="3D Spectator View" width="100%" /> | <img src="screenshots/page-trades.png" alt="Trade Ledger" width="100%" /> |
+
+| ⚡ Dual-Layer AI Decision Stream | 🛡️ Provider Fleet & Circuit Breakers |
+| :---: | :---: |
+| <img src="screenshots/page-decisions.png" alt="Decision Telemetry" width="100%" /> | <img src="screenshots/Screenshot 2026-09-17 181131.png" alt="Provider Costs & Circuit Breakers" width="100%" /> |
+
+</details>
 
 ---
 

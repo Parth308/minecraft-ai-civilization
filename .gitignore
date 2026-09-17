@@ -74,6 +74,16 @@ omo/
 
 # Local docs, screenshots & post drafts
 docs/
-screenshots/
+screenshots/*
+!screenshots/2026-09-17_16.22.26.png
+!screenshots/overview-latest.png
+!screenshots/page-agents.png
+!screenshots/page-memory.png
+!screenshots/page-relationships.png
+!screenshots/page-chronicle.png
+!screenshots/page-3dworld.png
+!screenshots/page-trades.png
+!screenshots/page-decisions.png
+!screenshots/Screenshot 2026-09-17 181131.png
 LINKEDIN_POST.md
 MEDIUM_ARTICLE.md
