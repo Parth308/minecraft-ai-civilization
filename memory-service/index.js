@@ -34,7 +34,7 @@ require('./society')(app);
 // Knowledge becomes precious because surviving long enough to accumulate it is rare.
 app.post('/api/memory/amnesia', async (req, res) => {
   const { agentId, fraction = 0.3 } = req.body || {};
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  if (!isValidAgentId(agentId)) return res.status(400).json({ error: `Invalid agentId: "${agentId}". Must match ^[A-Za-z0-9_-]{1,64}$` });
   const f = Math.min(0.6, Math.max(0, Number(fraction) || 0.3));
   let forgotten = 0;
   const droppedTexts = [];
@@ -71,7 +71,7 @@ app.get('/health', (req, res) => {
 // Initialize Agent Storage & Indexing
 app.post('/api/memory/init', async (req, res) => {
   const { agentId, personality, persona } = req.body;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  if (!isValidAgentId(agentId)) return res.status(400).json({ error: `Invalid agentId: "${agentId}". Must match ^[A-Za-z0-9_-]{1,64}$` });
   initializeAgentMemoryFiles(agentId, personality);
 
   // Agent boot pushes its living persona; rewrite the generic template
@@ -92,8 +92,8 @@ app.post('/api/memory/init', async (req, res) => {
 // Tier 1: Buffer -> Section Compaction
 app.post('/api/memory/compact', async (req, res) => {
   const { agentId, events } = req.body;
-  if (!agentId || !Array.isArray(events)) {
-    return res.status(400).json({ error: 'agentId and events array required' });
+  if (!isValidAgentId(agentId) || !Array.isArray(events)) {
+    return res.status(400).json({ error: 'invalid agentId or events array required' });
   }
 
   initializeAgentMemoryFiles(agentId);
@@ -111,8 +111,8 @@ app.post('/api/memory/compact', async (req, res) => {
 // Tier 2: Manual / Scheduled Section Consolidation
 app.post('/api/memory/consolidate', async (req, res) => {
   const { agentId, section } = req.body;
-  if (!agentId || !section) {
-    return res.status(400).json({ error: 'agentId and section required' });
+  if (!isValidAgentId(agentId) || !section) {
+    return res.status(400).json({ error: 'invalid agentId and section required' });
   }
 
   const result = await compactor.consolidateSectionFile(agentId, section);
@@ -199,7 +199,7 @@ app.post('/api/memory/goal', (req, res) => {
 // Query Memory (Semantic Vector Search with Fallback)
 app.get('/api/memory/query', async (req, res) => {
   const { agentId, query, section, limit } = req.query;
-  if (!agentId) return res.status(400).json({ error: 'agentId required' });
+  if (!isValidAgentId(agentId)) return res.status(400).json({ error: `Invalid agentId: "${agentId}". Must match ^[A-Za-z0-9_-]{1,64}$` });
 
   initializeAgentMemoryFiles(agentId);
   const maxLines = parseInt(limit, 10) || 5;
@@ -619,3 +619,12 @@ const shutdown = () => {
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// Crash guards: Express 4 does not forward async-handler rejections to error
+// middleware, so a stray rejection in any async route kills the container.
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('MemoryService', `Unhandled promise rejection: ${reason?.message || reason}`, { stack: reason?.stack });
+});
+process.on('uncaughtException', (err) => {
+  logger.error('MemoryService', `Uncaught exception: ${err.message}`, { stack: err.stack });
+});
